@@ -7,6 +7,9 @@ fn test_convert_to_assets() {
     let env = Env::default();
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &treasury, &0u32);
 
     // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
@@ -37,6 +40,9 @@ fn test_convert_to_shares() {
     let env = Env::default();
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &treasury, &0u32);
 
     // 1. Initial Deposit (total_shares = 0)
     // Should be 1:1
@@ -62,4 +68,36 @@ fn test_convert_to_shares() {
     client.set_total_assets(&300);
     client.set_total_shares(&1000);
     assert_eq!(client.convert_to_shares(&100), 333);
+}
+
+#[test]
+fn test_take_fees() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with 5% fee (500 basis points)
+    client.init(&admin, &treasury, &500u32);
+
+    // Test exact amount
+    let deposit_amount = 1000;
+    // Fee should be 5% of 1000 = 50
+    // Remaining should be 950
+    let remaining = client.take_fees(&deposit_amount);
+    
+    assert_eq!(remaining, 950);
+
+    // Test zero fee situation
+    let env2 = Env::default();
+    let contract_id2 = env2.register_contract(None, VolatilityShield);
+    let client2 = VolatilityShieldClient::new(&env2, &contract_id2);
+    let admin2 = Address::generate(&env2);
+    let treasury2 = Address::generate(&env2);
+    
+    // Initialize with 0% fee
+    client2.init(&admin2, &treasury2, &0u32);
+    let remaining2 = client2.take_fees(&deposit_amount);
+    assert_eq!(remaining2, 1000);
 }
