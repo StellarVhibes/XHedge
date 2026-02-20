@@ -1,10 +1,18 @@
-index c3a1512..e9dc12d 100644
--- a/smartcontract/contracts/volatility_shield/src/lib.rs
-++ b/smartcontract/contracts/volatility_shield/src/lib.rs
-@@ -1,5 +1,14 @@
- #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, Env};
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+#![no_std]
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Vec,
+};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    NotInitialized = 1,
+    AlreadyInitialized = 2,
+    NegativeAmount = 3,
+    Unauthorized = 4,
+    NoStrategies = 5,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -12,28 +20,45 @@ pub enum DataKey {
     Admin,
     TotalAssets,
     TotalShares,
+    Strategies,
 }
 
- 
- #[contract]
- pub struct VolatilityShield;
-@@ -7,15 +16,61 @@ pub struct VolatilityShield;
- #[contractimpl]
- impl VolatilityShield {
-     // Initialize the vault
-    pub fn init(env: Env, admin: Address) {
+#[contract]
+pub struct VolatilityShield;
+
+#[contractimpl]
+impl VolatilityShield {
+    // Initialize the vault
     pub fn init(_env: Env, _admin: Address) {
 
-         // TODO: Store admin
-     }
-     
-     // Deposit assets
-    pub fn deposit(env: Env, from: Address, amount: i128) {
+        // TODO: Store admin
+    }
+
+    // Deposit assets
     pub fn deposit(_env: Env, _from: Address, _amount: i128) {
 
-         from.require_auth();
-         // TODO: Logic
-     }
+        // from.require_auth();
+        // TODO: Logic
+    }
+
+    /// Convert a number of assets to the equivalent amount of shares.
+    /// Rounds down, favoring the vault.
+    pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        if total_shares == 0 || total_assets == 0 {
+            return amount;
+        }
+
+        // Calculation: (amount * total_shares) / total_assets
+        // Rounding down is implicit in integer division.
+        amount
+            .checked_mul(total_shares)
+            .unwrap()
+            .checked_div(total_assets)
+            .unwrap()
+    }
 
     /// Convert a number of shares to the equivalent amount of assets.
     /// Rounds down, favoring the vault.
@@ -78,67 +103,80 @@ pub enum DataKey {
     pub fn set_total_shares(env: Env, amount: i128) {
         env.storage().instance().set(&DataKey::TotalShares, &amount);
     }
- }
- 
- mod test;
-diff --git a/smartcontract/contracts/volatility_shield/src/test.rs b/smartcontract/contracts/volatility_shield/src/test.rs
-diff --git a/smartcontract/contracts/volatility_shield/src/lib.rs b/smartcontract/contracts/volatility_shield/src/lib.rs
-index e9dc12d..9047962 100644
--- a/smartcontract/contracts/volatility_shield/src/lib.rs
-++ b/smartcontract/contracts/volatility_shield/src/lib.rs
-@@ -24,10 +24,29 @@ impl VolatilityShield {
-     // Deposit assets
-     pub fn deposit(_env: Env, _from: Address, _amount: i128) {
- 
-        from.require_auth();
-        // from.require_auth();
-         // TODO: Logic
-     }
- 
-    /// Convert a number of assets to the equivalent amount of shares.
-    /// Rounds down, favoring the vault.
-    pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
-        let total_shares = Self::total_shares(&env);
-        let total_assets = Self::total_assets(&env);
 
-        if total_shares == 0 || total_assets == 0 {
-            return amount;
-        }
+    /// Add a strategy to the registry. Admin only.
+    pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
 
-        // Calculation: (amount * total_shares) / total_assets
-        // Rounding down is implicit in integer division.
-        amount
-            .checked_mul(total_shares)
-            .unwrap()
-            .checked_div(total_assets)
-            .unwrap()
+        let mut strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+
+        strategies.push_back(strategy);
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategies, &strategies);
+        Ok(())
     }
 
-     /// Convert a number of shares to the equivalent amount of assets.
-     /// Rounds down, favoring the vault.
-     pub fn convert_to_assets(env: Env, shares: i128) -> i128 {
-diff --git a/smartcontract/contracts/volatility_shield/src/test.rs b/smartcontract/contracts/volatility_shield/src/test.rs
-diff --git a/smartcontract/contracts/volatility_shield/src/lib.rs b/smartcontract/contracts/volatility_shield/src/lib.rs
-index ff8917a..fc748cf 100644
--- a/smartcontract/contracts/volatility_shield/src/lib.rs
-++ b/smartcontract/contracts/volatility_shield/src/lib.rs
-@@ -40,6 +40,9 @@ impl VolatilityShield {
-     /// Convert a number of assets to the equivalent amount of shares.
-     /// Rounds down, favoring the vault.
-     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
-        if amount < 0 {
-            panic!("negative amount");
+    /// Harvest yield from all registered strategies.
+    ///
+    /// Calls `harvest()` on each strategy contract, which returns the yield
+    /// amount collected. The total yield is added to the vault's `total_assets`
+    /// without minting new shares, effectively increasing the share price for
+    /// all existing holders.
+    ///
+    /// Returns the total yield harvested.
+    pub fn harvest(env: Env) -> Result<i128, Error> {
+        // 1. Require admin authorization
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        // 2. Load registered strategies
+        let strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+
+        if strategies.is_empty() {
+            return Err(Error::NoStrategies);
         }
-         let total_shares = Self::total_shares(&env);
-         let total_assets = Self::total_assets(&env);
- 
-@@ -59,6 +62,9 @@ impl VolatilityShield {
-     /// Convert a number of shares to the equivalent amount of assets.
-     /// Rounds down, favoring the vault.
-     pub fn convert_to_assets(env: Env, shares: i128) -> i128 {
-        if shares < 0 {
-            panic!("negative amount");
+
+        // 3. Call harvest() on each strategy and accumulate yield
+        let mut total_yield: i128 = 0;
+        for strategy in strategies.iter() {
+            let yield_amount: i128 =
+                env.invoke_contract(&strategy, &symbol_short!("harvest"), Vec::new(&env));
+            total_yield = total_yield.checked_add(yield_amount).unwrap();
         }
-         let total_shares = Self::total_shares(&env);
-         let total_assets = Self::total_assets(&env);
- 
+
+        // 4. Increase total_assets by yield (no new shares minted)
+        //    This increases the share price for all existing holders.
+        if total_yield > 0 {
+            let current_assets = Self::total_assets(&env);
+            let new_total = current_assets.checked_add(total_yield).unwrap();
+            env.storage()
+                .instance()
+                .set(&DataKey::TotalAssets, &new_total);
+        }
+
+        env.events()
+            .publish((symbol_short!("harvest"),), total_yield);
+
+        Ok(total_yield)
+    }
+}
+
+mod test;
