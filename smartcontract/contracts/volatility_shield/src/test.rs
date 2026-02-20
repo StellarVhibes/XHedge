@@ -1,22 +1,23 @@
-#![cfg(test)]
-use super::*;
+index 0624e47..4fe9c6b 100644
+-- a/smartcontract/contracts/volatility_shield/src/test.rs
+++ b/smartcontract/contracts/volatility_shield/src/test.rs
+@@ -1,12 +1,33 @@
+ #![cfg(test)]
+ use super::*;
+use soroban_sdk::Env;
 use soroban_sdk::{testutils::Address as _, Address, Env};
-use soroban_sdk::token::Client as TokenClient;
-use soroban_sdk::token::StellarAssetClient;
-
-fn create_token_contract<'a>(env: &Env, admin: &Address) -> (Address, StellarAssetClient<'a>, TokenClient<'a>) {
-    let contract_id = env.register_stellar_asset_contract_v2(admin.clone());
-    let stellar_asset_client = StellarAssetClient::new(env, &contract_id.address());
-    let token_client = TokenClient::new(env, &contract_id.address());
-    (contract_id.address(), stellar_asset_client, token_client)
-}
-
-#[test]
+ 
+ #[test]
+fn test_init() {
+    // let env = Env::default();
+    // let contract_id = env.register_contract(None, VolatilityShield);
+    // let client = VolatilityShieldClient::new(&env, &contract_id);
 fn test_convert_to_assets() {
     let env = Env::default();
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
-
+ 
+    // TODO: Test initialization
     // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
 
@@ -39,7 +40,28 @@ fn test_convert_to_assets() {
     client.set_total_assets(&1000);
     client.set_total_shares(&300);
     assert_eq!(client.convert_to_assets(&100), 333);
-}
+ }
+
+From 19d94f8714692c7a3ba7337735d566306b7eb2d1 Mon Sep 17 00:00:00 2001
+From: Akpolo Ogagaoghene Prince <ogazboizakpolo@gmail.com>
+Date: Fri, 20 Feb 2026 01:27:38 +0100
+Subject: [PATCH 2/3] feat: implement ERC-4626 share conversion logic for
+ deposits [SC-5]
+
+--
+ .../contracts/volatility_shield/src/lib.rs    | 21 +++++++++++-
+ .../contracts/volatility_shield/src/test.rs   | 32 +++++++++++++++++++
+ 2 files changed, 52 insertions(+), 1 deletion(-)
+
+diff --git a/smartcontract/contracts/volatility_shield/src/lib.rs b/smartcontract/contracts/volatility_shield/src/lib.rs
+diff --git a/smartcontract/contracts/volatility_shield/src/test.rs b/smartcontract/contracts/volatility_shield/src/test.rs
+index 4fe9c6b..35e2cd9 100644
+-- a/smartcontract/contracts/volatility_shield/src/test.rs
+++ b/smartcontract/contracts/volatility_shield/src/test.rs
+@@ -31,3 +31,35 @@ fn test_convert_to_assets() {
+     client.set_total_shares(&300);
+     assert_eq!(client.convert_to_assets(&100), 333);
+ }
 
 #[test]
 fn test_convert_to_shares() {
@@ -73,74 +95,47 @@ fn test_convert_to_shares() {
     assert_eq!(client.convert_to_shares(&100), 333);
 }
 
+From ffc7adcd88cb4f42e8e2d91cfa98f4b634ababc2 Mon Sep 17 00:00:00 2001
+From: Akpolo Ogagaoghene Prince <ogazboizakpolo@gmail.com>
+Date: Fri, 20 Feb 2026 02:33:25 +0100
+Subject: [PATCH 3/3] feat: add negative amount validation to share
+ calculations [SC-5]
+
+--
+ .../contracts/volatility_shield/src/lib.rs     |  6 ++++++
+ .../contracts/volatility_shield/src/test.rs    | 18 ++++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/smartcontract/contracts/volatility_shield/src/lib.rs b/smartcontract/contracts/volatility_shield/src/lib.rs
+diff --git a/smartcontract/contracts/volatility_shield/src/test.rs b/smartcontract/contracts/volatility_shield/src/test.rs
+index 35e2cd9..2dd41dd 100644
+-- a/smartcontract/contracts/volatility_shield/src/test.rs
+++ b/smartcontract/contracts/volatility_shield/src/test.rs
+@@ -32,6 +32,15 @@ fn test_convert_to_assets() {
+     assert_eq!(client.convert_to_assets(&100), 333);
+ }
+ 
 #[test]
-fn test_deposit_success() {
+#[should_panic(expected = "negative amount")]
+fn test_convert_to_assets_negative() {
     let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth(); 
-    
-    let token_admin = Address::generate(&env);
-    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
-    
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
-    let user = Address::generate(&env);
-    
-    client.set_token(&token_id);
-    stellar_asset_client.mint(&user, &5000); // 5000 test tokens minted to wallet
-
-    // 1st Deposit
-    client.deposit(&user, &1000);
-
-    // Initial 1:1 conversion evaluation: amount = shares minted
-    assert_eq!(client.balance(&user), 1000);
-    assert_eq!(client.total_assets(), 1000);
-    assert_eq!(client.total_shares(), 1000);
-    assert_eq!(token_client.balance(&contract_id), 1000);
-    assert_eq!(token_client.balance(&user), 4000);
-
-    // 2nd Fractional Deposit 
-    // Manual manipulation forcing fractional yields evaluating precision conversion logic natively
-    client.set_total_assets(&2500); // Manually inject artificial backing yield (1.0 -> 2.5 returns)
-    
-    // Deposit an additional 500 tokens
-    client.deposit(&user, &500);
-
-    // Assert post-deposit logic processing shares formulas
-    // Convert 500 amount into shares evaluating logic: 500 * (1000 Total Shares / 2500 Total Assets) = 200 Shares
-    assert_eq!(client.balance(&user), 1200); // 1000 originally + 200 fractional scaling yield
-    assert_eq!(client.total_shares(), 1200);
-    assert_eq!(client.total_assets(), 3000); // 2500 + 500 added
-    assert_eq!(token_client.balance(&contract_id), 1500); // (1000 previously deposited natively + 500 currently injected via token pipeline wrapper transfer mechanics)
+    client.convert_to_assets(&-1);
 }
+
+ #[test]
+ fn test_convert_to_shares() {
+     let env = Env::default();
+@@ -63,3 +72,12 @@ fn test_convert_to_shares() {
+     client.set_total_shares(&1000);
+     assert_eq!(client.convert_to_shares(&100), 333);
+ }
 
 #[test]
-#[should_panic(expected = "deposit amount must be positive")]
-fn test_deposit_negative_amount() {
+#[should_panic(expected = "negative amount")]
+fn test_convert_to_shares_negative() {
     let env = Env::default();
-    env.mock_all_auths();
-    
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
-    let user = Address::generate(&env);
-    
-    client.deposit(&user, &0);
-}
-
-#[test]
-#[should_panic]
-fn test_deposit_unauthorized() {
-    let env = Env::default();
-    
-    let token_admin = Address::generate(&env);
-    let (token_id, _stellar_asset_client, _token_client) = create_token_contract(&env, &token_admin);
-    
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-    
-    let user = Address::generate(&env);
-    
-    client.set_token(&token_id);
-    
-    // Attempt deposit natively without auth bindings wrapped via mock
-    client.deposit(&user, &100);
-}
+    client.convert_to_shares(&-1);
