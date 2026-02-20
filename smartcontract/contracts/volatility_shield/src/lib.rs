@@ -155,6 +155,7 @@ impl VolatilityShield {
     }
 
     // ── Rebalance ─────────────────────────────
+    /// Move funds between strategies according to `allocations`.
     pub fn rebalance(env: Env, allocations: Map<Address, i128>) {
         let admin  = Self::get_admin(&env);
         let oracle = Self::get_oracle(&env);
