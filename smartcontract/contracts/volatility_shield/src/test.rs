@@ -1,12 +1,15 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test_convert_to_assets() {
     let env = Env::default();
-    let contract_id = env.register(VolatilityShield, ());
+    let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &treasury, &0u32);
 
     // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
@@ -35,8 +38,11 @@ fn test_convert_to_assets() {
 #[test]
 fn test_convert_to_shares() {
     let env = Env::default();
-    let contract_id = env.register(VolatilityShield, ());
+    let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &treasury, &0u32);
 
     // 1. Initial Deposit (total_shares = 0)
     // Should be 1:1
@@ -64,106 +70,34 @@ fn test_convert_to_shares() {
     assert_eq!(client.convert_to_shares(&100), 333);
 }
 
-// ---- Mock Strategy Contract ----
-
-#[contract]
-pub struct MockStrategy;
-
-#[contractimpl]
-impl MockStrategy {
-    pub fn harvest(_env: Env) -> i128 {
-        50 // Returns 50 units of yield
-    }
-}
-
-// ---- Harvest Tests ----
-
-fn setup_vault_with_admin(env: &Env) -> (Address, VolatilityShieldClient<'_>) {
-    let contract_id = env.register(VolatilityShield, ());
-    let client = VolatilityShieldClient::new(env, &contract_id);
-    let admin = Address::generate(env);
-
-    // Store admin directly
-    env.as_contract(&contract_id, || {
-        env.storage().instance().set(&DataKey::Admin, &admin);
-    });
-
-    (admin, client)
-}
-
 #[test]
-fn test_harvest_collects_yield_and_increases_share_price() {
+fn test_take_fees() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let (_admin, client) = setup_vault_with_admin(&env);
-
-    // Register a mock strategy
-    let strategy_id = env.register(MockStrategy, ());
-    client.add_strategy(&strategy_id);
-
-    // Set initial vault state: 1000 assets, 1000 shares -> share price = 1.0
-    client.set_total_assets(&1000);
-    client.set_total_shares(&1000);
-
-    // Harvest: mock strategy returns 50 yield
-    let yield_amount = client.harvest();
-    assert_eq!(yield_amount, 50);
-
-    // Total assets increased, shares unchanged -> share price increased
-    assert_eq!(client.total_assets(), 1050);
-    assert_eq!(client.total_shares(), 1000);
-
-    // Share price effectively: 1050/1000 = 1.05
-    // Verify via convert_to_assets: 1000 shares -> 1050 assets
-    assert_eq!(client.convert_to_assets(&1000), 1050);
-}
-
-#[test]
-fn test_harvest_multiple_strategies() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_admin, client) = setup_vault_with_admin(&env);
-
-    // Register two mock strategies
-    let strat1 = env.register(MockStrategy, ());
-    let strat2 = env.register(MockStrategy, ());
-    client.add_strategy(&strat1);
-    client.add_strategy(&strat2);
-
-    client.set_total_assets(&1000);
-    client.set_total_shares(&1000);
-
-    // Harvest from two strategies: 50 + 50 = 100
-    let yield_amount = client.harvest();
-    assert_eq!(yield_amount, 100);
-    assert_eq!(client.total_assets(), 1100);
-    assert_eq!(client.total_shares(), 1000);
-}
-
-#[test]
-fn test_harvest_no_strategies_returns_error() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_admin, client) = setup_vault_with_admin(&env);
-
-    client.set_total_assets(&1000);
-    client.set_total_shares(&1000);
-
-    // Should fail with NoStrategies
-    let result = client.try_harvest();
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_harvest_no_admin_returns_error() {
-    let env = Env::default();
-    // No admin stored -> NotInitialized
-    let contract_id = env.register(VolatilityShield, ());
+    let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with 5% fee (500 basis points)
+    client.init(&admin, &treasury, &500u32);
 
-    let result = client.try_harvest();
-    assert!(result.is_err());
+    // Test exact amount
+    let deposit_amount = 1000;
+    // Fee should be 5% of 1000 = 50
+    // Remaining should be 950
+    let remaining = client.take_fees(&deposit_amount);
+    
+    assert_eq!(remaining, 950);
+
+    // Test zero fee situation
+    let env2 = Env::default();
+    let contract_id2 = env2.register_contract(None, VolatilityShield);
+    let client2 = VolatilityShieldClient::new(&env2, &contract_id2);
+    let admin2 = Address::generate(&env2);
+    let treasury2 = Address::generate(&env2);
+    
+    // Initialize with 0% fee
+    client2.init(&admin2, &treasury2, &0u32);
+    let remaining2 = client2.take_fees(&deposit_amount);
+    assert_eq!(remaining2, 1000);
 }

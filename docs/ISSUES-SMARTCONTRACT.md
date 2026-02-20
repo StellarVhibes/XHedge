@@ -164,12 +164,5 @@ This document tracks the detailed development tasks for the Soroban smart contra
 **Description:** Implement performance/management fees.
 
 - **Tasks:**
-  - [ ] Implement \`take_fees\` function.
+  - [ ] Implement `take_fees` function.
   - [ ] Send fee percentage to treasury.
-
----
-
-### ⚠️ Must Do:
-- [ ] **Star the Repository**: Before you begin working on this issue, please ensure you have starred the repository.
-- [ ] **Correct Implementation**: Each issue must be solved accurately as it will undergo a thorough review before being merged. It will only be merged if it fully meets the specified requirements and effectively addresses the intended problem.
-- [ ] **PR Requirements**: In your Pull Request (PR), you must specify the issue index number and title (e.g., 'Resolves #44 [SC-3] Vault Initialization Logic').
