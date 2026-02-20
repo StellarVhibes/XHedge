@@ -1,5 +1,14 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    NotInitialized = 1,
+    AlreadyInitialized = 2,
+    NegativeAmount = 3,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -8,7 +17,6 @@ pub enum DataKey {
     TotalAssets,
     TotalShares,
 }
-
 
 #[contract]
 pub struct VolatilityShield;
