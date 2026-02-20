@@ -79,6 +79,16 @@ fn test_convert_to_shares() {
     client.set_total_assets(&3);
     client.set_total_shares(&1);
     assert_eq!(client.convert_to_shares(&10), 3);
+
+    // 3. Standard Proportional Minting
+    client.set_total_assets(&1000);
+    client.set_total_shares(&500);
+    assert_eq!(client.convert_to_shares(&200), 100);
+
+    // 4. Rounding Down with Large Values
+    client.set_total_assets(&300);
+    client.set_total_shares(&1000);
+    assert_eq!(client.convert_to_shares(&100), 333);
 }
 
 #[test]
