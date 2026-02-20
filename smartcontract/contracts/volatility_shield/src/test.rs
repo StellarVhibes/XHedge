@@ -63,3 +63,29 @@ fn test_convert_to_shares() {
     client.set_total_shares(&1000);
     assert_eq!(client.convert_to_shares(&100), 333);
 }
+
+#[test]
+fn test_strategy_registry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let strategy = Address::generate(&env);
+
+    client.init(&admin);
+    assert_eq!(client.get_admin(), admin);
+
+    client.add_strategy(&strategy);
+    let strategies = client.get_strategies();
+    assert_eq!(strategies.len(), 1);
+    assert_eq!(strategies.get(0).unwrap(), strategy);
+
+    let strategy_2 = Address::generate(&env);
+    client.add_strategy(&strategy_2);
+    let strategies = client.get_strategies();
+    assert_eq!(strategies.len(), 2);
+    assert_eq!(strategies.get(1).unwrap(), strategy_2);
+}

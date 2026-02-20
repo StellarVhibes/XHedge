@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -16,6 +16,7 @@ pub enum DataKey {
     Admin,
     TotalAssets,
     TotalShares,
+    Strategies,
 }
 
 #[contract]
@@ -23,15 +24,26 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
-    // Initialize the vault
-    pub fn init(_env: Env, _admin: Address) {
-
-        // TODO: Store admin
+    /// Initialize the vault with an admin address.
+    pub fn init(env: Env, admin: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("Already initialized");
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
     }
     
+    /// Add a new strategy to the registry. (Admin only)
+    pub fn add_strategy(env: Env, strategy: Address) {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        let mut strategies = Self::get_strategies(&env);
+        strategies.push_back(strategy);
+        env.storage().instance().set(&DataKey::Strategies, &strategies);
+    }
+
     // Deposit assets
     pub fn deposit(_env: Env, _from: Address, _amount: i128) {
-
         // from.require_auth();
         // TODO: Logic
     }
@@ -97,6 +109,20 @@ impl VolatilityShield {
     // Internal helper to update total shares (for testing/deposit logic later)
     pub fn set_total_shares(env: Env, amount: i128) {
         env.storage().instance().set(&DataKey::TotalShares, &amount);
+    }
+
+    pub fn get_strategies(env: &Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn get_admin(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Admin not set")
     }
 }
 
