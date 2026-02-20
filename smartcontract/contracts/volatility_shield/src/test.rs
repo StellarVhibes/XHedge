@@ -62,6 +62,15 @@ fn test_convert_to_assets() {
 }
 
 #[test]
+#[should_panic(expected = "negative amount")]
+fn test_convert_to_assets_negative() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    client.convert_to_assets(&-1);
+}
+
+#[test]
 fn test_convert_to_shares() {
     let env = Env::default();
     let contract_id = env.register_contract(None, VolatilityShield);
@@ -89,6 +98,15 @@ fn test_convert_to_shares() {
     client.set_total_assets(&300);
     client.set_total_shares(&1000);
     assert_eq!(client.convert_to_shares(&100), 333);
+}
+
+#[test]
+#[should_panic(expected = "negative amount")]
+fn test_convert_to_shares_negative() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    client.convert_to_shares(&-1);
 }
 
 #[test]
