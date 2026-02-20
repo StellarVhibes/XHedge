@@ -99,7 +99,6 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Strategies, &Vec::<Address>::new(&env));
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         env.storage().instance().set(&DataKey::FeePercentage, &fee_percentage);
-        // Compatibility with PR #85
         env.storage().instance().set(&DataKey::Token, &asset);
     }
 
@@ -110,25 +109,20 @@ impl VolatilityShield {
         }
         from.require_auth();
 
-        // Transfer backing token
         let token: Address = env.storage().instance().get(&DataKey::Token).expect("Token not initialized");
         token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
-        // Determine proportional shares 
         let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
         
-        // Update user balances
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         env.storage().persistent().set(&balance_key, &(current_balance.checked_add(shares_to_mint).unwrap()));
 
-        // Update overall Vault states
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
         Self::set_total_shares(env.clone(), total_shares.checked_add(shares_to_mint).unwrap());
         Self::set_total_assets(env.clone(), total_assets.checked_add(amount).unwrap());
 
-        // Tracking hook
         env.events().publish((symbol_short!("Deposit"), from.clone()), amount);
     }
 
@@ -150,16 +144,13 @@ impl VolatilityShield {
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
 
-        // Update Internal states (burning logic)
         Self::set_total_shares(env.clone(), total_shares.checked_sub(shares).unwrap());
         Self::set_total_assets(env.clone(), total_assets.checked_sub(assets_to_withdraw).unwrap());
         env.storage().persistent().set(&balance_key, &(current_balance.checked_sub(shares).unwrap()));
 
-        // Initiate transfer releasing backing funds
         let token: Address = env.storage().instance().get(&DataKey::Token).expect("Token not initialized");
         token::Client::new(&env, &token).transfer(&env.current_contract_address(), &from, &assets_to_withdraw);
 
-        // Emit withdrawal logging
         env.events().publish((symbol_short!("withdraw"), from.clone()), shares);
     }
 
@@ -213,7 +204,7 @@ impl VolatilityShield {
         let mut total_yield: i128 = 0;
         for strategy_addr in strategies.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr);
-            let yield_amount = strategy.balance(); // Simplified for simulation
+            let yield_amount = strategy.balance(); 
             total_yield = total_yield.checked_add(yield_amount).unwrap();
         }
 
@@ -283,6 +274,7 @@ impl VolatilityShield {
     }
 
     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
+        if amount < 0 { panic!("negative amount"); }
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
         if total_shares == 0 || total_assets == 0 { return amount; }
@@ -290,6 +282,7 @@ impl VolatilityShield {
     }
 
     pub fn convert_to_assets(env: Env, shares: i128) -> i128 {
+        if shares < 0 { panic!("negative amount"); }
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
         if total_shares == 0 { return shares; }

@@ -54,6 +54,11 @@ fn test_convert_to_assets() {
     client.set_total_assets(&10);
     client.set_total_shares(&4);
     assert_eq!(client.convert_to_assets(&3), 7);
+
+    // 4. Test larger values
+    client.set_total_assets(&1000);
+    client.set_total_shares(&300);
+    assert_eq!(client.convert_to_assets(&100), 333);
 }
 
 #[test]
