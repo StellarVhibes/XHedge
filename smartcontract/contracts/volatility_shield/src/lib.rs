@@ -1,8 +1,5 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype,
-    Address, Env, Map, Vec, token, symbol_short,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Vec, Map, token};
 
 // ─────────────────────────────────────────────
 // Error types
@@ -25,15 +22,15 @@ pub enum Error {
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Asset, // From PR #83
-    Oracle, // From PR #83
+    Asset,
+    Oracle,
     TotalAssets,
     TotalShares,
-    Strategies, // From PR #83
-    Treasury, // From PR #87
-    FeePercentage, // From PR #87
-    Token, // From PR #85
-    Balance(Address), // From PR #85
+    Strategies,
+    Treasury,
+    FeePercentage,
+    Token,
+    Balance(Address),
 }
 
 // ─────────────────────────────────────────────
@@ -104,13 +101,11 @@ impl VolatilityShield {
 
     // Deposit assets
     pub fn deposit(_env: Env, _from: Address, _amount: i128) {
-
         // from.require_auth();
         // TODO: Logic
     }
 
     pub fn withdraw(_env: Env, _from: Address, _shares: i128) {
-
         // TODO: Logic
     }
 
@@ -300,3 +295,4 @@ impl VolatilityShield {
 }
 
 mod test;
+pub mod strategy;
