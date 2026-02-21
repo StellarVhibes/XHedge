@@ -6,83 +6,83 @@ This document tracks the detailed development tasks for the Soroban smart contra
 
 ## 🏛️ Module 1: Vault Core Infrastructure (Issues SC-1 to SC-8)
 
-### Issue #SC-1: Contract Setup & Error Constants
+### Issue #SC-1: Contract Setup & Error Constants [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `good-first-issue`
 **Description:** Initialize the Soroban project and define standard error codes.
 
 - **Tasks:**
-  - [ ] Initialize `volatility_shield` project structure.
-  - [ ] Define `Error` enum: `NotInitialized`, `AlreadyInitialized`, `NegativeAmount`.
-  - [ ] Configure `Cargo.toml` with `soroban-sdk` dependencies.
+  - [x] Initialize `volatility_shield` project structure.
+  - [x] Define `Error` enum: `NotInitialized`, `AlreadyInitialized`, `NegativeAmount`.
+  - [x] Configure `Cargo.toml` with `soroban-sdk` dependencies.
 
-### Issue #SC-2: Storage Key Definitions
+### Issue #SC-2: Storage Key Definitions [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `config`
 **Description:** Define the storage keys used for contract state persistence.
 
 - **Tasks:**
-  - [ ] Define `DataKey` enum: `TotalAssets`, `TotalShares`, `Admin`.
-  - [ ] Implement `has_admin` helper function.
-  - [ ] Implement `read_admin` helper function.
+  - [x] Define `DataKey` enum: `TotalAssets`, `TotalShares`, `Admin`.
+  - [x] Implement `has_admin` helper function.
+  - [x] Implement `read_admin` helper function.
 
-### Issue #SC-3: Vault Initialization Logic
+### Issue #SC-3: Vault Initialization Logic [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `core`
 **Description:** Implement the constructor-like init function.
 
 - **Tasks:**
-  - [ ] Implement `init(env, asset: Address, admin: Address)`.
-  - [ ] Assert not already initialized.
-  - [ ] Store asset principal and initial state.
+  - [x] Implement `init(env, asset: Address, admin: Address)`.
+  - [x] Assert not already initialized.
+  - [x] Store asset principal and initial state.
 
-### Issue #SC-4: Share Calculation Math (Mint)
+### Issue #SC-4: Share Calculation Math (Mint) [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `math`
 **Description:** Implement ERC-4626 style conversion for deposits.
 
 - **Tasks:**
-  - [ ] Implement `convert_to_shares(amount: i128) -> i128`.
-  - [ ] Handle division by zero (initial deposit case).
-  - [ ] Write unit test for precision loss.
+  - [x] Implement `convert_to_shares(amount: i128) -> i128`.
+  - [x] Handle division by zero (initial deposit case).
+  - [x] Write unit test for precision loss.
 
-### Issue #SC-5: Share Calculation Math (Burn)
+### Issue #SC-5: Share Calculation Math (Burn) [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `math`
 **Description:** Implement ERC-4626 style conversion for withdrawals.
 
 - **Tasks:**
-  - [ ] Implement `convert_to_assets(shares: i128) -> i128`.
-  - [ ] Ensure rounding favors the vault (security best practice).
+  - [x] Implement `convert_to_assets(shares: i128) -> i128`.
+  - [x] Ensure rounding favors the vault (security best practice).
 
-### Issue #SC-6: Deposit Function Implementation
+### Issue #SC-6: Deposit Function Implementation [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `feature`
 **Description:** The primary entry point for users to fund the vault.
 
 - **Tasks:**
-  - [ ] Implement `deposit(env, from: Address, amount: i128)`.
-  - [ ] Transfer token from user to contract.
-  - [ ] Mint shares to user balance.
-  - [ ] Emit `Deposit` event.
+  - [x] Implement `deposit(env, from: Address, amount: i128)`.
+  - [x] Transfer token from user to contract.
+  - [x] Mint shares to user balance.
+  - [x] Emit `Deposit` event.
 
-### Issue #SC-7: Withdraw Function Implementation
+### Issue #SC-7: Withdraw Function Implementation [COMPLETED]
 
 **Priority:** Critical
 **Labels:** `smart-contract`, `feature`
 **Description:** The primary exit point for users.
 
 - **Tasks:**
-  - [ ] Implement `withdraw(env, from: Address, shares: i128)`.
-  - [ ] Burn shares from user balance.
-  - [ ] Transfer underlying token to user.
-  - [ ] Emit `Withdraw` event.
+  - [x] Implement `withdraw(env, from: Address, shares: i128)`.
+  - [x] Burn shares from user balance.
+  - [x] Transfer underlying token to user.
+  - [x] Emit `Withdraw` event.
 
 ### Issue #SC-8: Emergency Pause Mechanism
 
@@ -99,24 +99,24 @@ This document tracks the detailed development tasks for the Soroban smart contra
 
 ## ⚙️ Module 2: Strategy Management (Issues SC-9 to SC-15)
 
-### Issue #SC-9: Strategy Trait Definition
+### Issue #SC-9: Strategy Trait Definition [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `architecture`
 **Description:** Define the interface for external strategy contracts.
 
 - **Tasks:**
-  - [ ] Define `StrategyTrait` with `deposit`, `withdraw`, `balance`.
+  - [x] Define `StrategyTrait` with `deposit`, `withdraw`, `balance`.
 
-### Issue #SC-10: Strategy Registry Storage
+### Issue #SC-10: Strategy Registry Storage [COMPLETED]
 
 **Priority:** Medium
 **Labels:** `smart-contract`, `storage`
 **Description:** Store the list of active strategies.
 
 - **Tasks:**
-  - [ ] Define `Strategies` storage key (Vec<Address>).
-  - [ ] Implement `add_strategy` function (Admin only).
+  - [x] Define `Strategies` storage key (Vec<Address>).
+  - [x] Implement `add_strategy` function (Admin only).
 
 ### Issue #SC-11: Rebalance Logic (Calculation)
 
@@ -127,25 +127,25 @@ This document tracks the detailed development tasks for the Soroban smart contra
 - **Tasks:**
   - [ ] Implement `calc_rebalance_delta(current, target)`.
 
-### Issue #SC-12: Rebalance Execution
+### Issue #SC-12: Rebalance Execution [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `feature`
 **Description:** Execute the movement of funds between strategies.
 
 - **Tasks:**
-  - [ ] Implement `rebalance(env, allocations)`.
-  - [ ] Restrict to Admin/Oracle.
+  - [x] Implement `rebalance(env, allocations)`.
+  - [x] Restrict to Admin/Oracle.
 
-### Issue #SC-13: Harvest Yield Function
+### Issue #SC-13: Harvest Yield Function [COMPLETED]
 
 **Priority:** Medium
 **Labels:** `smart-contract`, `yield`
 **Description:** Collect rewards from strategies.
 
 - **Tasks:**
-  - [ ] Implement `harvest(env)`.
-  - [ ] Distribute yield to vault (increasing share price).
+  - [x] Implement `harvest(env)`.
+  - [x] Distribute yield to vault (increasing share price).
 
 ### Issue #SC-14: Access Control Modifiers
 
@@ -157,19 +157,12 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [ ] Implement `require_admin` check.
   - [ ] Apply to all config functions.
 
-### Issue #SC-15: Fee Management
+### Issue #SC-15: Fee Management [COMPLETED]
 
 **Priority:** Low
 **Labels:** `smart-contract`, `economics`
 **Description:** Implement performance/management fees.
 
 - **Tasks:**
-  - [ ] Implement \`take_fees\` function.
-  - [ ] Send fee percentage to treasury.
-
----
-
-### ⚠️ Must Do:
-- [ ] **Star the Repository**: Before you begin working on this issue, please ensure you have starred the repository.
-- [ ] **Correct Implementation**: Each issue must be solved accurately as it will undergo a thorough review before being merged. It will only be merged if it fully meets the specified requirements and effectively addresses the intended problem.
-- [ ] **PR Requirements**: In your Pull Request (PR), you must specify the issue index number and title (e.g., 'Resolves #44 [SC-3] Vault Initialization Logic').
+  - [x] Implement `take_fees` function.
+  - [x] Send fee percentage to treasury.
