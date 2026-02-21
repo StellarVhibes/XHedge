@@ -152,7 +152,7 @@ impl VolatilityShield {
     // ── Rebalance ─────────────────────────────
     /// Move funds between strategies according to `allocations`.
     pub fn rebalance(env: Env, allocations: Map<Address, i128>) {
-        let admin  = Self::get_admin(&env);
+        let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
         Self::require_admin_or_oracle(&env, &admin, &oracle);
@@ -165,21 +165,26 @@ impl VolatilityShield {
             let strategy       = StrategyClient::new(&env, strategy_addr.clone());
             let current_balance = strategy.balance();
 
-            if target_allocation > current_balance {
-                let diff = target_allocation - current_balance;
-                token_client.transfer(&vault, &strategy_addr, &diff);
-                strategy.deposit(diff);
-            } else if target_allocation < current_balance {
-                let diff = current_balance - target_allocation;
-                strategy.withdraw(diff);
-                token_client.transfer(&strategy_addr, &vault, &diff);
+            let delta = Self::calc_rebalance_delta(current_balance, target_allocation);
+
+            if delta > 0 {
+                token_client.transfer(&vault, &strategy_addr, &delta);
+                strategy.deposit(delta);
+            } else if delta < 0 {
+                let abs_delta = delta.checked_abs().unwrap();
+                strategy.withdraw(abs_delta);
+                token_client.transfer(&strategy_addr, &vault, &abs_delta);
             }
         }
     }
 
+    pub fn calc_rebalance_delta(current: i128, target: i128) -> i128 {
+        target.checked_sub(current).expect("arithmetic overflow in rebalance delta")
+    }
+
     // ── Strategy Management ───────────────────
     pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
-        let admin = Self::get_admin(&env);
+        let admin = Self::read_admin(&env);
         admin.require_auth();
 
         let mut strategies: Vec<Address> = env.storage().instance().get(&DataKey::Strategies).unwrap_or(Vec::new(&env));
@@ -195,7 +200,7 @@ impl VolatilityShield {
     }
 
     pub fn harvest(env: Env) -> Result<i128, Error> {
-        let admin = Self::get_admin(&env);
+        let admin = Self::read_admin(&env);
         admin.require_auth();
 
         let strategies = Self::get_strategies(&env);
@@ -220,16 +225,20 @@ impl VolatilityShield {
     }
 
     // ── View helpers ──────────────────────────
+    pub fn has_admin(env: &Env) -> bool {
+        env.storage().instance().has(&DataKey::Admin)
+    }
+
+    pub fn read_admin(env: &Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).expect("Not initialized")
+    }
+
     pub fn total_assets(env: &Env) -> i128 {
         env.storage().instance().get(&DataKey::TotalAssets).unwrap_or(0)
     }
 
     pub fn total_shares(env: &Env) -> i128 {
         env.storage().instance().get(&DataKey::TotalShares).unwrap_or(0)
-    }
-
-    pub fn get_admin(env: &Env) -> Address {
-        env.storage().instance().get(&DataKey::Admin).expect("Not initialized")
     }
 
     pub fn get_oracle(env: &Env) -> Address {
