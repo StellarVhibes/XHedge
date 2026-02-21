@@ -28,8 +28,6 @@ pub enum DataKey {
     Oracle,
     TotalAssets,
     TotalShares,
-    Treasury,
-    FeePercentage,
     Strategies,
     Treasury,
     FeePercentage,
@@ -88,14 +86,6 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
-    // Initialize the vault
-    pub fn init(env: Env, admin: Address, treasury: Address, fee_percentage: u32) {
-        admin.require_auth();
-        // Store admin
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        // Store treasury
-        env.storage().instance().set(&DataKey::Treasury, &treasury);
-        // Store fee percentage (in basis points, e.g. 500 = 5%)
 
     // ── Initialization ────────────────────────
     /// Must be called once. Stores roles and configuration.
@@ -265,25 +255,7 @@ impl VolatilityShield {
         env.storage().persistent().get(&DataKey::Balance(user)).unwrap_or(0)
     }
 
-<<<<<<< feature/strategy-trait-#50
-    pub fn treasury(env: &Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&DataKey::Treasury)
-            .unwrap()
-    }
-
-    pub fn fee_percentage(env: &Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::FeePercentage)
-            .unwrap_or(0)
-    }
-
-    // internal function to take fees
-=======
     // ── Internal Helpers ──────────────────────
->>>>>>> main
     pub fn take_fees(env: &Env, amount: i128) -> i128 {
         let fee_pct = Self::fee_percentage(&env);
         if fee_pct == 0 { return amount; }
@@ -291,13 +263,6 @@ impl VolatilityShield {
         amount - fee
     }
 
-<<<<<<< feature/strategy-trait-#50
-    // Internal helper to update total assets (for testing/deposit logic later)
-    // ── Share math (ERC-4626 style) ───────────
-
-    /// assets → shares  (rounds down, favours vault)
-=======
->>>>>>> main
     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
         if amount < 0 { panic!("negative amount"); }
         let total_shares = Self::total_shares(&env);
@@ -339,6 +304,5 @@ impl VolatilityShield {
     }
 }
 
-pub mod strategy;
 mod test;
 pub mod strategy;
