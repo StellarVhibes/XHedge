@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Vec, Map, token};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Map, Vec, token,
+};
 
 // ─────────────────────────────────────────────
 // Error types
@@ -12,7 +14,7 @@ pub enum Error {
     AlreadyInitialized = 2,
     NegativeAmount  = 3,
     Unauthorized    = 4,
-    NoStrategies = 5,
+    NoStrategies    = 5,
 }
 
 // ─────────────────────────────────────────────
@@ -86,7 +88,7 @@ pub struct VolatilityShield;
 impl VolatilityShield {
 
     // ── Initialization ────────────────────────
-    /// Must be called once. Stores Admin, Oracle, and the underlying asset.
+    /// Must be called once. Stores roles and configuration.
     pub fn init(env: Env, admin: Address, asset: Address, oracle: Address, treasury: Address, fee_percentage: u32) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Already initialized");
@@ -97,31 +99,75 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Strategies, &Vec::<Address>::new(&env));
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         env.storage().instance().set(&DataKey::FeePercentage, &fee_percentage);
+        // Compatibility with PR #85
+        env.storage().instance().set(&DataKey::Token, &asset);
     }
 
-    // Deposit assets
-    pub fn deposit(_env: Env, _from: Address, _amount: i128) {
-        // from.require_auth();
-        // TODO: Logic
+    // ── Deposit ───────────────────────────────
+    pub fn deposit(env: Env, from: Address, amount: i128) {
+        if amount <= 0 {
+            panic!("deposit amount must be positive");
+        }
+        from.require_auth();
+
+        // Transfer backing token
+        let token: Address = env.storage().instance().get(&DataKey::Token).expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+
+        // Determine proportional shares 
+        let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
+        
+        // Update user balances
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        env.storage().persistent().set(&balance_key, &(current_balance.checked_add(shares_to_mint).unwrap()));
+
+        // Update overall Vault states
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+        Self::set_total_shares(env.clone(), total_shares.checked_add(shares_to_mint).unwrap());
+        Self::set_total_assets(env.clone(), total_assets.checked_add(amount).unwrap());
+
+        // Tracking hook
+        env.events().publish((symbol_short!("Deposit"), from.clone()), amount);
     }
 
-    pub fn withdraw(_env: Env, _from: Address, _shares: i128) {
-        // TODO: Logic
+    // ── Withdraw ──────────────────────────────
+    pub fn withdraw(env: Env, from: Address, shares: i128) {
+        if shares <= 0 {
+            panic!("shares to withdraw must be positive");
+        }
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        
+        if current_balance < shares {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        // Update Internal states (burning logic)
+        Self::set_total_shares(env.clone(), total_shares.checked_sub(shares).unwrap());
+        Self::set_total_assets(env.clone(), total_assets.checked_sub(assets_to_withdraw).unwrap());
+        env.storage().persistent().set(&balance_key, &(current_balance.checked_sub(shares).unwrap()));
+
+        // Initiate transfer releasing backing funds
+        let token: Address = env.storage().instance().get(&DataKey::Token).expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(&env.current_contract_address(), &from, &assets_to_withdraw);
+
+        // Emit withdrawal logging
+        env.events().publish((symbol_short!("withdraw"), from.clone()), shares);
     }
 
     // ── Rebalance ─────────────────────────────
-    /// Move funds between strategies according to `allocations`.
-    ///
-    /// `allocations` maps each strategy address to its *target* balance.
-    /// If target > current  → vault sends tokens to the strategy and calls deposit().
-    /// If target < current  → strategy withdraws and sends tokens back to vault.
-    ///
-    /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
     pub fn rebalance(env: Env, allocations: Map<Address, i128>) {
         let admin  = Self::get_admin(&env);
         let oracle = Self::get_oracle(&env);
 
-        // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(&env, &admin, &oracle);
 
         let asset_addr   = Self::get_asset(&env);
@@ -133,25 +179,55 @@ impl VolatilityShield {
             let current_balance = strategy.balance();
 
             if target_allocation > current_balance {
-                // Vault → Strategy
                 let diff = target_allocation - current_balance;
                 token_client.transfer(&vault, &strategy_addr, &diff);
                 strategy.deposit(diff);
             } else if target_allocation < current_balance {
-                // Strategy → Vault
                 let diff = current_balance - target_allocation;
                 strategy.withdraw(diff);
                 token_client.transfer(&strategy_addr, &vault, &diff);
             }
-            // If equal, do nothing.
         }
     }
 
-    // ── View helpers ──────────────────────────
+    // ── Strategy Management ───────────────────
+    pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
 
-    /// Total assets managed by the vault: vault token balance + sum of strategy balances.
+        let mut strategies: Vec<Address> = env.storage().instance().get(&DataKey::Strategies).unwrap_or(Vec::new(&env));
+        strategies.push_back(strategy);
+        env.storage().instance().set(&DataKey::Strategies, &strategies);
+        Ok(())
+    }
+
+    pub fn harvest(env: Env) -> Result<i128, Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return Err(Error::NoStrategies);
+        }
+
+        let mut total_yield: i128 = 0;
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr);
+            let yield_amount = strategy.balance(); // Simplified for simulation
+            total_yield = total_yield.checked_add(yield_amount).unwrap();
+        }
+
+        if total_yield > 0 {
+            let current_assets = Self::total_assets(&env);
+            Self::set_total_assets(env.clone(), current_assets.checked_add(total_yield).unwrap());
+        }
+
+        env.events().publish((symbol_short!("harvest"),), total_yield);
+        Ok(total_yield)
+    }
+
+    // ── View helpers ──────────────────────────
     pub fn total_assets(env: &Env) -> i128 {
-        // Return 0 if not yet initialized (preserves 1:1 share math before init).
         let asset_addr: Option<Address> = env.storage().instance().get(&DataKey::Asset);
         let asset_addr = match asset_addr {
             Some(a) => a,
@@ -183,55 +259,29 @@ impl VolatilityShield {
     }
 
     pub fn get_strategies(env: &Env) -> Vec<Address> {
-        env.storage().instance()
-            .get(&DataKey::Strategies)
-            .unwrap_or(Vec::new(env))
+        env.storage().instance().get(&DataKey::Strategies).unwrap_or(Vec::new(env))
     }
 
     pub fn treasury(env: &Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&DataKey::Treasury)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Treasury).expect("Not initialized")
     }
 
     pub fn fee_percentage(env: &Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::FeePercentage)
-            .unwrap_or(0)
+        env.storage().instance().get(&DataKey::FeePercentage).unwrap_or(0)
     }
 
-    // internal function to take fees
+    pub fn balance(env: Env, user: Address) -> i128 {
+        env.storage().persistent().get(&DataKey::Balance(user)).unwrap_or(0)
+    }
+
+    // ── Internal Helpers ──────────────────────
     pub fn take_fees(env: &Env, amount: i128) -> i128 {
         let fee_pct = Self::fee_percentage(&env);
-        if fee_pct == 0 {
-            return amount;
-        }
-
-        // Calculate fee based on basis points (out of 10000)
-        let fee = amount
-            .checked_mul(fee_pct as i128)
-            .unwrap()
-            .checked_div(10000)
-            .unwrap();
-
-        if fee > 0 {
-            let treasury = Self::treasury(&env);
-            // In a real implementation, you would transfer the fee token to the treasury using a token client.
-            // For example:
-            // let token = token::Client::new(env, &asset_address);
-            // token.transfer(&env.current_contract_address(), &treasury, &fee);
-            
-            // For now, we simulate the fee deduction by returning the remaining amount.
-        }
-
+        if fee_pct == 0 { return amount; }
+        let fee = amount.checked_mul(fee_pct as i128).unwrap().checked_div(10000).unwrap();
         amount - fee
     }
 
-    // ── Share math (ERC-4626 style) ───────────
-
-    /// assets → shares  (rounds down, favours vault)
     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
@@ -239,15 +289,12 @@ impl VolatilityShield {
         amount.checked_mul(total_shares).unwrap().checked_div(total_assets).unwrap()
     }
 
-    /// shares → assets  (rounds down, favours vault)
     pub fn convert_to_assets(env: Env, shares: i128) -> i128 {
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
         if total_shares == 0 { return shares; }
         shares.checked_mul(total_assets).unwrap().checked_div(total_shares).unwrap()
     }
-
-    // ── Internal / test helpers ───────────────
 
     pub fn set_total_assets(env: Env, amount: i128) {
         env.storage().instance().set(&DataKey::TotalAssets, &amount);
@@ -257,41 +304,21 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::TotalShares, &amount);
     }
 
-    // ─────────────────────────────────────────
-    // Private helpers
-    // ─────────────────────────────────────────
-
-    /// Require that either `admin` or `oracle` has authorised this call.
-    ///
-    /// Require that either `admin` or `oracle` has authorised this call.
-    ///
-    /// Soroban OR-auth: the client must place an `InvokerContractAuthEntry`
-    /// for one of the two roles.  We use `require_auth()` on admin first; if
-    /// the tx was built with oracle auth instead, the oracle address should be
-    /// passed as the `admin` role by the off-chain builder, or — more commonly
-    /// — the oracle contract calls this vault as a sub-invocation.
-    ///
-    /// For simplicity: admin.require_auth() covers the admin case.
-    /// Oracle-initiated calls should be routed through a thin oracle contract
-    /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
-    /// contract as the top-level caller).  In tests, use mock_all_auths().
-    fn require_admin_or_oracle(
-        _env:   &Env,
-        admin:  &Address,
-        oracle: &Address,
-    ) {
-        // Try admin first. If the transaction was signed by the oracle, the
-        // oracle is expected to call this contract directly, and the oracle's
-        // address is checked here as a fallback.
-        if *admin == *oracle {
-            admin.require_auth();
-        } else {
-            // Both are required to be checked; the signed party will pass.
-            // In Soroban the host simply verifies whichever has an auth entry.
-            admin.require_auth();
-        }
+    pub fn set_balance(env: Env, user: Address, amount: i128) {
+        env.storage().persistent().set(&DataKey::Balance(user), &amount);
     }
 
+    pub fn set_token(env: Env, token: Address) {
+        env.storage().instance().set(&DataKey::Token, &token);
+    }
+
+    fn require_admin_or_oracle(env: &Env, admin: &Address, oracle: &Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            admin.require_auth();
+        } else {
+            oracle.require_auth();
+        }
+    }
 }
 
 mod test;
