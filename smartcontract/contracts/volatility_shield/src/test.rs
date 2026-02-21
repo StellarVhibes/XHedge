@@ -1,10 +1,13 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, Map};
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::{testutils::Address as _, Address, Env, Map};
 
-fn create_token_contract<'a>(env: &Env, admin: &Address) -> (Address, StellarAssetClient<'a>, TokenClient<'a>) {
+fn create_token_contract<'a>(
+    env: &Env,
+    admin: &Address,
+) -> (Address, StellarAssetClient<'a>, TokenClient<'a>) {
     let contract_id = env.register_stellar_asset_contract_v2(admin.clone());
     let stellar_asset_client = StellarAssetClient::new(env, &contract_id.address());
     let token_client = TokenClient::new(env, &contract_id.address());
@@ -13,22 +16,36 @@ fn create_token_contract<'a>(env: &Env, admin: &Address) -> (Address, StellarAss
 
 #[test]
 fn test_init_stores_roles() {
-    let env         = Env::default();
+    let env = Env::default();
     let contract_id = env.register_contract(None, VolatilityShield);
-    let client      = VolatilityShieldClient::new(&env, &contract_id);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
 
-    let admin  = Address::generate(&env);
-    let asset  = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+    client.init(&asset, &admin);
 
-    assert_eq!(client.get_admin(),  admin);
-    assert_eq!(client.get_oracle(), oracle);
-    assert_eq!(client.get_asset(),  asset);
-    assert_eq!(client.treasury(), treasury);
-    assert_eq!(client.fee_percentage(), 500u32);
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_asset(), asset);
+    assert_eq!(client.total_assets(), 0);
+    assert_eq!(client.total_shares(), 0);
+    assert_eq!(client.get_strategies().len(), 0);
+}
+
+#[test]
+fn test_init_already_initialized() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    let result = client.try_init(&asset, &admin);
+    assert!(result.is_ok());
+
+    let result = client.try_init(&asset, &admin);
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
 #[test]
@@ -38,24 +55,18 @@ fn test_convert_to_assets() {
     let client = VolatilityShieldClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    client.init(&asset, &admin);
 
-    // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
 
-    // 2. Test exact conversion
     client.set_total_assets(&100);
     client.set_total_shares(&100);
     assert_eq!(client.convert_to_assets(&50), 50);
 
-    // 3. Test rounding down (favors vault)
     client.set_total_assets(&10);
     client.set_total_shares(&4);
     assert_eq!(client.convert_to_assets(&3), 7);
 
-    // 4. Test larger values
     client.set_total_assets(&1000);
     client.set_total_shares(&300);
     assert_eq!(client.convert_to_assets(&100), 333);
@@ -77,24 +88,18 @@ fn test_convert_to_shares() {
     let client = VolatilityShieldClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    client.init(&asset, &admin);
 
-    // 1. Initial Deposit (total_shares = 0)
     assert_eq!(client.convert_to_shares(&100), 100);
 
-    // 2. Precision Loss (favors vault by rounding down)
     client.set_total_assets(&3);
     client.set_total_shares(&1);
     assert_eq!(client.convert_to_shares(&10), 3);
 
-    // 3. Standard Proportional Minting
     client.set_total_assets(&1000);
     client.set_total_shares(&500);
     assert_eq!(client.convert_to_shares(&200), 100);
 
-    // 4. Rounding Down with Large Values
     client.set_total_assets(&300);
     client.set_total_shares(&1000);
     assert_eq!(client.convert_to_shares(&100), 333);
@@ -110,11 +115,9 @@ fn test_strategy_registry() {
 
     let admin = Address::generate(&env);
     let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let strategy = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    client.init(&asset, &admin);
     assert_eq!(client.get_admin(), admin);
 
     client.add_strategy(&strategy);
@@ -145,10 +148,14 @@ fn test_take_fees() {
     let client = VolatilityShieldClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+
+    client.init(&asset, &admin);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::FeePercentage, &500_u32);
+    });
 
     let deposit_amount = 1000;
     let remaining = client.take_fees(&deposit_amount);
@@ -159,28 +166,26 @@ fn test_take_fees() {
 fn test_withdraw_success() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
-    
+
     let token_admin = Address::generate(&env);
     let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
-    
+
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
-    
+
     let admin = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    client.init(&token_id, &admin);
     client.set_total_shares(&1000);
     client.set_total_assets(&5000);
-    
+
     let user = Address::generate(&env);
     client.set_balance(&user, &100);
-    
+
     stellar_asset_client.mint(&contract_id, &5000);
-    
+
     client.withdraw(&user, &50);
-    
+
     assert_eq!(client.balance(&user), 50);
     assert_eq!(client.total_shares(), 950);
     assert_eq!(client.total_assets(), 4750);
@@ -189,19 +194,96 @@ fn test_withdraw_success() {
 
 #[test]
 fn test_rebalance_admin_auth_accepted() {
-    let env         = Env::default();
+    let env = Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register_contract(None, VolatilityShield);
-    let client      = VolatilityShieldClient::new(&env, &contract_id);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
 
-    let admin  = Address::generate(&env);
-    let asset  = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    client.init(&asset, &admin);
 
     let allocations: Map<Address, i128> = Map::new(&env);
     client.rebalance(&allocations);
+}
+
+// ── Pause Mechanism Tests ─────────────────────────────────────────
+
+#[test]
+fn test_set_paused_toggles_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    client.init(&asset, &admin);
+
+    // Default: not paused
+    assert!(!client.is_paused());
+
+    // Pause
+    client.set_paused(&true);
+    assert!(client.is_paused());
+
+    // Unpause
+    client.set_paused(&false);
+    assert!(!client.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_deposit_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.init(&token_id, &admin);
+
+    // Pause the vault
+    client.set_paused(&true);
+
+    // Deposit should be blocked
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1000);
+    client.deposit(&user, &500);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_withdraw_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.init(&token_id, &admin);
+
+    // Set up a balance for user
+    client.set_total_shares(&100);
+    client.set_total_assets(&100);
+    let user = Address::generate(&env);
+    client.set_balance(&user, &50);
+    stellar_asset_client.mint(&contract_id, &100);
+
+    // Pause the vault
+    client.set_paused(&true);
+
+    // Withdraw should be blocked
+    client.withdraw(&user, &10);
 }
