@@ -165,16 +165,21 @@ impl VolatilityShield {
             let strategy       = StrategyClient::new(&env, strategy_addr.clone());
             let current_balance = strategy.balance();
 
-            if target_allocation > current_balance {
-                let diff = target_allocation - current_balance;
-                token_client.transfer(&vault, &strategy_addr, &diff);
-                strategy.deposit(diff);
-            } else if target_allocation < current_balance {
-                let diff = current_balance - target_allocation;
-                strategy.withdraw(diff);
-                token_client.transfer(&strategy_addr, &vault, &diff);
+            let delta = Self::calc_rebalance_delta(current_balance, target_allocation);
+
+            if delta > 0 {
+                token_client.transfer(&vault, &strategy_addr, &delta);
+                strategy.deposit(delta);
+            } else if delta < 0 {
+                let abs_delta = delta.checked_abs().unwrap();
+                strategy.withdraw(abs_delta);
+                token_client.transfer(&strategy_addr, &vault, &abs_delta);
             }
         }
+    }
+
+    pub fn calc_rebalance_delta(current: i128, target: i128) -> i128 {
+        target.checked_sub(current).expect("arithmetic overflow in rebalance delta")
     }
 
     // ── Strategy Management ───────────────────
