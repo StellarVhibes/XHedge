@@ -264,9 +264,6 @@ impl VolatilityShield {
         amount - fee
     }
 
-    // ── Share math (ERC-4626 style) ───────────
-
-    /// assets → shares  (rounds down, favours vault)
     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
         if amount < 0 { panic!("negative amount"); }
         let total_shares = Self::total_shares(&env);
@@ -308,5 +305,4 @@ impl VolatilityShield {
     }
 }
 
-pub mod strategy;
 mod test;
