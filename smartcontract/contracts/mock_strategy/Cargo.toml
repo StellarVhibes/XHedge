@@ -1,5 +1,5 @@
 [package]
-name = "volatility_shield"
+name = "mock_strategy"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,4 +11,3 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-mock_strategy = { path = "../mock_strategy" }
