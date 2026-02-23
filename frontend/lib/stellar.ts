@@ -5,7 +5,11 @@ import {
   Operation,
   Address,
   nativeToScVal,
-  xdr
+  xdr,
+  Contract,
+  rpc,
+  SorobanDataBuilder,
+  SorobanAuthorizationEntry
 } from "@stellar/stellar-sdk";
 
 const RPC_URLS: Record<string, string> = {
@@ -76,4 +80,122 @@ export function convertStroopsToDisplay(stroops: string): string {
   const value = BigInt(stroops || "0");
   const display = Number(value / BigInt(1e7));
   return display.toFixed(7);
+}
+
+export type NetworkType = "futurenet" | "testnet" | "mainnet";
+
+const NETWORK_PASSPHRASE: Record<string, string> = {
+  PUBLIC: Networks.PUBLIC,
+  TESTNET: Networks.TESTNET,
+  FUTURENET: "Test SDF Future Network ; October 2022",
+};
+
+export async function buildDepositXdr(
+  contractId: string,
+  userAddress: string,
+  amount: string,
+  network: NetworkType = "testnet"
+): Promise<string> {
+  const source = await Horizon.AccountRequest.fetch(
+    RPC_URLS[network.toUpperCase()] || RPC_URLS.TESTNET,
+    userAddress
+  );
+
+  const passphrase = network === "mainnet" 
+    ? Networks.PUBLIC 
+    : network === "futurenet" 
+      ? NETWORK_PASSPHRASE.FUTURENET 
+      : Networks.TESTNET;
+
+  const contract = new Contract(contractId);
+  
+  const amountBigInt = BigInt(Math.floor(parseFloat(amount) * 1e7)).toString();
+  
+  const depositParams = [
+    new Address(userAddress).toScVal(),
+    nativeToScVal(amountBigInt, { type: "i128" })
+  ];
+
+  const transaction = new TransactionBuilder(source, {
+    fee: "100",
+    networkPassphrase: passphrase,
+  })
+    .addOperation(contract.call("deposit", ...depositParams))
+    .setTimeout(300)
+    .build();
+
+  return transaction.toXDR();
+}
+
+export async function simulateAndAssembleTransaction(
+  xdr: string,
+  network: NetworkType = "testnet"
+): Promise<{ result: string | null; error: string | null }> {
+  try {
+    const rpcUrl = network === "mainnet" 
+      ? "https://rpc.mainnet.stellar.org"
+      : network === "futurenet"
+        ? "https://rpc-futurenet.stellar.org"
+        : "https://rpc.testnet.stellar.org";
+    
+    const server = new rpc.Server(rpcUrl);
+    const passphrase = network === "mainnet" 
+      ? Networks.PUBLIC 
+      : network === "futurenet" 
+        ? NETWORK_PASSPHRASE.FUTURENET 
+        : Networks.TESTNET;
+
+    const transaction = rpc.TransactionBuilder.fromXDR(xdr, passphrase);
+    
+    const simulated = await server.simulateTransaction(transaction);
+    
+    if (rpc.SimulateTransactionResult.isSimulationSuccess(simulated)) {
+      const assembled = await server.assembleTransaction(transaction, simulated);
+      return { result: assembled.transaction.toXDR(), error: null };
+    }
+    
+    return { result: null, error: "Simulation failed" };
+  } catch (error) {
+    return { 
+      result: null, 
+      error: error instanceof Error ? error.message : "Failed to assemble transaction" 
+    };
+  }
+}
+
+export async function submitTransaction(
+  signedXdr: string,
+  network: NetworkType = "testnet"
+): Promise<{ hash: string | null; error: string | null }> {
+  try {
+    const rpcUrl = network === "mainnet" 
+      ? "https://rpc.mainnet.stellar.org"
+      : network === "futurenet"
+        ? "https://rpc-futurenet.stellar.org"
+        : "https://rpc.testnet.stellar.org";
+    
+    const server = new rpc.Server(rpcUrl);
+    
+    const transaction = rpc.TransactionBuilder.fromXDR(
+      signedXdr,
+      network === "mainnet" 
+        ? Networks.PUBLIC 
+        : network === "futurenet" 
+          ? NETWORK_PASSPHRASE.FUTURENET 
+          : Networks.TESTNET
+    );
+    
+    const response = await server.sendTransaction(transaction);
+    
+    if (response.status === "PENDING" || response.status === "SUCCESS") {
+      return { hash: response.hash, error: null };
+    }
+    
+    return { hash: null, error: response.status };
+  } catch (error) {
+    return { 
+      hash: null, 
+      error: error instanceof Error ? error.message : "Failed to submit transaction" 
+    };
+  }
 }
