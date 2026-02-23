@@ -1,4 +1,10 @@
 target/
-** /target/
+**/target/
 smartcontract/target/
 .soroban/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
