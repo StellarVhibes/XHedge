@@ -29,11 +29,34 @@ fn test_init_stores_roles() {
 
     client.init(&admin, &asset, &oracle, &treasury, &500u32);
 
-    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.read_admin(), admin);
     assert_eq!(client.get_oracle(), oracle);
     assert_eq!(client.get_asset(), asset);
     assert_eq!(client.treasury(), treasury);
     assert_eq!(client.fee_percentage(), 500u32);
+
+    // SC-3: Assert initial vault state is zero
+    assert_eq!(client.total_assets(), 0);
+    assert_eq!(client.total_shares(), 0);
+    assert_eq!(client.get_strategies().len(), 0);
+}
+
+#[test]
+fn test_init_already_initialized() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32);
+    assert!(result.is_ok());
+
+    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32);
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
 #[test]
@@ -120,7 +143,7 @@ fn test_strategy_registry() {
     let strategy = Address::generate(&env);
 
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.read_admin(), admin);
 
     client.add_strategy(&strategy);
     let strategies = client.get_strategies();
