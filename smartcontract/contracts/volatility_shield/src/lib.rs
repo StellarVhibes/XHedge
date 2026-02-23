@@ -93,9 +93,9 @@ impl VolatilityShield {
         oracle: Address,
         treasury: Address,
         fee_percentage: u32,
-    ) {
+    ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("Already initialized");
+            return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Asset, &asset);
@@ -108,6 +108,12 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::FeePercentage, &fee_percentage);
         env.storage().instance().set(&DataKey::Token, &asset);
+
+        // Initialize vault state to zero
+        env.storage().instance().set(&DataKey::TotalAssets, &0_i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0_i128);
+
+        Ok(())
     }
 
     // ── Deposit ───────────────────────────────
