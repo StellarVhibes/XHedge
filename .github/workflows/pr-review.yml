@@ -1,0 +1,83 @@
+name: Protocol Liaison (XHedge Reviewer)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request Number to review'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: XHedge Protocol Review
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          fetch-depth: 0
+
+      - name: Setup Node & Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Review Protocol (SmartContract & Frontend)
+        id: protocol_review
+        continue-on-error: true
+        run: |
+          echo "Auditing Smart Contracts..."
+          cd smartcontract && cargo test --all && cargo build --target wasm32-unknown-unknown --release
+          cd ..
+          echo "Auditing Frontend Dashboard..."
+          cd frontend && npm install && npm run build
+
+      - name: ❌ Handle Review Failure
+        if: steps.protocol_review.outcome == 'failure'
+        run: |
+          gh pr comment ${{ env.PR_NUMBER }} --body "### ❌ Institutional Review Required
+          
+          Inconsistencies were found in the protocol logic or structural build.
+          
+          **Required Action:**
+          1. **Inspect logs**: Review the logs for specific errors.
+          2. **Code Alignment**: Ensure the sub-project you worked on compiles successfully. If you worked on both, ensure both compile.
+          3. **Stay in Sync**: Ensure your local environment is synchronized with the upstream project. Run:
+             \`\`\`bash
+             git fetch origin
+             git pull origin main
+             \`\`\`
+          4. Sync your fork on GitHub and pull the latest changes to your local branch.
+          5. **Update PR**: Push your fix to update the PR, or you can delete the PR and make a new one. Either way works for the project.
+          
+          *Merging is restricted until the review is successful.*"
+          exit 1
+
+      - name: ✅ Handle Review Success
+        if: steps.protocol_review.outcome == 'success'
+        run: |
+          gh pr comment ${{ env.PR_NUMBER }} --body "### ✅ Review Successful
+          
+          The structural and logic integrity of both the Contracts and the Dashboard has been verified.
+          
+          **Status:** Ready for Integration.
+          **Action:** Merging into \`main\`...
+          
+          *Project maintained by @bbkenny.*"
+          
+          gh pr merge ${{ env.PR_NUMBER }} --merge --auto
