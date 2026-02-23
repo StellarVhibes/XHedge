@@ -73,3 +73,29 @@
     @apply bg-background text-foreground;
   }
 }
+
+.ai-log-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  animation: ai-log-scroll 20s linear infinite;
+}
+
+.ai-log-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes ai-log-scroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-log-track {
+    animation: none;
+  }
+}
