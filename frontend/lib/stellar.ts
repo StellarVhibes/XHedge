@@ -27,6 +27,19 @@ export interface VaultData {
   totalShares: string;
 }
 
+export interface ReferralData {
+  totalReferrals: number;
+  activeStakers: number;
+  totalEarnings: string;
+  pendingEarnings: string;
+  recentRewards: {
+    address: string;
+    activity: string;
+    reward: string;
+    date: string;
+  }[];
+}
+
 const NETWORK_PASSPHRASE: Record<string, string> = {
   PUBLIC: Networks.PUBLIC,
   TESTNET: Networks.TESTNET,
@@ -76,4 +89,29 @@ export function convertStroopsToDisplay(stroops: string): string {
   const value = BigInt(stroops || "0");
   const display = Number(value / BigInt(1e7));
   return display.toFixed(7);
+}
+export async function fetchReferralData(
+  userAddress: string | null
+): Promise<ReferralData> {
+  // Mock data
+  return {
+    totalReferrals: 12,
+    activeStakers: 8,
+    totalEarnings: "1250.50",
+    pendingEarnings: "45.20",
+    recentRewards: [
+      {
+        address: "GABCD...WXYZ",
+        activity: "Deposited 500 USDC",
+        reward: "2.50 USDC",
+        date: "2026-02-22",
+      },
+      {
+        address: "GCDEF...PQRS",
+        activity: "Staking Reward Claimed",
+        reward: "1.25 USDC",
+        date: "2026-02-21",
+      },
+    ],
+  };
 }
