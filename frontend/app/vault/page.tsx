@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { buildDepositXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics } from "@/lib/stellar";
-import { getNetworkPassphrase, NetworkType } from "@/lib/network";
+import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
+import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase } from "@/lib/stellar";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 type TabType = "deposit" | "withdraw";
 
 export default function VaultPage() {
-  const { connected, address, network, signTransaction } = useWallet();
+  const { connected, address, signTransaction } = useWallet();
+  const { network } = useNetwork();
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,22 +22,23 @@ export default function VaultPage() {
   });
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
 
-  const networkType = (network as NetworkType) || "testnet";
-
   const loadMetrics = useCallback(async () => {
     if (!connected || !address) return;
     
     try {
-      const data = await fetchVaultData(
-        CONTRACT_ID,
-        address,
-        networkType === "mainnet" ? "PUBLIC" : "TESTNET"
-      );
+      const data = await fetchVaultData(CONTRACT_ID, address, network);
       setMetrics(data);
     } catch (error) {
       console.error("Failed to load metrics:", error);
     }
-  }, [connected, address, networkType]);
+  }, [connected, address, network]);
+
+  useEffect(() => {
+    loadMetrics();
+  }, [loadMetrics]);
+
+  const userBalance = metrics ? parseFloat(metrics.userBalance) / 1e7 : 0;
+  const userShares = metrics ? parseFloat(metrics.userShares) / 1e7 : 0;
 
   const handleDeposit = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -48,18 +50,18 @@ export default function VaultPage() {
     setStatus({ type: null, message: "" });
 
     try {
-      const passphrase = getNetworkPassphrase(networkType);
+      const passphrase = getNetworkPassphrase(network);
       
-      const xdr = await buildDepositXDR(
+      const xdr = await buildDepositXdr(
         CONTRACT_ID,
         address,
         amount,
-        networkType
+        network
       );
       
       const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
         xdr,
-        networkType
+        network
       );
       
       if (assembleError || !assembledXdr) {
@@ -72,7 +74,7 @@ export default function VaultPage() {
         throw new Error(signError || "Failed to sign transaction");
       }
       
-      const { hash, error: submitError } = await submitTransaction(signedTxXdr, networkType);
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
       
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
@@ -89,7 +91,66 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, networkType, signTransaction, loadMetrics]);
+  }, [connected, address, amount, network, signTransaction, loadMetrics]);
+
+  const handleWithdraw = useCallback(async () => {
+    if (!connected || !address || !amount || parseFloat(amount) <= 0) {
+      setStatus({ type: "error", message: "Please enter a valid amount" });
+      return;
+    }
+
+    const withdrawAmount = parseFloat(amount);
+    if (withdrawAmount > userShares) {
+      setStatus({ type: "error", message: `Insufficient balance. You have ${userShares.toFixed(2)} shares.` });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: null, message: "" });
+
+    try {
+      const passphrase = getNetworkPassphrase(network);
+      
+      const xdr = await buildWithdrawXdr(
+        CONTRACT_ID,
+        address,
+        amount,
+        network
+      );
+      
+      const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
+        xdr,
+        network
+      );
+      
+      if (assembleError || !assembledXdr) {
+        throw new Error(assembleError || "Failed to assemble transaction");
+      }
+      
+      const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
+      
+      if (signError || !signedTxXdr) {
+        throw new Error(signError || "Failed to sign transaction");
+      }
+      
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
+      
+      if (submitError || !hash) {
+        throw new Error(submitError || "Failed to submit transaction");
+      }
+      
+      setStatus({ type: "success", message: `Withdraw successful! Transaction: ${hash.slice(0, 8)}...` });
+      setAmount("");
+      await loadMetrics();
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Withdraw failed",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [connected, address, amount, userShares, network, signTransaction, loadMetrics]);
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -128,9 +189,15 @@ export default function VaultPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {activeTab === "withdraw" && (
+                <div className="text-sm text-muted-foreground mb-2">
+                  Available: {userShares.toFixed(2)} XHS
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Amount (USDC)
+                  {activeTab === "deposit" ? "Amount (USDC)" : "Amount (XHS)"}
                 </label>
                 <input
                   type="number"
@@ -156,10 +223,12 @@ export default function VaultPage() {
 
               {activeTab === "withdraw" && (
                 <button
-                  disabled
-                  className="w-full py-3 px-4 rounded-lg bg-muted text-muted-foreground font-medium cursor-not-allowed"
+                  onClick={handleWithdraw}
+                  disabled={loading || !amount || userShares <= 0}
+                  className="w-full py-3 px-4 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Withdraw (Coming Soon)
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {loading ? "Processing..." : "Withdraw"}
                 </button>
               )}
 
@@ -180,13 +249,4 @@ export default function VaultPage() {
       </div>
     </div>
   );
-}
-
-async function buildDepositXDR(
-  contractId: string,
-  userAddress: string,
-  amount: string,
-  network: NetworkType
-): Promise<string> {
-  return buildDepositXdr(contractId, userAddress, amount, network);
 }
