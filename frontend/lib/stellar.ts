@@ -8,8 +8,7 @@ import {
   xdr,
   Contract,
   rpc,
-  SorobanDataBuilder,
-  SorobanAuthorizationEntry
+  SorobanDataBuilder
 } from "@stellar/stellar-sdk";
 
 const RPC_URLS: Record<string, string> = {
@@ -34,6 +33,7 @@ export interface VaultData {
 const NETWORK_PASSPHRASE: Record<string, string> = {
   PUBLIC: Networks.PUBLIC,
   TESTNET: Networks.TESTNET,
+  FUTURENET: "Test SDF Future Network ; October 2022",
 };
 
 export async function fetchVaultData(
@@ -84,22 +84,16 @@ export function convertStroopsToDisplay(stroops: string): string {
 
 export type NetworkType = "futurenet" | "testnet" | "mainnet";
 
-const NETWORK_PASSPHRASE: Record<string, string> = {
-  PUBLIC: Networks.PUBLIC,
-  TESTNET: Networks.TESTNET,
-  FUTURENET: "Test SDF Future Network ; October 2022",
-};
-
 export async function buildDepositXdr(
   contractId: string,
   userAddress: string,
   amount: string,
   network: NetworkType = "testnet"
 ): Promise<string> {
-  const source = await Horizon.AccountRequest.fetch(
-    RPC_URLS[network.toUpperCase()] || RPC_URLS.TESTNET,
-    userAddress
+  const horizonServer = new Horizon.Server(
+    RPC_URLS[network.toUpperCase()] || RPC_URLS.TESTNET
   );
+  const source = await horizonServer.loadAccount(userAddress);
 
   const passphrase = network === "mainnet" 
     ? Networks.PUBLIC 
@@ -145,13 +139,13 @@ export async function simulateAndAssembleTransaction(
         ? NETWORK_PASSPHRASE.FUTURENET 
         : Networks.TESTNET;
 
-    const transaction = rpc.TransactionBuilder.fromXDR(xdr, passphrase);
+    const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
     
     const simulated = await server.simulateTransaction(transaction);
     
-    if (rpc.SimulateTransactionResult.isSimulationSuccess(simulated)) {
-      const assembled = await server.assembleTransaction(transaction, simulated);
-      return { result: assembled.transaction.toXDR(), error: null };
+    if (rpc.Api.isSimulationSuccess(simulated)) {
+      const assembled = rpc.assembleTransaction(transaction, simulated).build();
+      return { result: assembled.toXDR(), error: null };
     }
     
     return { result: null, error: "Simulation failed" };
@@ -176,7 +170,7 @@ export async function submitTransaction(
     
     const server = new rpc.Server(rpcUrl);
     
-    const transaction = rpc.TransactionBuilder.fromXDR(
+    const transaction = TransactionBuilder.fromXDR(
       signedXdr,
       network === "mainnet" 
         ? Networks.PUBLIC 
@@ -187,7 +181,7 @@ export async function submitTransaction(
     
     const response = await server.sendTransaction(transaction);
     
-    if (response.status === "PENDING" || response.status === "SUCCESS") {
+    if (response.status === "PENDING") {
       return { hash: response.hash, error: null };
     }
     

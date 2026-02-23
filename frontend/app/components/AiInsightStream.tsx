@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Info, AlertTriangle } from "lucide-react";
+import { RefreshCw, Info, AlertTriangle, Activity } from "lucide-react";
 
 export type InsightType = "rebalance" | "info" | "warning";
 
@@ -77,12 +77,12 @@ interface EntryIconProps {
 
 function EntryIcon({ type }: EntryIconProps) {
   if (type === "rebalance") {
-    return <RefreshCw size={14} className="shrink-0 text-blue-400" aria-hidden="true" />;
+    return <RefreshCw size={14} className="shrink-0 text-primary" aria-hidden="true" />;
   }
   if (type === "warning") {
-    return <AlertTriangle size={14} className="shrink-0 text-yellow-400" aria-hidden="true" />;
+    return <AlertTriangle size={14} className="shrink-0 text-amber-500" aria-hidden="true" />;
   }
-  return <Info size={14} className="shrink-0 text-slate-400" aria-hidden="true" />;
+  return <Info size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
 }
 
 interface AiInsightStreamProps {
@@ -94,24 +94,22 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
     <div
       key={duplicate ? `dup-${entry.id}` : entry.id}
       className={[
-        "flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+        "flex items-start gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
         entry.type === "rebalance"
-          ? "bg-blue-950/60 text-blue-200"
+          ? "border-primary/20 bg-primary/10 text-foreground"
           : entry.type === "warning"
-            ? "bg-yellow-950/60 text-yellow-200"
-            : "text-slate-300",
+            ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+            : "border-transparent bg-muted/40 text-foreground",
       ].join(" ")}
     >
-      <span className="mt-0.5 shrink-0 font-mono text-slate-500">
+      <span className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground">
         {formatTime(entry.timestamp)}
       </span>
       <EntryIcon type={entry.type} />
       <span className="leading-relaxed">
         {entry.type === "rebalance" ? (
           <>
-            <span className="mr-1 font-semibold text-blue-300">
-              Rebalance Triggered
-            </span>
+            <span className="mr-1 font-semibold text-primary">Rebalance Triggered</span>
             {entry.message.replace(/^Rebalance Triggered\s*[-]?\s*/i, "- ")}
           </>
         ) : (
@@ -124,32 +122,25 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
 
 export function AiInsightStream({ entries = MOCK_ENTRIES }: AiInsightStreamProps) {
   return (
-    <section
-      aria-label="AI Insight Stream"
-      className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-lg"
-    >
-      <header className="flex items-center justify-between border-b border-slate-700 px-4 py-3">
-        <h2 className="text-sm font-semibold tracking-wide text-slate-100">
-          AI Insight Stream
-        </h2>
-        <span className="flex items-center gap-1.5 text-xs text-green-400">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-400" />
+    <section aria-label="AI Insight Stream" className="w-full rounded-lg border bg-card shadow-sm">
+      <header className="flex items-center justify-between border-b px-6 py-4">
+        <div className="flex items-center gap-3">
+          <Activity className="h-6 w-6 text-primary" />
+          <h2 className="text-xl font-semibold text-foreground">AI Insight Stream</h2>
+        </div>
+        <span className="flex items-center gap-1.5 text-sm font-medium text-primary">
+          <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
           Live
         </span>
       </header>
 
-      <div className="relative h-64 overflow-hidden px-4 py-3">
+      <div className="relative h-[28rem] overflow-hidden px-6 py-4">
         {entries.length === 0 ? (
-          <p className="text-xs text-slate-500">No AI insights yet.</p>
+          <p className="text-sm text-muted-foreground">No AI insights yet.</p>
         ) : (
-          <div
-            className="ai-log-track"
-            role="log"
-            aria-live="polite"
-            aria-label="AI decision log"
-          >
-            <div className="flex flex-col gap-1">{renderEntries(entries)}</div>
-            <div className="flex flex-col gap-1" aria-hidden="true">
+          <div className="ai-log-track" role="log" aria-live="polite" aria-label="AI decision log">
+            <div className="flex flex-col gap-2">{renderEntries(entries)}</div>
+            <div className="flex flex-col gap-2" aria-hidden="true">
               {renderEntries(entries, true)}
             </div>
           </div>

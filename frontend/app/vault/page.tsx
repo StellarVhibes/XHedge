@@ -27,7 +27,11 @@ export default function VaultPage() {
     if (!connected || !address) return;
     
     try {
-      const data = await fetchVaultData(CONTRACT_ID, address, networkType === "PUBLIC" ? "PUBLIC" : "TESTNET");
+      const data = await fetchVaultData(
+        CONTRACT_ID,
+        address,
+        networkType === "mainnet" ? "PUBLIC" : "TESTNET"
+      );
       setMetrics(data);
     } catch (error) {
       console.error("Failed to load metrics:", error);
