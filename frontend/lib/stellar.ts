@@ -165,6 +165,38 @@ export async function buildDepositXdr(
   return transaction.toXDR();
 }
 
+export async function buildWithdrawXdr(
+  contractId: string,
+  userAddress: string,
+  shares: string,
+  network: NetworkType = NetworkType.TESTNET
+): Promise<string> {
+  const horizonUrl = RPC_URLS[network];
+  const server = new Horizon.Server(horizonUrl);
+  const source = await server.loadAccount(userAddress);
+
+  const passphrase = NETWORK_PASSPHRASE[network];
+
+  const contract = new Contract(contractId);
+  
+  const sharesBigInt = BigInt(Math.floor(parseFloat(shares) * 1e7)).toString();
+  
+  const withdrawParams = [
+    new Address(userAddress).toScVal(),
+    nativeToScVal(sharesBigInt, { type: "i128" })
+  ];
+
+  const transaction = new TransactionBuilder(source, {
+    fee: "100",
+    networkPassphrase: passphrase,
+  })
+    .addOperation(contract.call("withdraw", ...withdrawParams))
+    .setTimeout(300)
+    .build();
+
+  return transaction.toXDR();
+}
+
 export async function simulateAndAssembleTransaction(
   xdrString: string,
   network: NetworkType = NetworkType.TESTNET
