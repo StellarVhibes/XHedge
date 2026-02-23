@@ -467,3 +467,58 @@ fn test_withdraw_blocked_when_paused() {
     // Withdraw should be blocked
     client.withdraw(&user, &10);
 }
+
+#[cfg(test)]
+mod fuzz_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn fuzz_convert_to_shares(
+            total_shares in 0i128..1_000_000_000_000_000_000,
+            total_assets in 0i128..1_000_000_000_000_000_000,
+            amount in 0i128..1_000_000_000_000_000_000,
+        ) {
+            let env = Env::default();
+            let contract_id = env.register_contract(None, VolatilityShield);
+            let client = VolatilityShieldClient::new(&env, &contract_id);
+            
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
+            let oracle = Address::generate(&env);
+            let treasury = Address::generate(&env);
+            client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+            client.set_total_shares(&total_shares);
+            client.set_total_assets(&total_assets);
+
+            // Verify no unexpected panic on positive valid inputs up to large ranges.
+            let _shares = client.convert_to_shares(&amount);
+        }
+
+        #[test]
+        fn fuzz_convert_to_assets(
+            total_shares in 0i128..1_000_000_000_000_000_000,
+            total_assets in 0i128..1_000_000_000_000_000_000,
+            shares in 0i128..1_000_000_000_000_000_000,
+        ) {
+            let env = Env::default();
+            let contract_id = env.register_contract(None, VolatilityShield);
+            let client = VolatilityShieldClient::new(&env, &contract_id);
+            
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
+            let oracle = Address::generate(&env);
+            let treasury = Address::generate(&env);
+            client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+            client.set_total_shares(&total_shares);
+            client.set_total_assets(&total_assets);
+
+            // Verify no unexpected panic on positive valid inputs up to large ranges.
+            let _assets = client.convert_to_assets(&shares);
+        }
+    }
+}
