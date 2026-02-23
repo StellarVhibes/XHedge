@@ -29,7 +29,7 @@ fn test_init_stores_roles() {
 
     client.init(&admin, &asset, &oracle, &treasury, &500u32);
 
-    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.read_admin(), admin);
     assert_eq!(client.get_oracle(), oracle);
     assert_eq!(client.get_asset(), asset);
     assert_eq!(client.treasury(), treasury);
@@ -120,7 +120,7 @@ fn test_strategy_registry() {
     let strategy = Address::generate(&env);
 
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.read_admin(), admin);
 
     client.add_strategy(&strategy);
     let strategies = client.get_strategies();
@@ -358,4 +358,89 @@ mod integration {
         mock_client.withdraw(&75);
         assert_eq!(mock_client.balance(), 0);
     }
+}
+
+// ── Pause Mechanism Tests ─────────────────────────
+
+#[test]
+fn test_set_paused_toggles_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+
+    // Default: not paused
+    assert!(!client.is_paused());
+
+    // Pause
+    client.set_paused(&true);
+    assert!(client.is_paused());
+
+    // Unpause
+    client.set_paused(&false);
+    assert!(!client.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_deposit_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &500u32);
+
+    // Pause the vault
+    client.set_paused(&true);
+
+    // Deposit should be blocked
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1000);
+    client.deposit(&user, &500);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_withdraw_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Set up a balance for user
+    client.set_total_shares(&100);
+    client.set_total_assets(&100);
+    let user = Address::generate(&env);
+    client.set_balance(&user, &50);
+    stellar_asset_client.mint(&contract_id, &100);
+
+    // Pause the vault
+    client.set_paused(&true);
+
+    // Withdraw should be blocked
+    client.withdraw(&user, &10);
 }
