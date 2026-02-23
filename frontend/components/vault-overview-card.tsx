@@ -3,13 +3,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { Shield, TrendingUp, TrendingDown, RefreshCw, Wallet } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
+import { useNetwork } from "@/app/context/NetworkContext";
 import { fetchVaultData, VaultMetrics } from "@/lib/stellar";
 import { formatNumber } from "@/lib/utils";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 export function VaultOverviewCard() {
-  const { connected, address, network } = useWallet();
+  const { connected, address } = useWallet();
+  const { network } = useNetwork();
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,7 +27,7 @@ export function VaultOverviewCard() {
       const data = await fetchVaultData(
         CONTRACT_ID,
         address,
-        (network as "PUBLIC" | "TESTNET") || "TESTNET"
+        network
       );
       setMetrics(data);
     } catch (error) {
