@@ -1,10 +1,22 @@
+# Soroban / Rust
 target/
 **/target/
 smartcontract/target/
 .soroban/
 
-# Frontend
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/.env.local
+# Node / Next.js
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+build/
+.env*
+.DS_Store
+*.log
+
+# XHedge Artifacts
+.agent/
+.gemini/
+.system_generated/
+app_data/
