@@ -34,7 +34,10 @@ export interface VaultData {
 const NETWORK_PASSPHRASE: Record<string, string> = {
   PUBLIC: Networks.PUBLIC,
   TESTNET: Networks.TESTNET,
+  FUTURENET: "Test SDF Future Network ; October 2022",
 };
+
+export type NetworkType = "futurenet" | "testnet" | "mainnet";
 
 export async function fetchVaultData(
   contractId: string,
@@ -82,14 +85,6 @@ export function convertStroopsToDisplay(stroops: string): string {
   return display.toFixed(7);
 }
 
-export type NetworkType = "futurenet" | "testnet" | "mainnet";
-
-const NETWORK_PASSPHRASE: Record<string, string> = {
-  PUBLIC: Networks.PUBLIC,
-  TESTNET: Networks.TESTNET,
-  FUTURENET: "Test SDF Future Network ; October 2022",
-};
-
 export async function buildDepositXdr(
   contractId: string,
   userAddress: string,
@@ -127,8 +122,45 @@ export async function buildDepositXdr(
   return transaction.toXDR();
 }
 
+export async function buildWithdrawXdr(
+  contractId: string,
+  userAddress: string,
+  shares: string,
+  network: NetworkType = "testnet"
+): Promise<string> {
+  const source = await Horizon.AccountRequest.fetch(
+    RPC_URLS[network.toUpperCase()] || RPC_URLS.TESTNET,
+    userAddress
+  );
+
+  const passphrase = network === "mainnet" 
+    ? Networks.PUBLIC 
+    : network === "futurenet" 
+      ? NETWORK_PASSPHRASE.FUTURENET 
+      : Networks.TESTNET;
+
+  const contract = new Contract(contractId);
+  
+  const sharesBigInt = BigInt(Math.floor(parseFloat(shares) * 1e7)).toString();
+  
+  const withdrawParams = [
+    new Address(userAddress).toScVal(),
+    nativeToScVal(sharesBigInt, { type: "i128" })
+  ];
+
+  const transaction = new TransactionBuilder(source, {
+    fee: "100",
+    networkPassphrase: passphrase,
+  })
+    .addOperation(contract.call("withdraw", ...withdrawParams))
+    .setTimeout(300)
+    .build();
+
+  return transaction.toXDR();
+}
+
 export async function simulateAndAssembleTransaction(
-  xdr: string,
+  xdrString: string,
   network: NetworkType = "testnet"
 ): Promise<{ result: string | null; error: string | null }> {
   try {
@@ -145,7 +177,7 @@ export async function simulateAndAssembleTransaction(
         ? NETWORK_PASSPHRASE.FUTURENET 
         : Networks.TESTNET;
 
-    const transaction = rpc.TransactionBuilder.fromXDR(xdr, passphrase);
+    const transaction = rpc.TransactionBuilder.fromXDR(xdrString, passphrase);
     
     const simulated = await server.simulateTransaction(transaction);
     
