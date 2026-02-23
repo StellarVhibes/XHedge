@@ -3,15 +3,16 @@
 import { useState, useCallback, useEffect } from "react";
 import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics } from "@/lib/stellar";
-import { getNetworkPassphrase, NetworkType } from "@/lib/network";
+import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
+import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase } from "@/lib/stellar";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 type TabType = "deposit" | "withdraw";
 
 export default function VaultPage() {
-  const { connected, address, network, signTransaction } = useWallet();
+  const { connected, address, signTransaction } = useWallet();
+  const { network } = useNetwork();
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,18 +22,16 @@ export default function VaultPage() {
   });
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
 
-  const networkType = (network as NetworkType) || "testnet";
-
   const loadMetrics = useCallback(async () => {
     if (!connected || !address) return;
     
     try {
-      const data = await fetchVaultData(CONTRACT_ID, address, networkType === "mainnet" ? "PUBLIC" : "TESTNET");
+      const data = await fetchVaultData(CONTRACT_ID, address, network);
       setMetrics(data);
     } catch (error) {
       console.error("Failed to load metrics:", error);
     }
-  }, [connected, address, networkType]);
+  }, [connected, address, network]);
 
   useEffect(() => {
     loadMetrics();
@@ -51,18 +50,18 @@ export default function VaultPage() {
     setStatus({ type: null, message: "" });
 
     try {
-      const passphrase = getNetworkPassphrase(networkType);
+      const passphrase = getNetworkPassphrase(network);
       
       const xdr = await buildDepositXdr(
         CONTRACT_ID,
         address,
         amount,
-        networkType
+        network
       );
       
       const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
         xdr,
-        networkType
+        network
       );
       
       if (assembleError || !assembledXdr) {
@@ -75,7 +74,7 @@ export default function VaultPage() {
         throw new Error(signError || "Failed to sign transaction");
       }
       
-      const { hash, error: submitError } = await submitTransaction(signedTxXdr, networkType);
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
       
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
@@ -92,7 +91,7 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, networkType, signTransaction, loadMetrics]);
+  }, [connected, address, amount, network, signTransaction, loadMetrics]);
 
   const handleWithdraw = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -110,18 +109,18 @@ export default function VaultPage() {
     setStatus({ type: null, message: "" });
 
     try {
-      const passphrase = getNetworkPassphrase(networkType);
+      const passphrase = getNetworkPassphrase(network);
       
       const xdr = await buildWithdrawXdr(
         CONTRACT_ID,
         address,
         amount,
-        networkType
+        network
       );
       
       const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
         xdr,
-        networkType
+        network
       );
       
       if (assembleError || !assembledXdr) {
@@ -134,7 +133,7 @@ export default function VaultPage() {
         throw new Error(signError || "Failed to sign transaction");
       }
       
-      const { hash, error: submitError } = await submitTransaction(signedTxXdr, networkType);
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
       
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
@@ -151,7 +150,7 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, userShares, networkType, signTransaction, loadMetrics]);
+  }, [connected, address, amount, userShares, network, signTransaction, loadMetrics]);
 
   return (
     <div className="max-w-2xl mx-auto">
