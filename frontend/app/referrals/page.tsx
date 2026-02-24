@@ -1,6 +1,6 @@
 "use client";
 
-import { DashboardLayout } from "@/components/dashboard-layout";
+
 import { Users, Copy, Share2, Award, TrendingUp, RefreshCw } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@/hooks/use-wallet";
@@ -28,7 +28,7 @@ export default function ReferralsPage() {
     loadData();
   }, [loadData]);
 
-  const referralLink = address 
+  const referralLink = address
     ? `${window.location.origin}?ref=${address}`
     : "Connect wallet to generate ink";
 
@@ -41,17 +41,17 @@ export default function ReferralsPage() {
 
   if (loading) {
     return (
-      <DashboardLayout>
+      <>
         <div className="flex items-center justify-center min-h-[60vh]">
           <RefreshCw className="w-8 h-8 animate-spin text-primary" />
           <span className="ml-2 text-muted-foreground">Loading referral data...</span>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-8">
         <div className="flex justify-between items-start">
           <div>
@@ -76,7 +76,7 @@ export default function ReferralsPage() {
               </div>
               <h2 className="text-xl font-semibold">Your Referral Link</h2>
             </div>
-            
+
             <p className="text-sm text-muted-foreground">
               Share this link with your friends. You'll receive 5% of their staking rewards.
             </p>
@@ -91,7 +91,7 @@ export default function ReferralsPage() {
                 <Copy className={`w-4 h-4 ${copied ? "text-green-500" : "text-muted-foreground"}`} />
               </button>
             </div>
-            
+
             {!connected && (
               <p className="text-xs text-amber-500">
                 Connect your wallet to generate a unique referral link.
@@ -131,7 +131,7 @@ export default function ReferralsPage() {
             <h2 className="font-semibold text-lg text-foreground">Recent Rewards</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full min-w-max text-sm text-left whitespace-nowrap">
               <thead className="bg-muted/50 text-muted-foreground uppercase text-xs">
                 <tr>
                   <th className="px-6 py-3 font-medium">Friend Address</th>
@@ -143,7 +143,7 @@ export default function ReferralsPage() {
               <tbody className="divide-y">
                 {data?.recentRewards && data.recentRewards.length > 0 ? (
                   data.recentRewards.map((reward, i) => (
-                    <RewardRow 
+                    <RewardRow
                       key={i}
                       address={reward.address}
                       activity={reward.activity}
@@ -163,7 +163,7 @@ export default function ReferralsPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }
 
