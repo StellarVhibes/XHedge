@@ -184,6 +184,34 @@ fn test_take_fees() {
 }
 
 #[test]
+fn test_deposit_success() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 1000;
+    stellar_asset_client.mint(&user, &deposit_amount);
+
+    client.deposit(&user, &deposit_amount);
+
+    assert_eq!(client.balance(&user), 1000);
+    assert_eq!(client.total_assets(), 1000);
+    assert_eq!(client.total_shares(), 1000);
+}
+
+#[test]
 fn test_withdraw_success() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
