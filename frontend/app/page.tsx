@@ -8,6 +8,27 @@ import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
 
 export default function Home() {
+  const [slices, setSlices] = useState<Slice[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    fetch('/api/allocation')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!mounted) return;
+        if (data?.slices) setSlices(data.slices);
+        else setError('No allocation data available');
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div className="min-h-screen p-8">
       <div className="mx-auto max-w-6xl space-y-8">

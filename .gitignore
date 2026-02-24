@@ -4,6 +4,13 @@ target/
 smartcontract/target/
 .soroban/
 
+# Frontend / Node
+node_modules/
+.next/
+dist/
+out/
+.env
+coverage/
 # Node / Next.js
 node_modules/
 **/node_modules/
