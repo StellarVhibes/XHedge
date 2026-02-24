@@ -5,6 +5,7 @@ import { Shield, ArrowUpFromLine, ArrowDownToLine } from "lucide-react";
 import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
+import { TransactionList } from "@/components/transaction-list";
 
 export default function Home() {
   return (
@@ -48,6 +49,8 @@ export default function Home() {
             </div>
           </Link>
         </div>
+
+        <TransactionList />
 
         <AiInsightStream />
       </div>

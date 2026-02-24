@@ -132,6 +132,53 @@ export function convertStroopsToDisplay(stroops: string): string {
   return display.toFixed(7);
 }
 
+export interface Transaction {
+  id: string;
+  type: "deposit" | "withdraw";
+  amount: string;
+  asset: string;
+  status: "success" | "pending" | "failed";
+  date: string;
+  hash: string;
+}
+
+export async function fetchTransactionHistory(
+  userAddress: string | null
+): Promise<Transaction[]> {
+  if (!userAddress) return [];
+  
+  // Mock transaction history
+  return [
+    {
+      id: "1",
+      type: "deposit",
+      amount: "500.00",
+      asset: "USDC",
+      status: "success",
+      date: "2026-02-23 14:30",
+      hash: "abc...123",
+    },
+    {
+      id: "2",
+      type: "withdraw",
+      amount: "100.00",
+      asset: "XHS",
+      status: "success",
+      date: "2026-02-22 09:15",
+      hash: "def...456",
+    },
+    {
+      id: "3",
+      type: "deposit",
+      amount: "250.00",
+      asset: "USDC",
+      status: "success",
+      date: "2026-02-21 18:45",
+      hash: "ghi...789",
+    },
+  ];
+}
+
 export async function buildDepositXdr(
   contractId: string,
   userAddress: string,
