@@ -1,8 +1,11 @@
 "use client";
-import React, { useEffect, useState } from 'react';
-import AllocationChart from '../components/AllocationChart';
 
-type Slice = { name: string; value: number; color?: string };
+import { VaultOverviewCard } from "@/components/vault-overview-card";
+import { Shield, ArrowUpFromLine, ArrowDownToLine } from "lucide-react";
+import Link from "next/link";
+import { WalletButton } from "./components/WalletButton";
+import { AiInsightStream } from "./components/AiInsightStream";
+import { TransactionList } from "@/components/transaction-list";
 
 export default function Home() {
   const [slices, setSlices] = useState<Slice[] | null>(null);
@@ -27,25 +30,51 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-12">
-      <h1 className="text-4xl font-bold">XHedge 🛡️</h1>
-      <p className="mt-2 text-lg">Volatility Shield — Current Deployment Allocation</p>
-
-      <div className="mt-8 p-6 border rounded-lg bg-card w-full max-w-2xl">
-        {loading && <p>Loading allocation…</p>}
-        {error && <p className="text-red-600">{error}</p>}
-        {!loading && !error && slices && (
-          <div className="flex flex-col items-center gap-6">
-            <AllocationChart slices={slices} />
+    <div className="min-h-screen p-8">
+      <div className="mx-auto max-w-6xl space-y-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Shield className="h-10 w-10 text-primary" />
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">XHedge</h1>
+              <p className="text-muted-foreground">Volatility Shield for Weak Currencies</p>
+            </div>
           </div>
-        )}
+          <WalletButton />
+        </div>
 
-        {!loading && !error && !slices && (
-          <p className="text-muted-foreground">No allocation data found.</p>
-        )}
+        <VaultOverviewCard />
 
-        <p className="text-sm mt-4">See <a href="/docs/ISSUES-FRONTEND.md" className="underline">docs/ISSUES-FRONTEND.md</a> to continue development.</p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Link
+            href="/vault"
+            className="flex items-center gap-4 rounded-lg border bg-card p-6 transition-colors hover:bg-accent"
+          >
+            <ArrowUpFromLine className="h-8 w-8 text-primary" />
+            <div>
+              <h2 className="font-semibold text-foreground">Deposit Funds</h2>
+              <p className="text-sm text-muted-foreground">Deposit assets into the vault</p>
+            </div>
+          </Link>
+
+          <Link
+            href="/vault"
+            className="flex items-center gap-4 rounded-lg border bg-card p-6 transition-colors hover:bg-accent"
+          >
+            <ArrowDownToLine className="h-8 w-8 text-primary" />
+            <div>
+              <h2 className="font-semibold text-foreground">Withdraw Funds</h2>
+              <p className="text-sm text-muted-foreground">
+                Withdraw your assets from the vault
+              </p>
+            </div>
+          </Link>
+        </div>
+
+        <TransactionList />
+
+        <AiInsightStream />
       </div>
-    </main>
+    </div>
   );
 }

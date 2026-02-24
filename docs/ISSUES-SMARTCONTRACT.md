@@ -84,16 +84,16 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Transfer underlying token to user.
   - [x] Emit `Withdraw` event.
 
-### Issue #SC-8: Emergency Pause Mechanism
+### Issue #SC-8: Emergency Pause Mechanism [COMPLETED]
 
 **Priority:** Medium
 **Labels:** `smart-contract`, `security`
 **Description:** A circuit breaker for the admin to stop deposits/withdrawals.
 
 - **Tasks:**
-  - [ ] Add `Paused` state to `DataKey`.
-  - [ ] Implement `set_paused(env, state: bool)`.
-  - [ ] Add `assert_not_paused` check to deposit/withdraw.
+  - [x] Add `Paused` state to `DataKey`.
+  - [x] Implement `set_paused(env, state: bool)`.
+  - [x] Add `assert_not_paused` check to deposit/withdraw.
 
 ---
 
@@ -118,14 +118,14 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Define `Strategies` storage key (Vec<Address>).
   - [x] Implement `add_strategy` function (Admin only).
 
-### Issue #SC-11: Rebalance Logic (Calculation)
+### Issue #SC-11: Rebalance Logic (Calculation) [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `logic`
 **Description:** Logic to determine how much to move.
 
 - **Tasks:**
-  - [ ] Implement `calc_rebalance_delta(current, target)`.
+  - [x] Implement `calc_rebalance_delta(current, target)`.
 
 ### Issue #SC-12: Rebalance Execution [COMPLETED]
 
@@ -147,15 +147,15 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Implement `harvest(env)`.
   - [x] Distribute yield to vault (increasing share price).
 
-### Issue #SC-14: Access Control Modifiers
+### Issue #SC-14: Access Control Modifiers [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `security`
 **Description:** Ensure only admin can call sensitive functions.
 
 - **Tasks:**
-  - [ ] Implement `require_admin` check.
-  - [ ] Apply to all config functions.
+  - [x] Implement `require_admin` check.
+  - [x] Apply to all config functions.
 
 ### Issue #SC-15: Fee Management [COMPLETED]
 
@@ -170,25 +170,25 @@ This document tracks the detailed development tasks for the Soroban smart contra
 
 # 🧪 Module 3: Testing & Verification (Issues SC-16 to SC-18)
 
-### Issue #SC-16: Core Unit Tests
+### Issue #SC-16: Core Unit Tests [COMPLETED]
 **Priority:** High
 **Labels:** `testing`, `rust`
 **Description:** Verify basic vault mechanics.
 - **Tasks:**
-  - [ ] Test initialization.
-  - [ ] Test simple deposit/withdraw flow.
+  - [x] Test initialization.
+  - [x] Test simple deposit/withdraw flow.
 
-### Issue #SC-17: Integration Tests (Mock Strategy)
+### Issue #SC-17: Integration Tests (Mock Strategy) [COMPLETED]
 **Priority:** Medium
 **Labels:** `testing`, `integration`
 **Description:** Test interaction with external contracts.
 - **Tasks:**
-  - [ ] Create `MockStrategy` contract.
-  - [ ] Test rebalancing into mock strategy.
+  - [x] Create `MockStrategy` contract.
+  - [x] Test rebalancing into mock strategy.
 
-### Issue #SC-18: Fuzz Testing
+### Issue #SC-18: Fuzz Testing [COMPLETED]
 **Priority:** Low
 **Labels:** `testing`, `security`
 **Description:** Property-based testing for math safety.
 - **Tasks:**
-  - [ ] Fuzz test share conversion for overflows.
+  - [x] Fuzz test share conversion for overflows.
