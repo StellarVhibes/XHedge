@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
+import { useCurrency, Currency } from "@/app/context/CurrencyContext";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -20,6 +21,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const { network, setNetwork } = useNetwork();
+  const { currency, setCurrency } = useCurrency();
 
   return (
     <>
@@ -73,6 +75,38 @@ export function Sidebar() {
           </nav>
 
           <div className="px-4 py-4 border-t border-sidebar-border">
+            {/* Currency Switcher */}
+            <div className="flex flex-col gap-2 mb-4">
+              <div className="flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <span>Currency</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  onClick={() => setCurrency(Currency.USD)}
+                  className={cn(
+                    "flex items-center justify-center px-3 py-2 rounded-md text-xs font-medium transition-all",
+                    currency === Currency.USD
+                      ? "bg-primary/10 text-primary border border-primary/20"
+                      : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  )}
+                >
+                  USD ($)
+                </button>
+                <button
+                  onClick={() => setCurrency(Currency.NGN)}
+                  className={cn(
+                    "flex items-center justify-center px-3 py-2 rounded-md text-xs font-medium transition-all",
+                    currency === Currency.NGN
+                      ? "bg-primary/10 text-primary border border-primary/20"
+                      : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  )}
+                >
+                  NGN (₦)
+                </button>
+              </div>
+            </div>
+
+            {/* Network Switcher */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <Globe className="w-3 h-3" />
