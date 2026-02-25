@@ -17,6 +17,8 @@ pub enum Error {
     Unauthorized = 4,
     NoStrategies = 5,
     ContractPaused = 6,
+    DepositCapExceeded = 7,
+    WithdrawalCapExceeded = 8,
 }
 
 // ─────────────────────────────────────────────
@@ -36,6 +38,9 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    MaxDepositPerUser,
+    MaxTotalAssets,
+    MaxWithdrawPerTx,
 }
 
 // ─────────────────────────────────────────────
@@ -135,13 +140,32 @@ impl VolatilityShield {
 
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        
+        let new_user_balance = current_balance.checked_add(shares_to_mint).unwrap();
+        
+        // --- Deposit Caps Validation ---
+        let max_deposit_per_user: i128 = env.storage().instance().get(&DataKey::MaxDepositPerUser).unwrap_or(i128::MAX);
+        if new_user_balance > max_deposit_per_user {
+            env.events().publish((symbol_short!("Cap"), symbol_short!("deposit")), amount);
+            panic!("DepositCapExceeded: per-user deposit cap exceeded");
+        }
+
+        let total_assets = Self::total_assets(&env);
+        let new_total_assets = total_assets.checked_add(amount).unwrap();
+        
+        let max_total_assets: i128 = env.storage().instance().get(&DataKey::MaxTotalAssets).unwrap_or(i128::MAX);
+        if new_total_assets > max_total_assets {
+            env.events().publish((symbol_short!("Cap"), symbol_short!("deposit")), amount);
+            panic!("DepositCapExceeded: global deposit cap exceeded");
+        }
+        // -------------------------------
+
         env.storage().persistent().set(
             &balance_key,
-            &(current_balance.checked_add(shares_to_mint).unwrap()),
+            &new_user_balance,
         );
 
         let total_shares = Self::total_shares(&env);
-        let total_assets = Self::total_assets(&env);
         Self::set_total_shares(
             env.clone(),
             total_shares.checked_add(shares_to_mint).unwrap(),
@@ -168,6 +192,15 @@ impl VolatilityShield {
         }
 
         let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+
+        // --- Withdraw Caps Validation ---
+        let max_withdraw_per_tx: i128 = env.storage().instance().get(&DataKey::MaxWithdrawPerTx).unwrap_or(i128::MAX);
+        if assets_to_withdraw > max_withdraw_per_tx {
+            env.events().publish((symbol_short!("Cap"), symbol_short!("withdraw")), assets_to_withdraw);
+            panic!("WithdrawalCapExceeded: per-tx withdrawal cap exceeded");
+        }
+        // --------------------------------
+
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
 
@@ -435,6 +468,20 @@ impl VolatilityShield {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &state);
         env.events().publish((symbol_short!("paused"),), state);
+    }
+
+    // ── Deposit / Withdrawal Caps ──────────────────────────
+    pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::MaxDepositPerUser, &per_user);
+        env.storage().instance().set(&DataKey::MaxTotalAssets, &global);
+        env.events().publish((symbol_short!("Caps"), symbol_short!("deposit")), (per_user, global));
+    }
+
+    pub fn set_withdraw_cap(env: Env, per_tx: i128) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::MaxWithdrawPerTx, &per_tx);
+        env.events().publish((symbol_short!("Caps"), symbol_short!("withdraw")), per_tx);
     }
 
     pub fn is_paused(env: Env) -> bool {
