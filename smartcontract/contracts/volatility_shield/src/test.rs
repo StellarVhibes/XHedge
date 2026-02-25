@@ -883,10 +883,11 @@ fn test_timelock_prevents_premature_execution() {
     // Set current timestamp
     env.ledger().set_timestamp(1000);
 
-    // Propose action - should return error because timelock hasn't elapsed
+    // Propose action - should succeed but not execute because timelock hasn't elapsed
     // With threshold 1, it tries to execute immediately but timelock blocks it
-    let result = client.try_propose_action(&admin, &ActionType::SetPaused(true));
-    assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
+    // The proposal is created but not executed
+    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    assert!(!client.is_paused()); // Should not be paused because timelock blocked execution
 }
 
 #[test]
@@ -912,8 +913,8 @@ fn test_timelock_allows_execution_after_duration() {
 
     // Propose action - this will store the proposal with timestamp
     // Since threshold is 1, it will try to execute but timelock will block
-    let result = client.try_propose_action(&admin, &ActionType::SetPaused(true));
-    assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
+    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    assert!(!client.is_paused()); // Should not be paused because timelock blocked execution
 
     // Advance time by 100 seconds (exactly the timelock duration)
     env.ledger().set_timestamp(1100);
