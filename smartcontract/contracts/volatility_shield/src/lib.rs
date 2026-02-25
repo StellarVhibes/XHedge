@@ -27,7 +27,7 @@ pub enum Error {
     AlreadyApproved = 12,
     ProposalExecuted = 13,
     InsufficientApprovals = 14,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    TimelockNotElapsed = 15,
 }
 
 // ─────────────────────────────────────────────
@@ -59,7 +59,7 @@ pub enum DataKey {
     Threshold,
     Proposals,
     NextProposalId,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    TimelockDuration,
 }
 
 // ─────────────────────────────────────────────
@@ -119,6 +119,7 @@ pub struct Proposal {
     pub action: ActionType,
     pub approvals: Vec<Address>,
     pub executed: bool,
+    pub proposed_at: u64,
 }
 
 #[contract]
@@ -138,18 +139,36 @@ impl VolatilityShield {
         let id = env.storage().instance().get(&DataKey::NextProposalId).unwrap_or(1);
         env.storage().instance().set(&DataKey::NextProposalId, &(id + 1));
 
+        let proposed_at = env.ledger().timestamp();
         let mut proposal = Proposal {
             id,
             proposer: proposer.clone(),
             action: action.clone(),
             approvals: soroban_sdk::vec![&env, proposer],
             executed: false,
+            proposed_at,
         };
+
+        // Emit TimelockStarted event
+        env.events().publish(
+            (symbol_short!("TimelockStarted"),),
+            (id, proposed_at),
+        );
 
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
         if threshold <= 1 {
-            Self::execute_action(&env, &action).unwrap();
-            proposal.executed = true;
+            match Self::execute_action(&env, &action, proposed_at) {
+                Ok(()) => {
+                    proposal.executed = true;
+                }
+                Err(e) => {
+                    // Store proposal even if execution fails due to timelock
+                    let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
+                    proposals.set(id, proposal);
+                    env.storage().instance().set(&DataKey::Proposals, &proposals);
+                    return Err(e);
+                }
+            }
         }
 
         let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
@@ -182,7 +201,7 @@ impl VolatilityShield {
         
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
         if proposal.approvals.len() >= threshold {
-            Self::execute_action(&env, &proposal.action)?;
+            Self::execute_action(&env, &proposal.action, proposal.proposed_at)?;
             proposal.executed = true;
         }
 
@@ -192,7 +211,10 @@ impl VolatilityShield {
         Ok(())
     }
 
-    fn execute_action(env: &Env, action: &ActionType) -> Result<(), Error> {
+    fn execute_action(env: &Env, action: &ActionType, proposed_at: u64) -> Result<(), Error> {
+        // Check if timelock has elapsed
+        Self::assert_timelock_elapsed(env, proposed_at)?;
+
         match action {
             ActionType::SetPaused(state) => {
                 env.storage().instance().set(&DataKey::Paused, state);
@@ -205,6 +227,31 @@ impl VolatilityShield {
                 Self::internal_rebalance(env)?;
             }
         }
+
+        // Emit TimelockExecuted event
+        env.events().publish(
+            (symbol_short!("TimelockExecuted"),),
+            (),
+        );
+
+        Ok(())
+    }
+
+    fn assert_timelock_elapsed(env: &Env, proposed_at: u64) -> Result<(), Error> {
+        let timelock_duration: u64 = env.storage().instance().get(&DataKey::TimelockDuration).unwrap_or(0);
+        
+        // If timelock duration is 0, no timelock is enforced
+        if timelock_duration == 0 {
+            return Ok(());
+        }
+
+        let now = env.ledger().timestamp();
+        let elapsed = now.checked_sub(proposed_at).unwrap_or(0);
+        
+        if elapsed < timelock_duration {
+            return Err(Error::TimelockNotElapsed);
+        }
+
         Ok(())
     }
 
@@ -666,6 +713,12 @@ impl VolatilityShield {
     pub fn set_max_staleness(env: Env, seconds: u64) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::MaxStaleness, &seconds);
+    }
+
+    pub fn set_timelock_duration(env: Env, duration: u64) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::TimelockDuration, &duration);
+        env.events().publish((symbol_short!("TimelockDuration"),), duration);
     }
 
     pub fn max_staleness(env: &Env) -> u64 {
