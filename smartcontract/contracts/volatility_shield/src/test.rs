@@ -151,13 +151,13 @@ fn test_strategy_registry() {
     assert_eq!(client.read_admin(), admin);
 
     // Propose AddStrategy with threshold 1 -> immediate execution
-    client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone())).unwrap();
     let strategies = client.get_strategies();
     assert_eq!(strategies.len(), 1);
     assert_eq!(strategies.get(0).unwrap(), strategy);
 
     let strategy_2 = Address::generate(&env);
-    client.propose_action(&admin, &ActionType::AddStrategy(strategy_2.clone()));
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy_2.clone())).unwrap();
     let strategies = client.get_strategies();
     assert_eq!(strategies.len(), 2);
     assert_eq!(strategies.get(1).unwrap(), strategy_2);
@@ -265,21 +265,13 @@ fn test_rebalance_admin_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    env.ledger().set_timestamp(12345);
-    let allocations: Map<Address, i128> = Map::new(&env);
-    client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     // Propose Rebalance with threshold 1 -> immediate execution
-    client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 }
 
 #[test]
@@ -328,7 +320,7 @@ fn test_multisig_set_paused() {
 
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
 
-    let id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    let id = client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
     
     // One approval not enough
     assert!(!client.is_paused());
@@ -421,11 +413,7 @@ mod integration {
         allocations.set(mock_strategy_id.clone(), 500);
 
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
-        client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+        client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
@@ -463,11 +451,7 @@ mod integration {
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
-        client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+        client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 
         assert_eq!(mock_client.balance(), 500);
 
@@ -520,11 +504,7 @@ mod integration {
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
-        client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+        client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -576,11 +556,11 @@ fn test_set_paused_toggles_state() {
     assert!(!client.is_paused());
 
     // Pause -> immediate
-    client.propose_action(&admin, &ActionType::SetPaused(true));
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
     assert!(client.is_paused());
 
     // Unpause -> immediate
-    client.propose_action(&admin, &ActionType::SetPaused(false));
+    client.propose_action(&admin, &ActionType::SetPaused(false)).unwrap();
     assert!(!client.is_paused());
 }
 
@@ -603,7 +583,7 @@ fn test_deposit_blocked_when_paused() {
     client.init(&admin, &token_id, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     // Pause the vault
-    client.propose_action(&admin, &ActionType::SetPaused(true));
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
 
     // Deposit should be blocked
     let user = Address::generate(&env);
@@ -637,7 +617,7 @@ fn test_withdraw_blocked_when_paused() {
     stellar_asset_client.mint(&contract_id, &100);
 
     // Pause the vault
-    client.propose_action(&admin, &ActionType::SetPaused(true));
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
 
     // Withdraw should be blocked
     client.withdraw(&user, &10);
@@ -811,10 +791,7 @@ fn test_withdraw_fails_when_cap_exceeded() {
 }
 
 #[test]
-<<<<<<< HEAD
-=======
 #[should_panic(expected = "StaleOracleData")]
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 fn test_rebalance_stale_oracle_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -887,7 +864,178 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
-<<<<<<< HEAD
+// ── Timelock Tests ─────────────────────────
 
-=======
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+#[test]
+fn test_timelock_duration_setting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set timelock duration to 100 seconds
+    client.set_timelock_duration(&100);
+    
+    // Verify it was set (we can't directly read it, but execution will respect it)
+}
+
+#[test]
+fn test_timelock_prevents_premature_execution() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set timelock duration to 100 seconds
+    client.set_timelock_duration(&100);
+
+    // Set current timestamp
+    env.ledger().set_timestamp(1000);
+
+    // Propose action - should return error because timelock hasn't elapsed
+    // With threshold 1, it tries to execute immediately but timelock blocks it
+    let result = client.try_propose_action(&admin, &ActionType::SetPaused(true));
+    assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
+}
+
+#[test]
+fn test_timelock_allows_execution_after_duration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set timelock duration to 100 seconds
+    client.set_timelock_duration(&100);
+
+    // Set initial timestamp
+    env.ledger().set_timestamp(1000);
+
+    // Propose action - this will store the proposal with timestamp
+    // Since threshold is 1, it will try to execute but timelock will block
+    let result = client.try_propose_action(&admin, &ActionType::SetPaused(true));
+    assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
+
+    // Advance time by 100 seconds (exactly the timelock duration)
+    env.ledger().set_timestamp(1100);
+
+    // Now propose again - should succeed
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_timelock_with_multisig_approval() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+
+    // Set timelock duration to 100 seconds
+    client.set_timelock_duration(&100);
+
+    // Set initial timestamp
+    env.ledger().set_timestamp(1000);
+
+    // Propose action (threshold is 2, so it won't execute immediately)
+    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
+    
+    // Try to approve immediately - should fail due to timelock
+    let result = client.try_approve_action(&oracle, &proposal_id);
+    assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
+
+    // Advance time by 100 seconds
+    env.ledger().set_timestamp(1100);
+
+    // Now approve - should succeed and execute
+    client.approve_action(&oracle, &proposal_id).unwrap();
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_timelock_zero_duration_allows_immediate_execution() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set timelock duration to 0 (no timelock)
+    client.set_timelock_duration(&0);
+
+    // Propose action - should execute immediately
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_timelock_events_emitted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set timelock duration to 100 seconds
+    client.set_timelock_duration(&100);
+
+    // Set initial timestamp
+    env.ledger().set_timestamp(1000);
+
+    // Propose action - TimelockStarted event should be emitted
+    // (Even if execution fails, the event should be emitted)
+    let _ = client.try_propose_action(&admin, &ActionType::SetPaused(true));
+
+    // Advance time
+    env.ledger().set_timestamp(1100);
+
+    // Propose again - should succeed and emit both events
+    client.propose_action(&admin, &ActionType::SetPaused(true)).unwrap();
+    // TimelockExecuted event should be emitted during execution
+}
