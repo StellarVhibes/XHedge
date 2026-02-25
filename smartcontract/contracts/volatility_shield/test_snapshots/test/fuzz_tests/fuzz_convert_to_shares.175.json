@@ -83,12 +83,40 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Guardians"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "MaxStaleness"
                             }
                           ]
                         },
                         "val": {
                           "u64": 3600
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "NextProposalId"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1
                         }
                       },
                       {
@@ -119,6 +147,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Threshold"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Token"
                             }
                           ]
@@ -138,7 +178,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 709273849972871920
+                            "lo": 757697789333120933
                           }
                         }
                       },
@@ -153,7 +193,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 208864778932700700
+                            "lo": 726357221117218971
                           }
                         }
                       },

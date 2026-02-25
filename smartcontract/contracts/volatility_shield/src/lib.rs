@@ -21,6 +21,13 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
+<<<<<<< HEAD
+=======
+    ProposalNotFound = 11,
+    AlreadyApproved = 12,
+    ProposalExecuted = 13,
+    InsufficientApprovals = 14,
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -46,6 +53,13 @@ pub enum DataKey {
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
+<<<<<<< HEAD
+=======
+    Guardians,
+    Threshold,
+    Proposals,
+    NextProposalId,
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -89,11 +103,111 @@ impl<'a> StrategyClient<'a> {
 // ─────────────────────────────────────────────
 // Contract
 // ─────────────────────────────────────────────
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActionType {
+    SetPaused(bool),
+    AddStrategy(Address),
+    Rebalance,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub action: ActionType,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
+}
+
 #[contract]
 pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
+    // ── Governance ────────────────────────────
+    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
+        proposer.require_auth();
+        
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
+        if !guardians.contains(proposer.clone()) {
+            panic!("not a guardian");
+        }
+
+        let id = env.storage().instance().get(&DataKey::NextProposalId).unwrap_or(1);
+        env.storage().instance().set(&DataKey::NextProposalId, &(id + 1));
+
+        let mut proposal = Proposal {
+            id,
+            proposer: proposer.clone(),
+            action: action.clone(),
+            approvals: soroban_sdk::vec![&env, proposer],
+            executed: false,
+        };
+
+        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+        if threshold <= 1 {
+            Self::execute_action(&env, &action).unwrap();
+            proposal.executed = true;
+        }
+
+        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
+        proposals.set(id, proposal);
+        env.storage().instance().set(&DataKey::Proposals, &proposals);
+
+        id
+    }
+
+    pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
+        guardian.require_auth();
+
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).ok_or(Error::NotInitialized)?;
+        if !guardians.contains(guardian.clone()) {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).ok_or(Error::NotInitialized)?;
+        let mut proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalExecuted);
+        }
+
+        if proposal.approvals.contains(guardian.clone()) {
+            return Err(Error::AlreadyApproved);
+        }
+
+        proposal.approvals.push_back(guardian);
+        
+        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+        if proposal.approvals.len() >= threshold {
+            Self::execute_action(&env, &proposal.action)?;
+            proposal.executed = true;
+        }
+
+        proposals.set(proposal_id, proposal);
+        env.storage().instance().set(&DataKey::Proposals, &proposals);
+
+        Ok(())
+    }
+
+    fn execute_action(env: &Env, action: &ActionType) -> Result<(), Error> {
+        match action {
+            ActionType::SetPaused(state) => {
+                env.storage().instance().set(&DataKey::Paused, state);
+                env.events().publish((symbol_short!("paused"),), state);
+            }
+            ActionType::AddStrategy(strategy) => {
+                Self::internal_add_strategy(env, strategy.clone())?;
+            }
+            ActionType::Rebalance => {
+                Self::internal_rebalance(env)?;
+            }
+        }
+        Ok(())
+    }
+
     // ── Initialization ────────────────────────
     /// Must be called once. Stores roles and configuration.
     pub fn init(
@@ -103,6 +217,8 @@ impl VolatilityShield {
         oracle: Address,
         treasury: Address,
         fee_percentage: u32,
+        guardians: Vec<Address>,
+        threshold: u32,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
@@ -110,6 +226,9 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Asset, &asset);
         env.storage().instance().set(&DataKey::Oracle, &oracle);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        env.storage().instance().set(&DataKey::NextProposalId, &1u64);
         env.storage()
             .instance()
             .set(&DataKey::Strategies, &Vec::<Address>::new(&env));
@@ -242,8 +361,13 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
+<<<<<<< HEAD
     /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
     pub fn rebalance(env: Env) -> Result<(), Error> {
+=======
+    /// **Access control**: must be called via the multi-sig governance system.
+    fn internal_rebalance(env: &Env) -> Result<(), Error> {
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
         let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
@@ -319,7 +443,7 @@ impl VolatilityShield {
     }
 
     // ── Strategy Management ───────────────────
-    pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+    fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
         Self::require_admin(&env);
 
         let mut strategies: Vec<Address> = env
@@ -437,6 +561,19 @@ impl VolatilityShield {
             .unwrap_or(0)
     }
 
+    pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
+        let proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals)?;
+        proposals.get(proposal_id)
+    }
+
+    pub fn get_guardians(env: Env) -> Vec<Address> {
+        env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env))
+    }
+
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Threshold).unwrap_or(1)
+    }
+
     // ── Internal Helpers ──────────────────────
     pub fn take_fees(env: &Env, amount: i128) -> i128 {
         let fee_pct = Self::fee_percentage(&env);
@@ -508,10 +645,8 @@ impl VolatilityShield {
     }
 
     // ── Emergency Pause ──────────────────────────
-    pub fn set_paused(env: Env, state: bool) {
-        Self::require_admin(&env);
-        env.storage().instance().set(&DataKey::Paused, &state);
-        env.events().publish((symbol_short!("paused"),), state);
+    pub fn set_paused(_env: Env, _state: bool) {
+        panic!("set_paused is deprecated, use governance proposals");
     }
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
