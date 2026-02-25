@@ -1128,3 +1128,262 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
+
+#[cfg(test)]
+mod strategy_health_tests {
+    use super::*;
+    use mock_strategy::MockStrategyClient;
+
+    fn create_mock_strategy(env: &Env) -> (Address, MockStrategyClient) {
+        let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
+        let mock_client = MockStrategyClient::new(env, &mock_strategy_id);
+        (mock_strategy_id, mock_client)
+    }
+
+    #[test]
+    fn test_check_strategy_health_all_healthy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Set up expected allocations
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Mock strategy returns expected balance
+        mock_client.deposit(&1000);
+
+        // Check health - should return empty list (all healthy)
+        let unhealthy = client.check_strategy_health();
+        assert_eq!(unhealthy.len(), 0);
+    }
+
+    #[test]
+    fn test_check_strategy_health_unhealthy_detected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Set up expected allocations
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Mock strategy returns lower than expected (more than 10% deviation)
+        mock_client.deposit(&800); // 20% deviation
+
+        // Check health - should detect unhealthy strategy
+        let unhealthy = client.check_strategy_health();
+        assert_eq!(unhealthy.len(), 1);
+        assert_eq!(unhealthy.get(0).unwrap(), mock_strategy_id);
+    }
+
+    #[test]
+    fn test_flag_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Flag strategy as unhealthy
+        client.flag_strategy(&mock_strategy_id);
+
+        // Check health data reflects flagged status
+        let health = client.get_strategy_health(&mock_strategy_id);
+        assert!(health.is_some());
+        assert!(!health.unwrap().is_healthy);
+    }
+
+    #[test]
+    #[should_panic(expected = "NotInitialized")]
+    fn test_flag_nonexistent_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let nonexistent_strategy = Address::generate(&env);
+        client.flag_strategy(&nonexistent_strategy);
+    }
+
+    #[test]
+    fn test_remove_strategy_with_funds() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let token_admin = Address::generate(&env);
+        let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Mint tokens to vault and deposit to strategy
+        stellar_asset_client.mint(&contract_id, &1000);
+        mock_client.deposit(&1000);
+
+        // Remove strategy
+        client.remove_strategy(&mock_strategy_id);
+
+        // Strategy should be removed from list
+        let strategies = client.get_strategies();
+        assert!(!strategies.contains(&mock_strategy_id));
+
+        // All funds should be back in vault
+        assert_eq!(mock_client.balance(), 0);
+        assert_eq!(token_client.balance(&contract_id), 1000);
+
+        // Health data should be cleaned up
+        let health = client.get_strategy_health(&mock_strategy_id);
+        assert!(health.is_none());
+    }
+
+    #[test]
+    fn test_remove_strategy_empty_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Remove strategy with empty balance
+        client.remove_strategy(&mock_strategy_id);
+
+        // Strategy should be removed from list
+        let strategies = client.get_strategies();
+        assert!(!strategies.contains(&mock_strategy_id));
+    }
+
+    #[test]
+    #[should_panic(expected = "NotInitialized")]
+    fn test_remove_nonexistent_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let nonexistent_strategy = Address::generate(&env);
+        client.remove_strategy(&nonexistent_strategy);
+    }
+
+    #[test]
+    fn test_get_strategy_health() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Initially should have default health
+        let health = client.get_strategy_health(&mock_strategy_id);
+        assert!(health.is_some());
+        assert!(health.unwrap().is_healthy);
+
+        // After flagging, should be unhealthy
+        client.flag_strategy(&mock_strategy_id);
+        let health = client.get_strategy_health(&mock_strategy_id);
+        assert!(health.is_some());
+        assert!(!health.unwrap().is_healthy);
+    }
+
+    #[test]
+    #[should_panic(expected = "NoStrategies")]
+    fn test_check_health_no_strategies() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        // Try to check health with no strategies
+        client.check_strategy_health();
+    }
+}

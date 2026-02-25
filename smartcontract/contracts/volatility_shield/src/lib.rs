@@ -56,6 +56,7 @@ pub enum DataKey {
     NextProposalId,
     WithdrawQueueThreshold,
     PendingWithdrawals,
+    StrategyHealth(Address),
 }
 
 // ─────────────────────────────────────────────
@@ -67,6 +68,17 @@ pub struct QueuedWithdrawal {
     pub user: Address,
     pub shares: i128,
     pub timestamp: u64,
+}
+
+// ─────────────────────────────────────────────
+// Strategy health struct
+// ─────────────────────────────────────────────
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyHealth {
+    pub last_known_balance: i128,
+    pub last_check_timestamp: u64,
+    pub is_healthy: bool,
 }
 
 // ─────────────────────────────────────────────
@@ -634,6 +646,160 @@ impl VolatilityShield {
         env.events()
             .publish((symbol_short!("harvest"),), total_yield);
         Ok(total_yield)
+    }
+
+    // ── Strategy Health Monitoring ───────────────────
+    /// Check health of all strategies and compare expected vs actual balances
+    pub fn check_strategy_health(env: Env) -> Result<Vec<Address>, Error> {
+        Self::require_admin(&env);
+        
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return Err(Error::NoStrategies);
+        }
+
+        let mut unhealthy_strategies = Vec::new(&env);
+        let current_time = env.ledger().timestamp();
+        
+        // Get expected allocations from oracle data
+        let expected_allocations: Map<Address, i128> = env.storage()
+            .instance()
+            .get(&DataKey::TargetAllocations)
+            .unwrap_or(Map::new(&env));
+
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            let actual_balance = strategy.balance();
+            
+            // Get expected balance from allocations
+            let expected_balance = expected_allocations
+                .get(strategy_addr.clone())
+                .unwrap_or(0);
+            
+            // Get current health data
+            let health_key = DataKey::StrategyHealth(strategy_addr.clone());
+            let current_health = env.storage()
+                .instance()
+                .get(&health_key)
+                .unwrap_or(StrategyHealth {
+                    last_known_balance: expected_balance,
+                    last_check_timestamp: current_time,
+                    is_healthy: true,
+                });
+            
+            // Check if strategy is unhealthy (significant deviation from expected)
+            let balance_deviation = if expected_balance > 0 {
+                // Allow 10% deviation before flagging as unhealthy
+                let deviation_threshold = expected_balance.checked_div(10).unwrap_or(0);
+                (actual_balance as i128 - expected_balance).abs() > deviation_threshold
+            } else {
+                // If expected is 0, any positive actual balance is considered healthy
+                false
+            };
+            
+            let is_healthy = !balance_deviation;
+            
+            // Update health data if changed
+            if is_healthy != current_health.is_healthy || 
+               actual_balance != current_health.last_known_balance {
+                let new_health = StrategyHealth {
+                    last_known_balance: actual_balance,
+                    last_check_timestamp: current_time,
+                    is_healthy,
+                };
+                env.storage().instance().set(&health_key, &new_health);
+            }
+            
+            // If unhealthy, add to list for flagging
+            if !is_healthy {
+                unhealthy_strategies.push_back(strategy_addr.clone());
+            }
+        }
+        
+        Ok(unhealthy_strategies)
+    }
+
+    /// Flag a strategy as unhealthy (admin only)
+    pub fn flag_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        
+        // Verify strategy exists
+        let strategies = Self::get_strategies(&env);
+        if !strategies.contains(strategy.clone()) {
+            return Err(Error::NotInitialized);
+        }
+        
+        let health_key = DataKey::StrategyHealth(strategy.clone());
+        let current_time = env.ledger().timestamp();
+        
+        // Update health to unhealthy
+        let updated_health = StrategyHealth {
+            last_known_balance: 0, // Will be updated on next health check
+            last_check_timestamp: current_time,
+            is_healthy: false,
+        };
+        
+        env.storage().instance().set(&health_key, &updated_health);
+        
+        // Emit StrategyFlagged event
+        env.events()
+            .publish((symbol_short!("StrategyF"), strategy.clone()), current_time);
+        
+        Ok(())
+    }
+
+    /// Remove a strategy and withdraw all funds first (admin only)
+    pub fn remove_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        
+        // Verify strategy exists
+        let mut strategies = Self::get_strategies(&env);
+        let strategy_index = strategies.iter().position(|s| s == strategy);
+        
+        if strategy_index.is_none() {
+            return Err(Error::NotInitialized);
+        }
+        
+        // Withdraw all funds from strategy first
+        let strategy_client = StrategyClient::new(&env, strategy.clone());
+        let strategy_balance = strategy_client.balance();
+        
+        if strategy_balance > 0 {
+            // Transfer all funds back to vault
+            let asset_addr = Self::get_asset(&env);
+            let token_client = token::Client::new(&env, &asset_addr);
+            
+            // Withdraw from strategy
+            strategy_client.withdraw(strategy_balance);
+            
+            // Update total assets to reflect returned funds
+            let current_assets = Self::total_assets(&env);
+            Self::set_total_assets(
+                env.clone(),
+                current_assets.checked_add(strategy_balance).unwrap(),
+            );
+        }
+        
+        // Remove from strategies list
+        strategies.remove(strategy_index.unwrap() as u32);
+        env.storage().instance().set(&DataKey::Strategies, &strategies);
+        
+        // Clean up health data
+        let health_key = DataKey::StrategyHealth(strategy.clone());
+        env.storage().instance().remove(&health_key);
+        
+        // Emit StrategyRemoved event
+        env.events()
+            .publish((symbol_short!("StrategyR"), strategy.clone()), strategy_balance);
+        
+        Ok(())
+    }
+
+    /// Get health information for a specific strategy
+    pub fn get_strategy_health(env: Env, strategy: Address) -> Option<StrategyHealth> {
+        env.storage()
+            .instance()
+            .get(&DataKey::StrategyHealth(strategy))
     }
 
     // ── View helpers ──────────────────────────
