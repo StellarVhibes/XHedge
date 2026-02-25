@@ -2,7 +2,7 @@
 use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient;
-use soroban_sdk::{testutils::Address as _, Address, Env, Map};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Map};
 
 extern crate std;
 
@@ -257,9 +257,30 @@ fn test_rebalance_admin_auth_accepted() {
     let treasury = Address::generate(&env);
 
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
-
+    env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
-    client.rebalance(&allocations);
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+    client.rebalance();
+}
+
+#[test]
+fn test_rebalance_oracle_auth_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    env.ledger().set_timestamp(12345);
+    let allocations: Map<Address, i128> = Map::new(&env);
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+    client.rebalance();
 }
 
 mod integration {
@@ -298,10 +319,12 @@ mod integration {
         client.set_total_assets(&1000);
         client.set_total_shares(&1000);
 
+        env.ledger().set_timestamp(12345);
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
 
-        client.rebalance(&allocations);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.rebalance();
 
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
@@ -334,15 +357,19 @@ mod integration {
         client.set_total_assets(&1000);
         client.set_total_shares(&1000);
 
+        env.ledger().set_timestamp(12345);
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
-        client.rebalance(&allocations);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.rebalance();
 
         assert_eq!(mock_client.balance(), 500);
 
+        env.ledger().set_timestamp(12346); // Increment for subsequent update
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
-        client.rebalance(&allocations2);
+        client.set_oracle_data(&allocations2, &env.ledger().timestamp());
+        client.rebalance();
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -377,10 +404,12 @@ mod integration {
         client.set_total_assets(&1000);
         client.set_total_shares(&1000);
 
+        env.ledger().set_timestamp(12345);
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
-        client.rebalance(&allocations);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.rebalance();
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -550,3 +579,169 @@ mod fuzz_tests {
         }
     }
 }
+
+#[test]
+fn test_set_deposit_and_withdraw_caps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+
+    client.set_deposit_cap(&1000, &5000);
+    client.set_withdraw_cap(&500);
+
+    // Testing getter equivalent isn't exposed but auth flow succeeds
+}
+
+#[test]
+#[should_panic(expected = "DepositCapExceeded: per-user deposit cap exceeded")]
+fn test_deposit_fails_when_user_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Set MaxDepositPerUser to 500
+    client.set_deposit_cap(&500, &5000);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 600;
+    stellar_asset_client.mint(&user, &deposit_amount);
+
+    // This should panic
+    client.deposit(&user, &deposit_amount);
+}
+
+#[test]
+#[should_panic(expected = "DepositCapExceeded: global deposit cap exceeded")]
+fn test_deposit_fails_when_global_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Set MaxTotalAssets to 1000, high user cap
+    client.set_deposit_cap(&5000, &1000);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1500);
+
+    // This should panic
+    client.deposit(&user, &1500);
+}
+
+#[test]
+#[should_panic(expected = "WithdrawalCapExceeded: per-tx withdrawal cap exceeded")]
+fn test_withdraw_fails_when_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Setup initial state
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+    let user = Address::generate(&env);
+    client.set_balance(&user, &1000);
+    stellar_asset_client.mint(&contract_id, &1000);
+
+    // Set withdrawal cap to 200
+    client.set_withdraw_cap(&200);
+
+    // Trying to withdraw 300 should panic
+    client.withdraw(&user, &300);
+}
+
+#[test]
+fn test_rebalance_stale_oracle_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    
+    // Set max staleness to 100s
+    client.set_max_staleness(&100);
+
+    let allocations: Map<Address, i128> = Map::new(&env);
+    let timestamp = 1000;
+    env.ledger().set_timestamp(timestamp);
+    client.set_oracle_data(&allocations, &timestamp);
+
+    // Advance time to 1101s (timestamp + 100 + 1)
+    env.ledger().set_timestamp(timestamp + 100 + 1);
+
+    let result = client.try_rebalance();
+    assert_eq!(result, Err(Ok(Error::StaleOracleData)));
+}
+
+#[test]
+fn test_set_oracle_data_invalid_timestamp() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let allocations: Map<Address, i128> = Map::new(&env);
+    let now = 1000;
+    env.ledger().set_timestamp(now);
+
+    // Future timestamp
+    let result = client.try_set_oracle_data(&allocations, &(now + 1));
+    assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
+
+    // Equal to past
+    client.set_oracle_data(&allocations, &now);
+    let result = client.try_set_oracle_data(&allocations, &now);
+    assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
+}
+

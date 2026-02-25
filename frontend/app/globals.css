@@ -13,11 +13,11 @@
     --primary: 262 83% 58%;
     --primary-foreground: 210 40% 98%;
     --secondary: 220 14% 96%;
-    --secondary-foreground: 220 12% 38%;
+    --secondary-foreground: 220 12% 26%;
     --muted: 220 14% 96%;
-    --muted-foreground: 220 12% 38%;
+    --muted-foreground: 220 12% 26%;
     --accent: 220 14% 96%;
-    --accent-foreground: 220 12% 38%;
+    --accent-foreground: 220 12% 26%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
     --border: 220 13% 91%;
@@ -69,12 +69,17 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
-    transition: background-color 0.3s ease, color 0.3s ease;
   }
-  header, footer, nav, aside, main, section, div, span, button, input, a {
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+
+  *,
+  ::before,
+  ::after {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 300ms;
   }
 }
 
@@ -93,6 +98,7 @@
   0% {
     transform: translateY(0);
   }
+
   100% {
     transform: translateY(-50%);
   }
