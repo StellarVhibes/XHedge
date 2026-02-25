@@ -1,5 +1,6 @@
 "use client";
-
+import { useState, useEffect } from 'react';
+import type { Slice } from '@/components/AllocationChart';
 import { VaultOverviewCard } from "@/components/vault-overview-card";
 import { Shield, ArrowUpFromLine, ArrowDownToLine } from "lucide-react";
 import Link from "next/link";
