@@ -265,21 +265,13 @@ fn test_rebalance_admin_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    env.ledger().set_timestamp(12345);
-    let allocations: Map<Address, i128> = Map::new(&env);
-    client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
-=======
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
+let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     // Propose Rebalance with threshold 1 -> immediate execution
     client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 #[test]
@@ -295,13 +287,6 @@ fn test_rebalance_oracle_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    env.ledger().set_timestamp(12345);
-    let allocations: Map<Address, i128> = Map::new(&env);
-    client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
@@ -376,7 +361,6 @@ fn test_multisig_unauthorized_propose() {
     let stranger = Address::generate(&env);
     let result = client.try_propose_action(&stranger, &ActionType::Rebalance);
     assert!(result.is_err());
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 mod integration {
@@ -421,11 +405,7 @@ mod integration {
         allocations.set(mock_strategy_id.clone(), 500);
 
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
         client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
@@ -463,11 +443,7 @@ mod integration {
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
         client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 500);
 
@@ -475,11 +451,7 @@ mod integration {
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
         client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -520,11 +492,7 @@ mod integration {
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
         client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -810,11 +778,297 @@ fn test_withdraw_fails_when_cap_exceeded() {
     client.withdraw(&user, &300);
 }
 
+// ── Withdraw Queue Tests ─────────────────────────
+
 #[test]
-<<<<<<< HEAD
-=======
+fn test_set_withdraw_queue_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Test setting threshold
+    client.set_withdraw_queue_threshold(&1000);
+    assert_eq!(client.get_withdraw_queue_threshold(), 1000);
+
+    // Test default threshold (should be i128::MAX)
+    client.set_withdraw_queue_threshold(&i128::MAX);
+    assert_eq!(client.get_withdraw_queue_threshold(), i128::MAX);
+}
+
+#[test]
+#[should_panic(expected = "threshold must be non-negative")]
+fn test_set_negative_queue_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&-1);
+}
+
+#[test]
+fn test_queue_withdraw_success() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold to 500 assets
+    client.set_withdraw_queue_threshold(&500);
+
+    // Set up vault state: 1000 shares = 1000 assets (1:1 ratio)
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &600); // 600 shares = 600 assets
+
+    stellar_asset_client.mint(&contract_id, &1000);
+
+    // Queue withdrawal of 600 shares (600 assets > 500 threshold)
+    client.queue_withdraw(&user, &600);
+
+    // Check that withdrawal is queued
+    let pending = client.get_pending_withdrawals();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending.get(0).unwrap().user, user);
+    assert_eq!(pending.get(0).unwrap().shares, 600);
+
+    // User balance should remain unchanged until processed
+    assert_eq!(client.balance(&user), 600);
+}
+
+#[test]
+#[should_panic(expected = "withdrawal amount does not exceed queue threshold")]
+fn test_queue_withdraw_below_threshold() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold to 1000 assets
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Set up vault state
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &500); // 500 shares = 500 assets
+
+    stellar_asset_client.mint(&contract_id, &1000);
+
+    // Try to queue withdrawal of 500 shares (500 assets <= 1000 threshold)
+    client.queue_withdraw(&user, &500);
+}
+
+#[test]
+#[should_panic(expected = "shares to queue must be positive")]
+fn test_queue_withdraw_non_positive() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let user = Address::generate(&env);
+    client.queue_withdraw(&user, &0);
+}
+
+#[test]
+#[should_panic(expected = "insufficient shares for withdrawal")]
+fn test_queue_withdraw_insufficient_shares() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&100);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &50); // Only 50 shares
+
+    // Try to queue 100 shares
+    client.queue_withdraw(&user, &100);
+}
+
+#[test]
+fn test_process_queued_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&100);
+
+    // Set up vault state
+    client.set_total_shares(&2000);
+    client.set_total_assets(&2000);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    client.set_balance(&user1, &600);
+    client.set_balance(&user2, &800);
+
+    stellar_asset_client.mint(&contract_id, &2000);
+
+    // Queue withdrawals
+    client.queue_withdraw(&user1, &600);
+    client.queue_withdraw(&user2, &800);
+
+    // Verify both are queued
+    let pending = client.get_pending_withdrawals();
+    assert_eq!(pending.len(), 2);
+
+    // Process only 1 withdrawal
+    let processed = client.process_queued_withdrawals(&1);
+    assert_eq!(processed, 1);
+
+    // Check that 1 withdrawal remains in queue
+    let remaining = client.get_pending_withdrawals();
+    assert_eq!(remaining.len(), 1);
+
+    // Process the remaining withdrawal
+    let processed = client.process_queued_withdrawals(&5); // limit higher than remaining
+    assert_eq!(processed, 1);
+
+    // Queue should be empty
+    let remaining = client.get_pending_withdrawals();
+    assert_eq!(remaining.len(), 0);
+
+    // Verify final balances
+    assert_eq!(client.balance(&user1), 0);
+    assert_eq!(client.balance(&user2), 0);
+    assert_eq!(client.total_shares(), 600); // 2000 - 600 - 800
+    assert_eq!(client.total_assets(), 600); // 2000 - 600 - 800
+}
+
+#[test]
+fn test_process_queued_withdrawals_insufficient_shares() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&100);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &500);
+
+    // Queue withdrawal
+    client.queue_withdraw(&user, &500);
+
+    // Reduce user's balance (simulating other withdrawals)
+    client.set_balance(&user, &300);
+
+    // Process should skip this withdrawal due to insufficient shares
+    let processed = client.process_queued_withdrawals(&5);
+    assert_eq!(processed, 0);
+
+    // Withdrawal should remain in queue
+    let remaining = client.get_pending_withdrawals();
+    assert_eq!(remaining.len(), 1);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_queue_withdraw_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&100);
+
+    // Pause the contract
+    client.propose_action(&admin, &ActionType::SetPaused(true));
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &500);
+
+    client.queue_withdraw(&user, &500);
+}
+
+#[test]
 #[should_panic(expected = "StaleOracleData")]
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 fn test_rebalance_stale_oracle_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -827,12 +1081,8 @@ fn test_rebalance_stale_oracle_rejected() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
     
     // Set max staleness to 100s
     client.set_max_staleness(&100);
@@ -845,13 +1095,8 @@ fn test_rebalance_stale_oracle_rejected() {
     // Advance time to 1101s (timestamp + 100 + 1)
     env.ledger().set_timestamp(timestamp + 100 + 1);
 
-<<<<<<< HEAD
-    let result = client.try_rebalance();
-    assert_eq!(result, Err(Ok(Error::StaleOracleData)));
-=======
     // Propose Rebalance with threshold 1 -> triggers immediate execution via unwrap() -> panics with StaleOracleData
     client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 #[test]
@@ -867,12 +1112,8 @@ fn test_set_oracle_data_invalid_timestamp() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
@@ -887,7 +1128,3 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
-<<<<<<< HEAD
-
-=======
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)

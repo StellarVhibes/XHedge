@@ -21,13 +21,10 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
-<<<<<<< HEAD
-=======
     ProposalNotFound = 11,
     AlreadyApproved = 12,
     ProposalExecuted = 13,
     InsufficientApprovals = 14,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -53,13 +50,23 @@ pub enum DataKey {
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
-<<<<<<< HEAD
-=======
     Guardians,
     Threshold,
     Proposals,
     NextProposalId,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    WithdrawQueueThreshold,
+    PendingWithdrawals,
+}
+
+// ─────────────────────────────────────────────
+// Queued withdrawal struct
+// ─────────────────────────────────────────────
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueuedWithdrawal {
+    pub user: Address,
+    pub shares: i128,
+    pub timestamp: u64,
 }
 
 // ─────────────────────────────────────────────
@@ -354,6 +361,145 @@ impl VolatilityShield {
             .publish((symbol_short!("withdraw"), from.clone()), shares);
     }
 
+    // ── Queue Withdraw ─────────────────────────
+    /// Queue a withdrawal that exceeds the threshold for controlled processing
+    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+        Self::assert_not_paused(&env);
+        if shares <= 0 {
+            panic!("shares to queue must be positive");
+        }
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if current_balance < shares {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+        
+        // Check if withdrawal exceeds queue threshold
+        let queue_threshold: i128 = env.storage().instance()
+            .get(&DataKey::WithdrawQueueThreshold)
+            .unwrap_or(i128::MAX);
+        
+        if assets_to_withdraw <= queue_threshold {
+            panic!("withdrawal amount does not exceed queue threshold");
+        }
+
+        // Create queued withdrawal entry
+        let queued_withdrawal = QueuedWithdrawal {
+            user: from.clone(),
+            shares,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        // Add to pending withdrawals queue
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+        
+        pending_withdrawals.push_back(queued_withdrawal);
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+
+        // Emit WithdrawQueued event
+        env.events()
+            .publish((symbol_short!("WithdrawQ"), from.clone()), shares);
+    }
+
+    // ── Withdraw Queue Management ─────────────────────
+    /// Set the threshold for queuing withdrawals
+    pub fn set_withdraw_queue_threshold(env: Env, threshold: i128) {
+        Self::require_admin(&env);
+        if threshold < 0 {
+            panic!("threshold must be non-negative");
+        }
+        env.storage().instance().set(&DataKey::WithdrawQueueThreshold, &threshold);
+        env.events().publish((symbol_short!("QueueThr"),), threshold);
+    }
+
+    /// Process queued withdrawals (admin only)
+    pub fn process_queued_withdrawals(env: Env, limit: u32) -> u32 {
+        Self::require_admin(&env);
+        
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+        
+        let initial_count = pending_withdrawals.len();
+        let mut processed = 0;
+        
+        let mut remaining_withdrawals = Vec::new(&env);
+        
+        for queued_withdrawal in pending_withdrawals.iter() {
+            if processed >= limit {
+                remaining_withdrawals.push_back(queued_withdrawal.clone());
+                continue;
+            }
+            
+            // Check if user still has sufficient shares
+            let balance_key = DataKey::Balance(queued_withdrawal.user.clone());
+            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            
+            if current_balance >= queued_withdrawal.shares {
+                // Process the withdrawal
+                let assets_to_withdraw = Self::convert_to_assets(env.clone(), queued_withdrawal.shares);
+                
+                let total_shares = Self::total_shares(&env);
+                let total_assets = Self::total_assets(&env);
+                
+                Self::set_total_shares(env.clone(), total_shares.checked_sub(queued_withdrawal.shares).unwrap());
+                Self::set_total_assets(
+                    env.clone(),
+                    total_assets.checked_sub(assets_to_withdraw).unwrap(),
+                );
+                env.storage().persistent().set(
+                    &balance_key,
+                    &(current_balance.checked_sub(queued_withdrawal.shares).unwrap()),
+                );
+                
+                let token: Address = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::Token)
+                    .expect("Token not initialized");
+                token::Client::new(&env, &token).transfer(
+                    &env.current_contract_address(),
+                    &queued_withdrawal.user,
+                    &assets_to_withdraw,
+                );
+                
+                env.events()
+                    .publish((symbol_short!("WithdrawP"), queued_withdrawal.user.clone()), queued_withdrawal.shares);
+                
+                processed += 1;
+            } else {
+                // Keep in queue if insufficient shares
+                remaining_withdrawals.push_back(queued_withdrawal.clone());
+            }
+        }
+        
+        // Update remaining withdrawals
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &remaining_withdrawals);
+        
+        processed
+    }
+
+    /// Get the current withdrawal queue threshold
+    pub fn get_withdraw_queue_threshold(env: Env) -> i128 {
+        env.storage().instance()
+            .get(&DataKey::WithdrawQueueThreshold)
+            .unwrap_or(i128::MAX)
+    }
+
+    /// Get all pending queued withdrawals
+    pub fn get_pending_withdrawals(env: Env) -> Vec<QueuedWithdrawal> {
+        env.storage().instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env))
+    }
+
     // ── Rebalance ─────────────────────────────
     /// Move funds between strategies according to `allocations`.
     ///
@@ -361,13 +507,8 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
-<<<<<<< HEAD
-    /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
-    pub fn rebalance(env: Env) -> Result<(), Error> {
-=======
     /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env) -> Result<(), Error> {
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
         let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
