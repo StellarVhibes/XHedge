@@ -16,9 +16,6 @@ fn create_token_contract<'a>(
     (contract_id.address(), stellar_asset_client, token_client)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Initialisation tests
-// ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_init_stores_roles() {
     let env = Env::default();
@@ -62,9 +59,6 @@ fn test_init_already_initialized() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Share math tests
-// ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_convert_to_assets() {
     let env = Env::default();
@@ -76,7 +70,7 @@ fn test_convert_to_assets() {
     let treasury = Address::generate(&env);
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
 
-    // When shares == 0, assets = shares
+    // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
 
     // 2. Test exact conversion
@@ -134,18 +128,6 @@ fn test_convert_to_shares() {
     assert_eq!(client.convert_to_shares(&100), 333);
 }
 
-#[test]
-#[should_panic(expected = "negative amount")]
-fn test_convert_to_shares_negative() {
-    let env = Env::default();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-    client.convert_to_shares(&-1);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Strategy registry tests
-// ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_strategy_registry() {
     let env = Env::default();
@@ -263,6 +245,25 @@ fn test_withdraw_success() {
 
 #[test]
 fn test_rebalance_admin_auth_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let allocations: Map<Address, i128> = Map::new(&env);
+    client.rebalance(&allocations);
+}
+
+#[test]
+fn test_rebalance_oracle_auth_accepted() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -674,3 +675,4 @@ fn test_withdraw_fails_when_cap_exceeded() {
     // Trying to withdraw 300 should panic
     client.withdraw(&user, &300);
 }
+

@@ -340,19 +340,10 @@ impl VolatilityShield {
 
     /// Total assets managed by the vault: vault token balance + sum of strategy balances.
     pub fn total_assets(env: &Env) -> i128 {
-        // Return 0 if not yet initialized (preserves 1:1 share math before init).
-        let asset_addr: Option<Address> = env.storage().instance().get(&DataKey::Asset);
-        let asset_addr = match asset_addr {
-            Some(a) => a,
-            None    => return 0,
-        };
-        let token_client = token::Client::new(env, &asset_addr);
-        let mut total    = token_client.balance(&env.current_contract_address());
-
-        for strategy_addr in Self::get_strategies(env).iter() {
-            total += StrategyClient::new(env, strategy_addr).balance();
-        }
-        total
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalAssets)
+        .unwrap_or(0)
     }
 
     pub fn total_shares(env: &Env) -> i128 {
