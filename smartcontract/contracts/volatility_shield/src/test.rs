@@ -459,11 +459,7 @@ mod integration {
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
-<<<<<<< HEAD
-        client.rebalance();
-=======
-        client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+        client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -804,12 +800,8 @@ fn test_rebalance_stale_oracle_rejected() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
     
     // Set max staleness to 100s
     client.set_max_staleness(&100);
@@ -822,13 +814,8 @@ fn test_rebalance_stale_oracle_rejected() {
     // Advance time to 1101s (timestamp + 100 + 1)
     env.ledger().set_timestamp(timestamp + 100 + 1);
 
-<<<<<<< HEAD
-    let result = client.try_rebalance();
-    assert_eq!(result, Err(Ok(Error::StaleOracleData)));
-=======
     // Propose Rebalance with threshold 1 -> triggers immediate execution via unwrap() -> panics with StaleOracleData
-    client.propose_action(&admin, &ActionType::Rebalance);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    client.propose_action(&admin, &ActionType::Rebalance).unwrap();
 }
 
 #[test]
@@ -844,12 +831,8 @@ fn test_set_oracle_data_invalid_timestamp() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
