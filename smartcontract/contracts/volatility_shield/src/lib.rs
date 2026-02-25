@@ -218,7 +218,7 @@ impl VolatilityShield {
 
         // Emit TimelockExecuted event
         env.events().publish(
-            (symbol_short!("TimelockEx"),),
+            (symbol_short!("TlockExec"),),
             (),
         );
 
@@ -701,7 +701,7 @@ impl VolatilityShield {
     pub fn set_timelock_duration(env: Env, duration: u64) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::TimelockDuration, &duration);
-        env.events().publish((symbol_short!("TimelockDur"),), duration);
+        env.events().publish((symbol_short!("TimelockD"),), duration);
     }
 
     pub fn max_staleness(env: &Env) -> u64 {

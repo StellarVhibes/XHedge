@@ -270,6 +270,14 @@
                                   },
                                   {
                                     "key": {
+                                      "symbol": "proposed_at"
+                                    },
+                                    "val": {
+                                      "u64": 12345
+                                    }
+                                  },
+                                  {
+                                    "key": {
                                       "symbol": "proposer"
                                     },
                                     "val": {
@@ -504,5 +512,51 @@
       ]
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "Timelock"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "u64": 1
+                },
+                {
+                  "u64": 12345
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "TlockExec"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }
