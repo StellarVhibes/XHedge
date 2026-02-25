@@ -326,8 +326,9 @@ impl VolatilityShield {
         let mut total_percentage: i128 = 0;
 
         for (strategy_addr, allocation) in allocations.iter() {
-            // Check for zero address
-            if strategy_addr == Address::from_string(&soroban_sdk::String::from_slice(env, &[0u8; 32])) {
+            // Check for zero address (compare with contract ID of all zeros)
+            let zero_address = Address::from_contract_id(env, &[0u8; 32]);
+            if strategy_addr == zero_address {
                 return Err(Error::ZeroAddressStrategy);
             }
 
