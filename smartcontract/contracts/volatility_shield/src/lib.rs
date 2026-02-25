@@ -26,6 +26,8 @@ pub enum Error {
     ProposalExecuted = 13,
     InsufficientApprovals = 14,
     TimelockNotElapsed = 15,
+    WithdrawalNotFound = 16,
+    QueueEmpty = 17,
 }
 
 // ─────────────────────────────────────────────
@@ -56,6 +58,8 @@ pub enum DataKey {
     Proposals,
     NextProposalId,
     TimelockDuration,
+    WithdrawQueueThreshold,
+    PendingWithdrawals,
 }
 
 // ─────────────────────────────────────────────
@@ -116,6 +120,14 @@ pub struct Proposal {
     pub approvals: Vec<Address>,
     pub executed: bool,
     pub proposed_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingWithdrawal {
+    pub user: Address,
+    pub shares: i128,
+    pub queued_at: u64,
 }
 
 #[contract]
@@ -361,6 +373,14 @@ impl VolatilityShield {
         }
         // --------------------------------
 
+        // Check if withdrawal exceeds queue threshold
+        let queue_threshold: i128 = env.storage().instance().get(&DataKey::WithdrawQueueThreshold).unwrap_or(i128::MAX);
+        if assets_to_withdraw > queue_threshold {
+            // Queue the withdrawal instead of processing immediately
+            Self::queue_withdraw(env, from, shares);
+            return;
+        }
+
         let total_shares = Self::total_shares(&env);
         let total_assets = Self::total_assets(&env);
 
@@ -387,6 +407,156 @@ impl VolatilityShield {
 
         env.events()
             .publish((symbol_short!("withdraw"), from.clone()), shares);
+    }
+
+    // ── Withdrawal Queue ───────────────────────
+    /// Queue a withdrawal request for processing later.
+    /// This is called automatically by withdraw() when the amount exceeds the threshold.
+    /// Note: Auth is already checked in withdraw(), so we don't require it again here.
+    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+        // Auth is already checked in withdraw(), skip here to avoid double auth
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if current_balance < shares {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        // Check if user already has a pending withdrawal
+        let mut pending_withdrawals: Vec<PendingWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        // Check if user already has a queued withdrawal
+        for i in 0..pending_withdrawals.len() {
+            if pending_withdrawals.get(i).unwrap().user == from {
+                panic!("user already has a pending withdrawal");
+            }
+        }
+
+        // Lock the shares by reducing user balance
+        env.storage().persistent().set(
+            &balance_key,
+            &(current_balance.checked_sub(shares).unwrap()),
+        );
+
+        // Add to queue
+        let withdrawal = PendingWithdrawal {
+            user: from.clone(),
+            shares,
+            queued_at: env.ledger().timestamp(),
+        };
+        pending_withdrawals.push_back(withdrawal.clone());
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+
+        env.events().publish(
+            (symbol_short!("WdrwQue"),),
+            (from, shares, withdrawal.queued_at),
+        );
+    }
+
+    /// Process queued withdrawals. Callable by admin/keeper.
+    pub fn process_withdraw_queue(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env);
+
+        let mut pending_withdrawals: Vec<PendingWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        if pending_withdrawals.is_empty() {
+            return Err(Error::QueueEmpty);
+        }
+
+        // Process the first withdrawal in the queue (FIFO)
+        let withdrawal = pending_withdrawals.pop_front().unwrap();
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), withdrawal.shares);
+
+        // Update total shares and assets
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        Self::set_total_shares(env.clone(), total_shares.checked_sub(withdrawal.shares).unwrap());
+        Self::set_total_assets(
+            env.clone(),
+            total_assets.checked_sub(assets_to_withdraw).unwrap(),
+        );
+
+        // Transfer tokens to user
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &withdrawal.user,
+            &assets_to_withdraw,
+        );
+
+        // Update queue
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+
+        env.events().publish(
+            (symbol_short!("WdrwProcd"),),
+            (withdrawal.user, withdrawal.shares, assets_to_withdraw),
+        );
+
+        Ok(())
+    }
+
+    /// Cancel a queued withdrawal request. Only the user who queued it can cancel.
+    pub fn cancel_withdraw(env: Env, from: Address) -> Result<(), Error> {
+        from.require_auth();
+
+        let pending_withdrawals: Vec<PendingWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        let mut found = false;
+        let mut withdrawal: Option<PendingWithdrawal> = None;
+        let mut new_queue = Vec::new(&env);
+
+        // Find and remove the user's withdrawal
+        for i in 0..pending_withdrawals.len() {
+            let w = pending_withdrawals.get(i).unwrap();
+            if w.user == from {
+                withdrawal = Some(w.clone());
+                found = true;
+            } else {
+                new_queue.push_back(w);
+            }
+        }
+
+        if !found {
+            return Err(Error::WithdrawalNotFound);
+        }
+
+        let w = withdrawal.unwrap();
+
+        // Restore the user's balance
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        env.storage().persistent().set(
+            &balance_key,
+            &(current_balance.checked_add(w.shares).unwrap()),
+        );
+
+        // Update queue
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &new_queue);
+
+        env.events().publish(
+            (symbol_short!("WdrwCncl"),),
+            (from, w.shares),
+        );
+
+        Ok(())
     }
 
     // ── Rebalance ─────────────────────────────
@@ -691,6 +861,19 @@ impl VolatilityShield {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::MaxWithdrawPerTx, &per_tx);
         env.events().publish((symbol_short!("Caps"), symbol_short!("withdraw")), per_tx);
+    }
+
+    pub fn set_withdraw_queue_threshold(env: Env, threshold: i128) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::WithdrawQueueThreshold, &threshold);
+        env.events().publish((symbol_short!("QThresh"),), threshold);
+    }
+
+    pub fn get_pending_withdrawals(env: Env) -> Vec<PendingWithdrawal> {
+        env.storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env))
     }
 
     pub fn set_max_staleness(env: Env, seconds: u64) {
