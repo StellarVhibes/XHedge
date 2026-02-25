@@ -745,3 +745,219 @@ fn test_set_oracle_data_invalid_timestamp() {
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
 
+// ── Oracle Allocation Validation Tests ─────────────────────────
+
+#[test]
+fn test_valid_allocation_sum_to_100_percent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+    let strategy3 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, 3000); // 30%
+    allocations.set(strategy2, 5000); // 50%
+    allocations.set(strategy3, 2000); // 20%
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_empty_allocation_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let allocations: Map<Address, i128> = Map::new(&env);
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_allocation_sum_less_than_100_percent_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, 3000); // 30%
+    allocations.set(strategy2, 5000); // 50%
+    // Total: 80% (should be 100%)
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::InvalidAllocationSum)));
+}
+
+#[test]
+fn test_allocation_sum_greater_than_100_percent_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+    let strategy3 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, 4000); // 40%
+    allocations.set(strategy2, 5000); // 50%
+    allocations.set(strategy3, 2500); // 25%
+    // Total: 115% (should be 100%)
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::InvalidAllocationSum)));
+}
+
+#[test]
+fn test_negative_allocation_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, -1000); // -10% (invalid)
+    allocations.set(strategy2, 11000); // 110%
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::NegativeAllocation)));
+}
+
+#[test]
+fn test_zero_address_strategy_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let zero_address = Address::from_contract_id(&env, &[0u8; 32]);
+    let strategy2 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(zero_address, 5000); // 50%
+    allocations.set(strategy2, 5000); // 50%
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::ZeroAddressStrategy)));
+}
+
+#[test]
+fn test_single_strategy_100_percent_allocation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, 10000); // 100%
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_multiple_negative_allocations_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(strategy1, -5000); // -50%
+    allocations.set(strategy2, -5000); // -50%
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::NegativeAllocation)));
+}
