@@ -83,6 +83,46 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Guardians"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MaxStaleness"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 3600
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "NextProposalId"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Oracle"
                             }
                           ]
@@ -101,6 +141,18 @@
                         },
                         "val": {
                           "vec": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Threshold"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
@@ -126,7 +178,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 373630759971905488
+                            "lo": 530997359440067843
                           }
                         }
                       },
@@ -141,7 +193,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 384901957681264999
+                            "lo": 760902228020566450
                           }
                         }
                       },

@@ -32,10 +32,20 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "set_paused",
+              "function_name": "propose_action",
               "args": [
                 {
-                  "bool": true
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "vec": [
+                    {
+                      "symbol": "SetPaused"
+                    },
+                    {
+                      "bool": true
+                    }
+                  ]
                 }
               ]
             }
@@ -238,6 +248,46 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Guardians"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MaxStaleness"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 3600
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "NextProposalId"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 2
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Oracle"
                             }
                           ]
@@ -262,12 +312,97 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Proposals"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "u64": 1
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "action"
+                                    },
+                                    "val": {
+                                      "vec": [
+                                        {
+                                          "symbol": "SetPaused"
+                                        },
+                                        {
+                                          "bool": true
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "approvals"
+                                    },
+                                    "val": {
+                                      "vec": [
+                                        {
+                                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "executed"
+                                    },
+                                    "val": {
+                                      "bool": true
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "id"
+                                    },
+                                    "val": {
+                                      "u64": 1
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "proposer"
+                                    },
+                                    "val": {
+                                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Strategies"
                             }
                           ]
                         },
                         "val": {
                           "vec": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Threshold"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
