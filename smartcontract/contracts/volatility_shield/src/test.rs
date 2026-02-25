@@ -496,6 +496,28 @@ fn test_withdraw_blocked_when_paused() {
     client.withdraw(&user, &10);
 }
 
+#[test]
+fn test_upgrade_and_migrate() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+
+    // Initial version should be 1
+    assert_eq!(client.version(), 1);
+
+    // Migrate to version 2
+    client.migrate(&2);
+    assert_eq!(client.version(), 2);
+}
+
 #[cfg(test)]
 mod fuzz_tests {
     use super::*;

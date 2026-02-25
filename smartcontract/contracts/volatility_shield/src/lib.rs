@@ -36,6 +36,7 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    ContractVersion,
 }
 
 // ─────────────────────────────────────────────
@@ -113,11 +114,15 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::TotalAssets, &0_i128);
         env.storage().instance().set(&DataKey::TotalShares, &0_i128);
 
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+
         Ok(())
     }
 
     // ── Deposit ───────────────────────────────
     pub fn deposit(env: Env, from: Address, amount: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("deposit amount must be positive");
@@ -154,6 +159,7 @@ impl VolatilityShield {
 
     // ── Withdraw ──────────────────────────────
     pub fn withdraw(env: Env, from: Address, shares: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
@@ -199,6 +205,7 @@ impl VolatilityShield {
     // ── Rebalance ─────────────────────────────
     /// Move funds between strategies according to `allocations`.
     pub fn rebalance(env: Env, allocations: Map<Address, i128>) {
+        Self::check_version(&env, 1);
         let admin = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
@@ -233,6 +240,7 @@ impl VolatilityShield {
 
     // ── Strategy Management ───────────────────
     pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
 
         let mut strategies: Vec<Address> = env
@@ -257,6 +265,7 @@ impl VolatilityShield {
     }
 
     pub fn harvest(env: Env) -> Result<i128, Error> {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
 
         let strategies = Self::get_strategies(&env);
@@ -432,9 +441,42 @@ impl VolatilityShield {
 
     // ── Emergency Pause ──────────────────────────
     pub fn set_paused(env: Env, state: bool) {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &state);
         env.events().publish((symbol_short!("paused"),), state);
+    }
+
+    // ── Contract Upgrade & Migration ──────────────────
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::require_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+    }
+
+    pub fn migrate(env: Env, new_version: u32) {
+        Self::require_admin(&env);
+        let current_version = Self::version(&env);
+        if new_version <= current_version {
+            panic!("new version must be greater than current version");
+        }
+        
+        // Execute any necessary state migrations here if migrating from specific versions
+        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
+        
+        env.storage().instance().set(&DataKey::ContractVersion, &new_version);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("migrate")), new_version);
+    }
+    
+    pub fn version(env: &Env) -> u32 {
+        env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(0)
+    }
+
+    pub fn check_version(env: &Env, expected_version: u32) {
+        let current = Self::version(env);
+        if current != expected_version {
+            panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
+        }
     }
 
     pub fn is_paused(env: Env) -> bool {
