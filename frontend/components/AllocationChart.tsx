@@ -1,7 +1,7 @@
 "use client";
 import React from 'react';
 
-type Slice = { name: string; value: number; color?: string };
+export type Slice = { name: string; value: number; color?: string };
 
 function polarToCartesian(cx: number, cy: number, r: number, angle: number) {
   const rad = (angle - 90) * (Math.PI / 180.0);

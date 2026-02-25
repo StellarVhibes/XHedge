@@ -5,10 +5,21 @@ import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase } from "@/lib/stellar";
+import VaultAPYChart from "@/components/VaultAPYChart";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 type TabType = "deposit" | "withdraw";
+
+// Placeholder historical APY data
+const mockApyData = Array.from({ length: 30 }).map((_, i) => {
+  const date = new Date();
+  date.setDate(date.getDate() - (29 - i));
+  return {
+    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    apy: 5 + Math.random() * 3 + (i * 0.1), // Creates an upward trend between 5-11%
+  };
+});
 
 export default function VaultPage() {
   const { connected, address, signTransaction } = useWallet();
@@ -24,7 +35,7 @@ export default function VaultPage() {
 
   const loadMetrics = useCallback(async () => {
     if (!connected || !address) return;
-    
+
     try {
       const data = await fetchVaultData(CONTRACT_ID, address, network);
       setMetrics(data);
@@ -51,35 +62,35 @@ export default function VaultPage() {
 
     try {
       const passphrase = getNetworkPassphrase(network);
-      
+
       const xdr = await buildDepositXdr(
         CONTRACT_ID,
         address,
         amount,
         network
       );
-      
+
       const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
         xdr,
         network
       );
-      
+
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
-      
+
       const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
-      
+
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
-      
+
       const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
-      
+
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
-      
+
       setStatus({ type: "success", message: `Deposit successful! Transaction: ${hash.slice(0, 8)}...` });
       setAmount("");
       await loadMetrics();
@@ -110,35 +121,35 @@ export default function VaultPage() {
 
     try {
       const passphrase = getNetworkPassphrase(network);
-      
+
       const xdr = await buildWithdrawXdr(
         CONTRACT_ID,
         address,
         amount,
         network
       );
-      
+
       const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
         xdr,
         network
       );
-      
+
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
-      
+
       const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
-      
+
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
-      
+
       const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
-      
+
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
-      
+
       setStatus({ type: "success", message: `Withdraw successful! Transaction: ${hash.slice(0, 8)}...` });
       setAmount("");
       await loadMetrics();
@@ -160,22 +171,20 @@ export default function VaultPage() {
         <div className="flex border-b">
           <button
             onClick={() => setActiveTab("deposit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "deposit"
-                ? "bg-primary/10 text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
+              ? "bg-primary/10 text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             <ArrowUpFromLine className="w-4 h-4" />
             Deposit
           </button>
           <button
             onClick={() => setActiveTab("withdraw")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "withdraw"
-                ? "bg-primary/10 text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
+              ? "bg-primary/10 text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             <ArrowDownToLine className="w-4 h-4" />
             Withdraw
@@ -234,11 +243,10 @@ export default function VaultPage() {
 
               {status.type && (
                 <div
-                  className={`p-4 rounded-lg ${
-                    status.type === "success"
-                      ? "bg-green-500/10 text-green-500"
-                      : "bg-red-500/10 text-red-500"
-                  }`}
+                  className={`p-4 rounded-lg ${status.type === "success"
+                    ? "bg-green-500/10 text-green-500"
+                    : "bg-red-500/10 text-red-500"
+                    }`}
                 >
                   {status.message}
                 </div>
@@ -247,6 +255,13 @@ export default function VaultPage() {
           )}
         </div>
       </div>
+
+      {connected && (
+        <div className="mt-8 rounded-lg border bg-card p-6">
+          <h2 className="text-xl font-bold mb-6">APY History</h2>
+          <VaultAPYChart data={mockApyData} />
+        </div>
+      )}
     </div>
   );
 }
