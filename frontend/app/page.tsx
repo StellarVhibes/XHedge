@@ -46,7 +46,9 @@ export default function Home() {
               <p className="text-muted-foreground">Volatility Shield for Weak Currencies</p>
             </div>
           </div>
-          <WalletButton />
+          <div id="tour-sidebar-wallet">
+            <WalletButton />
+          </div>
         </div>
 
         <VaultOverviewCard />
