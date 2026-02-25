@@ -53,13 +53,10 @@ pub enum DataKey {
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
-<<<<<<< HEAD
-=======
     Guardians,
     Threshold,
     Proposals,
     NextProposalId,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -361,13 +358,8 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
-<<<<<<< HEAD
-    /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
-    pub fn rebalance(env: Env) -> Result<(), Error> {
-=======
     /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env) -> Result<(), Error> {
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
         let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
