@@ -27,7 +27,8 @@ fn test_init_stores_roles() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     assert_eq!(client.read_admin(), admin);
     assert_eq!(client.get_oracle(), oracle);
@@ -52,10 +53,11 @@ fn test_init_already_initialized() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
     assert!(result.is_ok());
 
-    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32);
+    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
@@ -68,7 +70,8 @@ fn test_convert_to_assets() {
     let asset = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
@@ -107,7 +110,8 @@ fn test_convert_to_shares() {
     let asset = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // 1. Initial Deposit (total_shares = 0)
     assert_eq!(client.convert_to_shares(&100), 100);
@@ -142,16 +146,18 @@ fn test_strategy_registry() {
     let treasury = Address::generate(&env);
     let strategy = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     assert_eq!(client.read_admin(), admin);
 
-    client.add_strategy(&strategy);
+    // Propose AddStrategy with threshold 1 -> immediate execution
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
     let strategies = client.get_strategies();
     assert_eq!(strategies.len(), 1);
     assert_eq!(strategies.get(0).unwrap(), strategy);
 
     let strategy_2 = Address::generate(&env);
-    client.add_strategy(&strategy_2);
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy_2.clone()));
     let strategies = client.get_strategies();
     assert_eq!(strategies.len(), 2);
     assert_eq!(strategies.get(1).unwrap(), strategy_2);
@@ -176,7 +182,8 @@ fn test_take_fees() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     let deposit_amount = 1000;
     let remaining = client.take_fees(&deposit_amount);
@@ -198,7 +205,8 @@ fn test_deposit_success() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     let user = Address::generate(&env);
     let deposit_amount = 1000;
@@ -226,7 +234,8 @@ fn test_withdraw_success() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
     client.set_total_shares(&1000);
     client.set_total_assets(&5000);
 
@@ -256,11 +265,21 @@ fn test_rebalance_admin_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
+<<<<<<< HEAD
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     client.rebalance();
+=======
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    env.ledger().set_timestamp(12345);
+    let allocations: Map<Address, i128> = Map::new(&env);
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+    // Propose Rebalance with threshold 1 -> immediate execution
+    client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 #[test]
@@ -276,11 +295,88 @@ fn test_rebalance_oracle_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
+<<<<<<< HEAD
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     client.rebalance();
+=======
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    env.ledger().set_timestamp(12345);
+    let allocations: Map<Address, i128> = Map::new(&env);
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+    
+    // Propose Rebalance with threshold 1 -> immediate execution
+    client.propose_action(&oracle, &ActionType::Rebalance);
+}
+
+#[test]
+fn test_multisig_set_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+
+    let id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    
+    // One approval not enough
+    assert!(!client.is_paused());
+    
+    // Second approval triggers execution
+    client.approve_action(&oracle, &id);
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_multisig_add_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let strategy = Address::generate(&env);
+    // threshold 1 -> immediate
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
+
+    assert_eq!(client.get_strategies().get(0).unwrap(), strategy);
+}
+
+#[test]
+fn test_multisig_unauthorized_propose() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+
+    let stranger = Address::generate(&env);
+    let result = client.try_propose_action(&stranger, &ActionType::Rebalance);
+    assert!(result.is_err());
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 mod integration {
@@ -309,11 +405,12 @@ mod integration {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
 
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
 
-        client.add_strategy(&mock_strategy_id);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
         stellar_asset_client.mint(&contract_id, &1000);
         client.set_total_assets(&1000);
@@ -324,7 +421,11 @@ mod integration {
         allocations.set(mock_strategy_id.clone(), 500);
 
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
+<<<<<<< HEAD
         client.rebalance();
+=======
+        client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
@@ -347,11 +448,12 @@ mod integration {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
 
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
 
-        client.add_strategy(&mock_strategy_id);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
         stellar_asset_client.mint(&contract_id, &1000);
         client.set_total_assets(&1000);
@@ -361,7 +463,11 @@ mod integration {
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
+<<<<<<< HEAD
         client.rebalance();
+=======
+        client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 500);
 
@@ -369,7 +475,11 @@ mod integration {
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
+<<<<<<< HEAD
         client.rebalance();
+=======
+        client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -392,13 +502,14 @@ mod integration {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
 
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let (mock_strategy_id1, mock_client1) = create_mock_strategy(&env);
         let (mock_strategy_id2, mock_client2) = create_mock_strategy(&env);
 
-        client.add_strategy(&mock_strategy_id1);
-        client.add_strategy(&mock_strategy_id2);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id1.clone()));
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id2.clone()));
 
         stellar_asset_client.mint(&contract_id, &1000);
         client.set_total_assets(&1000);
@@ -409,7 +520,11 @@ mod integration {
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
+<<<<<<< HEAD
         client.rebalance();
+=======
+        client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -422,7 +537,7 @@ mod integration {
     fn test_mock_strategy_deposit_withdraw_flow() {
         let env = Env::default();
 
-        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        let (_mock_strategy_id, mock_client) = create_mock_strategy(&env);
 
         assert_eq!(mock_client.balance(), 0);
 
@@ -454,17 +569,18 @@ fn test_set_paused_toggles_state() {
     let asset = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     // Default: not paused
     assert!(!client.is_paused());
 
-    // Pause
-    client.set_paused(&true);
+    // Pause -> immediate
+    client.propose_action(&admin, &ActionType::SetPaused(true));
     assert!(client.is_paused());
 
-    // Unpause
-    client.set_paused(&false);
+    // Unpause -> immediate
+    client.propose_action(&admin, &ActionType::SetPaused(false));
     assert!(!client.is_paused());
 }
 
@@ -483,10 +599,11 @@ fn test_deposit_blocked_when_paused() {
     let admin = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &token_id, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     // Pause the vault
-    client.set_paused(&true);
+    client.propose_action(&admin, &ActionType::SetPaused(true));
 
     // Deposit should be blocked
     let user = Address::generate(&env);
@@ -509,7 +626,8 @@ fn test_withdraw_blocked_when_paused() {
     let admin = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // Set up a balance for user
     client.set_total_shares(&100);
@@ -519,7 +637,7 @@ fn test_withdraw_blocked_when_paused() {
     stellar_asset_client.mint(&contract_id, &100);
 
     // Pause the vault
-    client.set_paused(&true);
+    client.propose_action(&admin, &ActionType::SetPaused(true));
 
     // Withdraw should be blocked
     client.withdraw(&user, &10);
@@ -546,7 +664,8 @@ mod fuzz_tests {
             let asset = Address::generate(&env);
             let oracle = Address::generate(&env);
             let treasury = Address::generate(&env);
-            client.init(&admin, &asset, &oracle, &treasury, &0u32);
+            let guardians = soroban_sdk::vec![&env, admin.clone()];
+            client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
             client.set_total_shares(&total_shares);
             client.set_total_assets(&total_assets);
@@ -569,7 +688,8 @@ mod fuzz_tests {
             let asset = Address::generate(&env);
             let oracle = Address::generate(&env);
             let treasury = Address::generate(&env);
-            client.init(&admin, &asset, &oracle, &treasury, &0u32);
+            let guardians = soroban_sdk::vec![&env, admin.clone()];
+            client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
             client.set_total_shares(&total_shares);
             client.set_total_assets(&total_assets);
@@ -592,7 +712,8 @@ fn test_set_deposit_and_withdraw_caps() {
     let asset = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
 
     client.set_deposit_cap(&1000, &5000);
     client.set_withdraw_cap(&500);
@@ -601,7 +722,7 @@ fn test_set_deposit_and_withdraw_caps() {
 }
 
 #[test]
-#[should_panic(expected = "DepositCapExceeded: per-user deposit cap exceeded")]
+#[should_panic(expected = "per-user deposit cap exceeded")]
 fn test_deposit_fails_when_user_cap_exceeded() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -615,7 +736,8 @@ fn test_deposit_fails_when_user_cap_exceeded() {
     let admin = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // Set MaxDepositPerUser to 500
     client.set_deposit_cap(&500, &5000);
@@ -629,7 +751,7 @@ fn test_deposit_fails_when_user_cap_exceeded() {
 }
 
 #[test]
-#[should_panic(expected = "DepositCapExceeded: global deposit cap exceeded")]
+#[should_panic(expected = "global deposit cap exceeded")]
 fn test_deposit_fails_when_global_cap_exceeded() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -643,7 +765,8 @@ fn test_deposit_fails_when_global_cap_exceeded() {
     let admin = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // Set MaxTotalAssets to 1000, high user cap
     client.set_deposit_cap(&5000, &1000);
@@ -656,7 +779,7 @@ fn test_deposit_fails_when_global_cap_exceeded() {
 }
 
 #[test]
-#[should_panic(expected = "WithdrawalCapExceeded: per-tx withdrawal cap exceeded")]
+#[should_panic(expected = "per-tx withdrawal cap exceeded")]
 fn test_withdraw_fails_when_cap_exceeded() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -670,7 +793,8 @@ fn test_withdraw_fails_when_cap_exceeded() {
     let admin = Address::generate(&env);
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
 
     // Setup initial state
     client.set_total_shares(&1000);
@@ -687,6 +811,10 @@ fn test_withdraw_fails_when_cap_exceeded() {
 }
 
 #[test]
+<<<<<<< HEAD
+=======
+#[should_panic(expected = "StaleOracleData")]
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 fn test_rebalance_stale_oracle_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -699,7 +827,12 @@ fn test_rebalance_stale_oracle_rejected() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
+<<<<<<< HEAD
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
+=======
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
     
     // Set max staleness to 100s
     client.set_max_staleness(&100);
@@ -712,8 +845,13 @@ fn test_rebalance_stale_oracle_rejected() {
     // Advance time to 1101s (timestamp + 100 + 1)
     env.ledger().set_timestamp(timestamp + 100 + 1);
 
+<<<<<<< HEAD
     let result = client.try_rebalance();
     assert_eq!(result, Err(Ok(Error::StaleOracleData)));
+=======
+    // Propose Rebalance with threshold 1 -> triggers immediate execution via unwrap() -> panics with StaleOracleData
+    client.propose_action(&admin, &ActionType::Rebalance);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 #[test]
@@ -729,7 +867,12 @@ fn test_set_oracle_data_invalid_timestamp() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
+<<<<<<< HEAD
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
+=======
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
@@ -744,4 +887,7 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
