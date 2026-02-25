@@ -19,6 +19,8 @@ pub enum Error {
     ContractPaused = 6,
     DepositCapExceeded = 7,
     WithdrawalCapExceeded = 8,
+    StaleOracleData = 9,
+    InvalidTimestamp = 10,
 }
 
 // ─────────────────────────────────────────────
@@ -41,6 +43,9 @@ pub enum DataKey {
     MaxDepositPerUser,
     MaxTotalAssets,
     MaxWithdrawPerTx,
+    OracleLastUpdate,
+    MaxStaleness,
+    TargetAllocations,
 }
 
 // ─────────────────────────────────────────────
@@ -117,6 +122,7 @@ impl VolatilityShield {
         // Initialize vault state to zero
         env.storage().instance().set(&DataKey::TotalAssets, &0_i128);
         env.storage().instance().set(&DataKey::TotalShares, &0_i128);
+        env.storage().instance().set(&DataKey::MaxStaleness, &3600u64);
 
         Ok(())
     }
@@ -237,12 +243,29 @@ impl VolatilityShield {
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
     /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
-    pub fn rebalance(env: Env, allocations: Map<Address, i128>) {
+    pub fn rebalance(env: Env) -> Result<(), Error> {
         let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(&env, &admin, &oracle);
+
+        let now = env.ledger().timestamp();
+        let last_update = env.storage().instance().get(&DataKey::OracleLastUpdate).unwrap_or(0u64);
+        let max_staleness = Self::max_staleness(&env);
+
+        if now > last_update.checked_add(max_staleness).unwrap_or(u64::MAX) {
+            env.events().publish(
+                (soroban_sdk::Symbol::new(&env, "StaleOracleRejected"),),
+                last_update,
+            );
+            return Err(Error::StaleOracleData);
+        }
+
+        let allocations: Map<Address, i128> = env.storage()
+            .instance()
+            .get(&DataKey::TargetAllocations)
+            .ok_or(Error::NotInitialized)?;
 
         let asset_addr   = Self::get_asset(&env);
         let token_client = token::Client::new(&env, &asset_addr);
@@ -265,6 +288,28 @@ impl VolatilityShield {
             }
             // If equal, do nothing.
         }
+        Ok(())
+    }
+
+    /// Stores new target allocations from the Oracle. Validates timestamp freshness.
+    pub fn set_oracle_data(env: Env, allocations: Map<Address, i128>, timestamp: u64) -> Result<(), Error> {
+        let oracle = Self::get_oracle(&env);
+        oracle.require_auth();
+
+        let now = env.ledger().timestamp();
+        if timestamp > now {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        let last_timestamp = env.storage().instance().get(&DataKey::OracleLastUpdate).unwrap_or(0u64);
+        if timestamp <= last_timestamp {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        env.storage().instance().set(&DataKey::OracleLastUpdate, &timestamp);
+        env.storage().instance().set(&DataKey::TargetAllocations, &allocations);
+
+        Ok(())
     }
 
     pub fn calc_rebalance_delta(current: i128, target: i128) -> i128 {
@@ -481,6 +526,15 @@ impl VolatilityShield {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::MaxWithdrawPerTx, &per_tx);
         env.events().publish((symbol_short!("Caps"), symbol_short!("withdraw")), per_tx);
+    }
+
+    pub fn set_max_staleness(env: Env, seconds: u64) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::MaxStaleness, &seconds);
+    }
+
+    pub fn max_staleness(env: &Env) -> u64 {
+        env.storage().instance().get(&DataKey::MaxStaleness).unwrap_or(3600)
     }
 
     pub fn is_paused(env: Env) -> bool {
