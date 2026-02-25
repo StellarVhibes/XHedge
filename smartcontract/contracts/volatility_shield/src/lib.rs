@@ -124,7 +124,7 @@ pub struct VolatilityShield;
 #[contractimpl]
 impl VolatilityShield {
     // ── Governance ────────────────────────────
-    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
+    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
         proposer.require_auth();
         
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
@@ -147,21 +147,23 @@ impl VolatilityShield {
 
         // Emit TimelockStarted event
         env.events().publish(
-            (symbol_short!("TimelockStarted"),),
+            (symbol_short!("Timelock"),),
             (id, proposed_at),
         );
 
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
         if threshold <= 1 {
-            Self::execute_action(&env, &action, proposed_at)?;
-            proposal.executed = true;
+            // Try to execute, but if timelock hasn't elapsed, the proposal will remain unexecuted
+            if Self::execute_action(&env, &action, proposed_at).is_ok() {
+                proposal.executed = true;
+            }
         }
 
         let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
         proposals.set(id, proposal);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
 
-        Ok(id)
+        id
     }
 
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
@@ -216,7 +218,7 @@ impl VolatilityShield {
 
         // Emit TimelockExecuted event
         env.events().publish(
-            (symbol_short!("TimelockExecuted"),),
+            (symbol_short!("TimelockEx"),),
             (),
         );
 
@@ -699,7 +701,7 @@ impl VolatilityShield {
     pub fn set_timelock_duration(env: Env, duration: u64) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::TimelockDuration, &duration);
-        env.events().publish((symbol_short!("TimelockDuration"),), duration);
+        env.events().publish((symbol_short!("TimelockDur"),), duration);
     }
 
     pub fn max_staleness(env: &Env) -> u64 {
