@@ -128,7 +128,7 @@ pub struct VolatilityShield;
 #[contractimpl]
 impl VolatilityShield {
     // ── Governance ────────────────────────────
-    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
+    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
         proposer.require_auth();
         
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
@@ -157,25 +157,15 @@ impl VolatilityShield {
 
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
         if threshold <= 1 {
-            match Self::execute_action(&env, &action, proposed_at) {
-                Ok(()) => {
-                    proposal.executed = true;
-                }
-                Err(e) => {
-                    // Store proposal even if execution fails due to timelock
-                    let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
-                    proposals.set(id, proposal);
-                    env.storage().instance().set(&DataKey::Proposals, &proposals);
-                    return Err(e);
-                }
-            }
+            Self::execute_action(&env, &action, proposed_at)?;
+            proposal.executed = true;
         }
 
         let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
         proposals.set(id, proposal);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
 
-        id
+        Ok(id)
     }
 
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
