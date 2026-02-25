@@ -21,13 +21,13 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
-<<<<<<< HEAD
-=======
     ProposalNotFound = 11,
     AlreadyApproved = 12,
     ProposalExecuted = 13,
     InsufficientApprovals = 14,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
+    InvalidAllocationSum = 15,
+    NegativeAllocation = 16,
+    ZeroAddressStrategy = 17,
 }
 
 // ─────────────────────────────────────────────
@@ -430,8 +430,42 @@ impl VolatilityShield {
             return Err(Error::InvalidTimestamp);
         }
 
+        // Validate allocations before storing
+        Self::validate_allocations(&env, &allocations)?;
+
         env.storage().instance().set(&DataKey::OracleLastUpdate, &timestamp);
         env.storage().instance().set(&DataKey::TargetAllocations, &allocations);
+
+        Ok(())
+    }
+
+    /// Validates allocation data for logical correctness.
+    /// - Checks that all allocation percentages sum to 100% (10000 basis points)
+    /// - Ensures individual allocations are non-negative
+    /// - Rejects allocations with zero-address strategies
+    fn validate_allocations(env: &Env, allocations: &Map<Address, i128>) -> Result<(), Error> {
+        let mut total_percentage: i128 = 0;
+
+        for (strategy_addr, allocation) in allocations.iter() {
+            // Check for zero address
+            if strategy_addr == Address::from_contract_id(env, &[0u8; 32]) {
+                return Err(Error::ZeroAddressStrategy);
+            }
+
+            // Check for negative allocation
+            if allocation < 0 {
+                return Err(Error::NegativeAllocation);
+            }
+
+            // Sum up percentages
+            total_percentage = total_percentage.checked_add(allocation).unwrap_or(i128::MAX);
+        }
+
+        // Validate sum equals 100% (10000 basis points)
+        // Allow empty allocations (total = 0) for initialization
+        if total_percentage != 0 && total_percentage != 10000 {
+            return Err(Error::InvalidAllocationSum);
+        }
 
         Ok(())
     }
