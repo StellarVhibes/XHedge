@@ -550,3 +550,109 @@ mod fuzz_tests {
         }
     }
 }
+
+#[test]
+fn test_set_deposit_and_withdraw_caps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+
+    client.set_deposit_cap(&1000, &5000);
+    client.set_withdraw_cap(&500);
+
+    // Testing getter equivalent isn't exposed but auth flow succeeds
+}
+
+#[test]
+#[should_panic(expected = "DepositCapExceeded: per-user deposit cap exceeded")]
+fn test_deposit_fails_when_user_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Set MaxDepositPerUser to 500
+    client.set_deposit_cap(&500, &5000);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 600;
+    stellar_asset_client.mint(&user, &deposit_amount);
+
+    // This should panic
+    client.deposit(&user, &deposit_amount);
+}
+
+#[test]
+#[should_panic(expected = "DepositCapExceeded: global deposit cap exceeded")]
+fn test_deposit_fails_when_global_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Set MaxTotalAssets to 1000, high user cap
+    client.set_deposit_cap(&5000, &1000);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1500);
+
+    // This should panic
+    client.deposit(&user, &1500);
+}
+
+#[test]
+#[should_panic(expected = "WithdrawalCapExceeded: per-tx withdrawal cap exceeded")]
+fn test_withdraw_fails_when_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    // Setup initial state
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+    let user = Address::generate(&env);
+    client.set_balance(&user, &1000);
+    stellar_asset_client.mint(&contract_id, &1000);
+
+    // Set withdrawal cap to 200
+    client.set_withdraw_cap(&200);
+
+    // Trying to withdraw 300 should panic
+    client.withdraw(&user, &300);
+}
