@@ -21,13 +21,10 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
-<<<<<<< HEAD
-=======
     ProposalNotFound = 11,
     AlreadyApproved = 12,
     ProposalExecuted = 13,
     InsufficientApprovals = 14,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -53,13 +50,10 @@ pub enum DataKey {
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
-<<<<<<< HEAD
-=======
     Guardians,
     Threshold,
     Proposals,
     NextProposalId,
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 // ─────────────────────────────────────────────
@@ -181,7 +175,7 @@ impl VolatilityShield {
         proposal.approvals.push_back(guardian);
         
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
-        if proposal.approvals.len() >= threshold {
+        if proposal.approvals.len() as u32 >= threshold {
             Self::execute_action(&env, &proposal.action)?;
             proposal.executed = true;
         }
@@ -189,6 +183,36 @@ impl VolatilityShield {
         proposals.set(proposal_id, proposal);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
 
+        Ok(())
+    }
+
+    pub fn add_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if guardians.contains(guardian.clone()) {
+            return Ok(());
+        }
+        guardians.push_back(guardian);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn remove_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        let index = guardians.first_index_of(guardian).ok_or(Error::Unauthorized)?;
+        guardians.remove(index);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if threshold == 0 || threshold > guardians.len() {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
         Ok(())
     }
 
@@ -361,13 +385,12 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
-<<<<<<< HEAD
     /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
     pub fn rebalance(env: Env) -> Result<(), Error> {
-=======
-    /// **Access control**: must be called via the multi-sig governance system.
+        Self::internal_rebalance(&env)
+    }
+
     fn internal_rebalance(env: &Env) -> Result<(), Error> {
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
         let admin  = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
 
