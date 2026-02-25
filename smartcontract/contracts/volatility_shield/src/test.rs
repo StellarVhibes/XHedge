@@ -287,13 +287,6 @@ fn test_rebalance_oracle_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-<<<<<<< HEAD
-    client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    env.ledger().set_timestamp(12345);
-    let allocations: Map<Address, i128> = Map::new(&env);
-    client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
-=======
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
@@ -301,7 +294,7 @@ fn test_rebalance_oracle_auth_accepted() {
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     
     // Propose Rebalance with threshold 1 -> immediate execution
-    client.propose_action(&oracle, &ActionType::Rebalance);
+    client.propose_action(&oracle, &ActionType::Rebalance).unwrap();
 }
 
 #[test]
@@ -368,7 +361,6 @@ fn test_multisig_unauthorized_propose() {
     let stranger = Address::generate(&env);
     let result = client.try_propose_action(&stranger, &ActionType::Rebalance);
     assert!(result.is_err());
->>>>>>> 3623b3e (feat: implement multi-sig governance and oracle freshness)
 }
 
 mod integration {
