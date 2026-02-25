@@ -114,7 +114,11 @@
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "function_name": "rebalance",
-              "args": []
+              "args": [
+                {
+                  "u32": 50
+                }
+              ]
             }
           },
           "sub_invocations": []

@@ -1,8 +1,9 @@
 #![cfg(test)]
 use super::*;
+use soroban_sdk::testutils::Events as EventsTrait;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Map};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, IntoVal, Map};
 
 extern crate std;
 
@@ -260,7 +261,7 @@ fn test_rebalance_admin_auth_accepted() {
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
+    client.rebalance(&50u32);
 }
 
 #[test]
@@ -280,12 +281,60 @@ fn test_rebalance_oracle_auth_accepted() {
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    client.rebalance();
+    client.rebalance(&50u32);
 }
 
 mod integration {
     use super::*;
-    use mock_strategy::MockStrategyClient;
+    use soroban_sdk::IntoVal;
+
+    // Simple client wrapper for mock strategy
+    pub struct MockStrategyClient<'a> {
+        env: &'a Env,
+        address: Address,
+    }
+
+    impl<'a> MockStrategyClient<'a> {
+        pub fn new(env: &'a Env, address: &Address) -> Self {
+            Self {
+                env,
+                address: address.clone(),
+            }
+        }
+
+        pub fn balance(&self) -> i128 {
+            let result: i128 = self.env.invoke_contract::<i128>(
+                &self.address,
+                &soroban_sdk::Symbol::new(self.env, "balance"),
+                soroban_sdk::vec![self.env],
+            );
+            result
+        }
+
+        pub fn deposit(&self, amount: i128) {
+            self.env.invoke_contract::<()>(
+                &self.address,
+                &soroban_sdk::Symbol::new(self.env, "deposit"),
+                soroban_sdk::vec![self.env, amount.into_val(self.env)],
+            );
+        }
+
+        pub fn withdraw(&self, amount: i128) {
+            self.env.invoke_contract::<()>(
+                &self.address,
+                &soroban_sdk::Symbol::new(self.env, "withdraw"),
+                soroban_sdk::vec![self.env, amount.into_val(self.env)],
+            );
+        }
+
+        pub fn simulate_price_drift(&self, new_balance: i128) {
+            self.env.invoke_contract::<()>(
+                &self.address,
+                &soroban_sdk::Symbol::new(self.env, "simulate_price_drift"),
+                soroban_sdk::vec![self.env, new_balance.into_val(self.env)],
+            );
+        }
+    }
 
     fn create_mock_strategy(env: &Env) -> (Address, MockStrategyClient) {
         let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
@@ -324,7 +373,7 @@ mod integration {
         allocations.set(mock_strategy_id.clone(), 500);
 
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-        client.rebalance();
+        client.rebalance(&50u32);
 
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
@@ -361,7 +410,7 @@ mod integration {
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-        client.rebalance();
+        client.rebalance(&50u32);
 
         assert_eq!(mock_client.balance(), 500);
 
@@ -369,7 +418,7 @@ mod integration {
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
-        client.rebalance();
+        client.rebalance(&50u32);
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -409,7 +458,7 @@ mod integration {
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-        client.rebalance();
+        client.rebalance(&50u32);
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -426,16 +475,16 @@ mod integration {
 
         assert_eq!(mock_client.balance(), 0);
 
-        mock_client.deposit(&100);
+        mock_client.deposit(100);
         assert_eq!(mock_client.balance(), 100);
 
-        mock_client.deposit(&50);
+        mock_client.deposit(50);
         assert_eq!(mock_client.balance(), 150);
 
-        mock_client.withdraw(&75);
+        mock_client.withdraw(75);
         assert_eq!(mock_client.balance(), 75);
 
-        mock_client.withdraw(&75);
+        mock_client.withdraw(75);
         assert_eq!(mock_client.balance(), 0);
     }
 }
@@ -528,8 +577,8 @@ fn test_withdraw_blocked_when_paused() {
 #[cfg(test)]
 mod fuzz_tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env};
     use proptest::prelude::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
 
     proptest! {
         #[test]
@@ -541,7 +590,7 @@ mod fuzz_tests {
             let env = Env::default();
             let contract_id = env.register_contract(None, VolatilityShield);
             let client = VolatilityShieldClient::new(&env, &contract_id);
-            
+
             let admin = Address::generate(&env);
             let asset = Address::generate(&env);
             let oracle = Address::generate(&env);
@@ -564,7 +613,7 @@ mod fuzz_tests {
             let env = Env::default();
             let contract_id = env.register_contract(None, VolatilityShield);
             let client = VolatilityShieldClient::new(&env, &contract_id);
-            
+
             let admin = Address::generate(&env);
             let asset = Address::generate(&env);
             let oracle = Address::generate(&env);
@@ -700,7 +749,7 @@ fn test_rebalance_stale_oracle_rejected() {
     let treasury = Address::generate(&env);
 
     client.init(&admin, &asset, &oracle, &treasury, &0u32);
-    
+
     // Set max staleness to 100s
     client.set_max_staleness(&100);
 
@@ -712,7 +761,7 @@ fn test_rebalance_stale_oracle_rejected() {
     // Advance time to 1101s (timestamp + 100 + 1)
     env.ledger().set_timestamp(timestamp + 100 + 1);
 
-    let result = client.try_rebalance();
+    let result = client.try_rebalance(&50u32);
     assert_eq!(result, Err(Ok(Error::StaleOracleData)));
 }
 
@@ -745,3 +794,55 @@ fn test_set_oracle_data_invalid_timestamp() {
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
 
+// ── Slippage Protection Tests ─────────────────────────
+
+/*
+#[test]
+fn test_rebalance_slippage_protection_basic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) =
+        create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32);
+
+    let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+    client.add_strategy(&mock_strategy_id);
+
+    stellar_asset_client.mint(&contract_id, &1000);
+    client.set_total_assets(&1000);
+    client.set_total_shares(&1000);
+
+    env.ledger().set_timestamp(12345);
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(mock_strategy_id.clone(), 500);
+
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+    // Rebalance with high tolerance - should succeed
+    client.rebalance(&1000u32); // 10% tolerance
+    let balance: i128 = mock_client.balance();
+    assert_eq!(balance, 500i128);
+
+    // Reset for next test
+    mock_client.withdraw(500);
+    stellar_asset_client.mint(&contract_id, &500);
+
+    // Set up again but simulate slippage by directly modifying strategy balance
+    client.set_oracle_data(&allocations, &env.ledger().timestamp());
+    mock_client.simulate_price_drift(600i128); // Simulate 20% price increase
+
+    // Rebalance with low tolerance - should fail due to slippage
+    let result = client.try_rebalance(&100u32); // 1% tolerance
+    assert_eq!(result, Err(Ok(Error::SlippageExceeded)));
+}
+*/
