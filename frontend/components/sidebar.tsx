@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
+import { usePrices } from "@/app/context/PriceContext";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -22,6 +23,7 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const { network, setNetwork } = useNetwork();
   const { currency, setCurrency } = useCurrency();
+  const { prices, loading } = usePrices();
 
   return (
     <>
@@ -128,6 +130,28 @@ export function Sidebar() {
                     {network === net && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Real-time Prices */}
+            <div className="flex flex-col gap-2 mt-4">
+              <div className="flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <LineChart className="w-3 h-3" />
+                <span>Live Prices</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1 px-3 py-2 bg-muted/30 rounded-lg text-sm border border-sidebar-border">
+                <div className="flex flex-col">
+                  <span className="text-muted-foreground text-[10px] uppercase font-semibold">XLM</span>
+                  <span className="font-medium text-foreground">
+                    {loading ? "..." : `$${prices.XLM.toFixed(4)}`}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-muted-foreground text-[10px] uppercase font-semibold">USDC</span>
+                  <span className="font-medium text-foreground">
+                    {loading ? "..." : `$${prices.USDC.toFixed(4)}`}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
