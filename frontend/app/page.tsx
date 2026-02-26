@@ -1,21 +1,19 @@
 "use client";
 import { useState, useEffect } from 'react';
-import type { Slice } from '@/components/AllocationChart';
 import { VaultOverviewCard } from "@/components/vault-overview-card";
 import { Shield, ArrowUpFromLine, ArrowDownToLine } from "lucide-react";
 import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
-import { useState, useEffect } from "react";
-
 interface Slice {
   name: string;
   value: number;
 }
+import { RiskChart } from "@/components/RiskChart";
 
 export default function Home() {
-  const [slices, setSlices] = useState<Slice[] | null>(null);
+  const [slices, setSlices] = useState<{ name: string; value: number }[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,10 +45,21 @@ export default function Home() {
               <p className="text-muted-foreground">Volatility Shield for Weak Currencies</p>
             </div>
           </div>
-          <WalletButton />
+          <div id="tour-sidebar-wallet">
+            <WalletButton />
+          </div>
         </div>
 
-        <VaultOverviewCard />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <VaultOverviewCard />
+          </div>
+          <div className="lg:col-span-1 flex">
+            <div className="w-full h-full">
+              <RiskChart score={45} />
+            </div>
+          </div>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Link

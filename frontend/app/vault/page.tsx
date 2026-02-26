@@ -1,25 +1,23 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase } from "@/lib/stellar";
 import VaultAPYChart from "@/components/VaultAPYChart";
+import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
+import { generateMockData, DataPoint } from "@/lib/chart-data";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 type TabType = "deposit" | "withdraw";
-
-// Placeholder historical APY data
-const mockApyData = Array.from({ length: 30 }).map((_, i) => {
-  const date = new Date();
-  date.setDate(date.getDate() - (29 - i));
-  return {
-    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    apy: 5 + Math.random() * 3 + (i * 0.1), // Creates an upward trend between 5-11%
-  };
-});
 
 export default function VaultPage() {
   const { connected, address, signTransaction } = useWallet();
@@ -27,26 +25,58 @@ export default function VaultPage() {
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chartLoading, setChartLoading] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error" | null; message: string }>({
     type: null,
     message: "",
   });
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1M');
+  const [chartData, setChartData] = useState<DataPoint[]>([]);
 
-  const loadMetrics = useCallback(async () => {
-    if (!connected || !address) return;
-
-    try {
-      const data = await fetchVaultData(CONTRACT_ID, address, network);
-      setMetrics(data);
-    } catch (error) {
-      console.error("Failed to load metrics:", error);
-    }
-  }, [connected, address, network]);
-
+  // Load initial chart data
   useEffect(() => {
-    loadMetrics();
-  }, [loadMetrics]);
+    setChartData(generateMockData(selectedTimeframe));
+  }, []);
+
+  // Handle timeframe changes with loading state
+  const handleTimeframeChange = async (timeframe: Timeframe) => {
+    setChartLoading(true);
+    setSelectedTimeframe(timeframe);
+    
+    // Simulate API call delay for smooth transitions
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    setChartData(generateMockData(timeframe));
+    setChartLoading(false);
+  };
+
+  // Load vault data
+  useEffect(() => {
+    if (connected && network) {
+      loadVaultData();
+    }
+  }, [connected, network]);
+
+  const loadVaultData = async () => {
+    try {
+      setLoading(true);
+      const data = await fetchVaultData(
+        CONTRACT_ID,
+        address,
+        network
+      );
+      setMetrics(data);
+      setStatus({ type: null, message: "" });
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to load vault data",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const userBalance = metrics ? parseFloat(metrics.userBalance) / 1e7 : 0;
   const userShares = metrics ? parseFloat(metrics.userShares) / 1e7 : 0;
@@ -93,7 +123,7 @@ export default function VaultPage() {
 
       setStatus({ type: "success", message: `Deposit successful! Transaction: ${hash.slice(0, 8)}...` });
       setAmount("");
-      await loadMetrics();
+      await loadVaultData();
     } catch (error) {
       setStatus({
         type: "error",
@@ -102,7 +132,7 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, network, signTransaction, loadMetrics]);
+  }, [connected, address, amount, network, signTransaction, loadVaultData]);
 
   const handleWithdraw = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -152,7 +182,7 @@ export default function VaultPage() {
 
       setStatus({ type: "success", message: `Withdraw successful! Transaction: ${hash.slice(0, 8)}...` });
       setAmount("");
-      await loadMetrics();
+      await loadVaultData();
     } catch (error) {
       setStatus({
         type: "error",
@@ -161,7 +191,7 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, userShares, network, signTransaction, loadMetrics]);
+  }, [connected, address, amount, userShares, network, signTransaction, loadVaultData]);
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -258,8 +288,15 @@ export default function VaultPage() {
 
       {connected && (
         <div className="mt-8 rounded-lg border bg-card p-6">
-          <h2 className="text-xl font-bold mb-6">APY History</h2>
-          <VaultAPYChart data={mockApyData} />
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold">APY History</h2>
+            <TimeframeFilter
+              selectedTimeframe={selectedTimeframe}
+              onTimeframeChange={handleTimeframeChange}
+              loading={chartLoading}
+            />
+          </div>
+          <VaultAPYChart data={chartData} loading={chartLoading} />
         </div>
       )}
     </div>
