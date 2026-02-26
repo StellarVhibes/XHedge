@@ -62,6 +62,7 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsOpen(false)}
+                  id={`tour-sidebar-${item.label?.toLocaleLowerCase()}`}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                     isActive
@@ -82,7 +83,7 @@ export function Sidebar() {
               <div className="flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <span>Currency</span>
               </div>
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-2 gap-1" id="tour-sidebar-currency">
                 <button
                   onClick={() => setCurrency(Currency.USD)}
                   className={cn(

@@ -298,6 +298,35 @@ fn test_rebalance_oracle_auth_accepted() {
 }
 
 #[test]
+fn test_guardian_crud() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let guardian_2 = Address::generate(&env);
+    client.add_guardian(&guardian_2);
+    assert_eq!(client.get_guardians().len(), 2);
+    assert!(client.get_guardians().contains(guardian_2.clone()));
+
+    client.set_threshold(&2u32);
+    assert_eq!(client.get_threshold(), 2);
+
+    client.remove_guardian(&guardian_2);
+    assert_eq!(client.get_guardians().len(), 1);
+    assert!(!client.get_guardians().contains(guardian_2));
+}
+
+#[test]
 fn test_multisig_set_paused() {
     let env = Env::default();
     env.mock_all_auths();
@@ -360,37 +389,7 @@ fn test_multisig_unauthorized_propose() {
 
     let stranger = Address::generate(&env);
     let result = client.try_propose_action(&stranger, &ActionType::Rebalance);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_guardian_crud() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    let guardian_2 = Address::generate(&env);
-    client.add_guardian(&guardian_2);
-    assert_eq!(client.get_guardians().len(), 2);
-    assert!(client.get_guardians().contains(guardian_2.clone()));
-
-    client.set_threshold(&2u32);
-    assert_eq!(client.get_threshold(), 2);
-
-    client.remove_guardian(&guardian_2);
-    assert_eq!(client.get_guardians().len(), 1);
-    assert!(!client.get_guardians().contains(guardian_2));
-}
+    assert!(result.is_err());}
 
 mod integration {
     use super::*;
@@ -436,6 +435,7 @@ mod integration {
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
         client.propose_action(&admin, &ActionType::Rebalance);
 
+
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
         assert_eq!(token_client.balance(&mock_strategy_id), 500);
@@ -474,6 +474,7 @@ mod integration {
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
         client.propose_action(&admin, &ActionType::Rebalance);
 
+
         assert_eq!(mock_client.balance(), 500);
 
         env.ledger().set_timestamp(12346); // Increment for subsequent update
@@ -481,6 +482,7 @@ mod integration {
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
         client.propose_action(&admin, &ActionType::Rebalance);
+
 
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
@@ -522,6 +524,7 @@ mod integration {
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
         client.propose_action(&admin, &ActionType::Rebalance);
+
 
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
@@ -638,6 +641,29 @@ fn test_withdraw_blocked_when_paused() {
 
     // Withdraw should be blocked
     client.withdraw(&user, &10);
+}
+
+#[test]
+fn test_upgrade_and_migrate() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
+
+    // Initial version should be 1
+    assert_eq!(client.version(), 1);
+
+    // Migrate to version 2
+    client.migrate(&2);
+    assert_eq!(client.version(), 2);
 }
 
 #[cfg(test)]
@@ -855,6 +881,7 @@ fn test_set_oracle_data_invalid_timestamp() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
+
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
     env.ledger().set_timestamp(now);
@@ -868,4 +895,3 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
-
