@@ -44,6 +44,7 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    ContractVersion,
     MaxDepositPerUser,
     MaxTotalAssets,
     MaxWithdrawPerTx,
@@ -175,7 +176,7 @@ impl VolatilityShield {
         proposal.approvals.push_back(guardian);
         
         let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
-        if proposal.approvals.len() as u32 >= threshold {
+        if proposal.approvals.len() >= threshold {
             Self::execute_action(&env, &proposal.action)?;
             proposal.executed = true;
         }
@@ -215,6 +216,7 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Threshold, &threshold);
         Ok(())
     }
+
 
     fn execute_action(env: &Env, action: &ActionType) -> Result<(), Error> {
         match action {
@@ -267,11 +269,15 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::TotalShares, &0_i128);
         env.storage().instance().set(&DataKey::MaxStaleness, &3600u64);
 
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+
         Ok(())
     }
 
     // ── Deposit ───────────────────────────────
     pub fn deposit(env: Env, from: Address, amount: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("deposit amount must be positive");
@@ -327,6 +333,7 @@ impl VolatilityShield {
 
     // ── Withdraw ──────────────────────────────
     pub fn withdraw(env: Env, from: Address, shares: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
@@ -385,14 +392,11 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
-    /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
-    pub fn rebalance(env: Env) -> Result<(), Error> {
-        Self::internal_rebalance(&env)
-    }
-
+    /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env) -> Result<(), Error> {
-        let admin  = Self::read_admin(&env);
-        let oracle = Self::get_oracle(&env);
+        Self::check_version(env, 1);
+        let admin  = Self::read_admin(env);
+        let oracle = Self::get_oracle(env);
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(&env, &admin, &oracle);
@@ -467,7 +471,8 @@ impl VolatilityShield {
 
     // ── Strategy Management ───────────────────
     fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
-        Self::require_admin(&env);
+        Self::check_version(env, 1);
+        Self::require_admin(env);
 
         let mut strategies: Vec<Address> = env
             .storage()
@@ -491,6 +496,7 @@ impl VolatilityShield {
     }
 
     pub fn harvest(env: Env) -> Result<i128, Error> {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
 
         let strategies = Self::get_strategies(&env);
@@ -674,6 +680,7 @@ impl VolatilityShield {
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
     pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::MaxDepositPerUser, &per_user);
         env.storage().instance().set(&DataKey::MaxTotalAssets, &global);
@@ -693,6 +700,38 @@ impl VolatilityShield {
 
     pub fn max_staleness(env: &Env) -> u64 {
         env.storage().instance().get(&DataKey::MaxStaleness).unwrap_or(3600)
+    }
+
+    // ── Contract Upgrade & Migration ──────────────────
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::require_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+    }
+
+    pub fn migrate(env: Env, new_version: u32) {
+        Self::require_admin(&env);
+        let current_version = Self::version(&env);
+        if new_version <= current_version {
+            panic!("new version must be greater than current version");
+        }
+        
+        // Execute any necessary state migrations here if migrating from specific versions
+        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
+        
+        env.storage().instance().set(&DataKey::ContractVersion, &new_version);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("migrate")), new_version);
+    }
+    
+    pub fn version(env: &Env) -> u32 {
+        env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(0)
+    }
+
+    pub fn check_version(env: &Env, expected_version: u32) {
+        let current = Self::version(env);
+        if current != expected_version {
+            panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
+        }
     }
 
     pub fn is_paused(env: Env) -> bool {

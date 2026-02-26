@@ -295,6 +295,7 @@ fn test_rebalance_oracle_auth_accepted() {
     
     // Propose Rebalance with threshold 1 -> immediate execution
     client.propose_action(&oracle, &ActionType::Rebalance);
+    client.propose_action(&oracle, &ActionType::Rebalance);
 }
 
 #[test]
@@ -390,7 +391,73 @@ fn test_guardian_crud() {
     client.remove_guardian(&guardian_2);
     assert_eq!(client.get_guardians().len(), 1);
     assert!(!client.get_guardians().contains(guardian_2));
+
 }
+
+#[test]
+fn test_multisig_set_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+
+    let id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    
+    // One approval not enough
+    assert!(!client.is_paused());
+    
+    // Second approval triggers execution
+    client.approve_action(&oracle, &id);
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_multisig_add_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let strategy = Address::generate(&env);
+    // threshold 1 -> immediate
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
+
+    assert_eq!(client.get_strategies().get(0).unwrap(), strategy);
+}
+
+#[test]
+fn test_multisig_unauthorized_propose() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+
+    let stranger = Address::generate(&env);
+    let result = client.try_propose_action(&stranger, &ActionType::Rebalance);
+    assert!(result.is_err());}
 
 mod integration {
     use super::*;
@@ -640,6 +707,29 @@ fn test_withdraw_blocked_when_paused() {
     client.withdraw(&user, &10);
 }
 
+#[test]
+fn test_upgrade_and_migrate() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
+
+    // Initial version should be 1
+    assert_eq!(client.version(), 1);
+
+    // Migrate to version 2
+    client.migrate(&2);
+    assert_eq!(client.version(), 2);
+}
+
 #[cfg(test)]
 mod fuzz_tests {
     use super::*;
@@ -823,7 +913,7 @@ fn test_rebalance_stale_oracle_rejected() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-    
+
     // Set max staleness to 100s
     client.set_max_staleness(&100);
 
@@ -854,7 +944,6 @@ fn test_set_oracle_data_invalid_timestamp() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
     env.ledger().set_timestamp(now);
@@ -868,4 +957,3 @@ fn test_set_oracle_data_invalid_timestamp() {
     let result = client.try_set_oracle_data(&allocations, &now);
     assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
 }
-
