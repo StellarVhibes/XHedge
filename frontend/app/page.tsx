@@ -7,6 +7,13 @@ import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
+import { RiskChart } from "@/components/RiskChart";
+import { useState, useEffect } from "react";
+
+interface Slice {
+  name: string;
+  value: number;
+}
 
 
 
@@ -46,7 +53,16 @@ export default function Home() {
           <WalletButton />
         </div>
 
-        <VaultOverviewCard />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <VaultOverviewCard />
+          </div>
+          <div className="lg:col-span-1 flex">
+            <div className="w-full h-full">
+              <RiskChart score={45} />
+            </div>
+          </div>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Link
