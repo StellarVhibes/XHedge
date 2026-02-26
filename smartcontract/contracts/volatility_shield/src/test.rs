@@ -265,13 +265,14 @@ fn test_rebalance_admin_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-let guardians = soroban_sdk::vec![&env, admin.clone()];
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
     // Propose Rebalance with threshold 1 -> immediate execution
-    client.propose_action(&admin, &ActionType::Rebalance);}
+    client.propose_action(&admin, &ActionType::Rebalance);
+}
 
 #[test]
 fn test_rebalance_oracle_auth_accepted() {
@@ -286,7 +287,7 @@ fn test_rebalance_oracle_auth_accepted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
@@ -294,6 +295,7 @@ let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
     
     // Propose Rebalance with threshold 1 -> immediate execution
     client.propose_action(&oracle, &ActionType::Rebalance);
+
 }
 
 #[test]
@@ -403,7 +405,9 @@ mod integration {
         allocations.set(mock_strategy_id.clone(), 500);
 
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-client.propose_action(&admin, &ActionType::Rebalance);
+        client.propose_action(&admin, &ActionType::Rebalance);
+
+
         assert_eq!(mock_client.balance(), 500);
         assert_eq!(token_client.balance(&contract_id), 500);
         assert_eq!(token_client.balance(&mock_strategy_id), 500);
@@ -440,14 +444,18 @@ client.propose_action(&admin, &ActionType::Rebalance);
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 500);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-client.propose_action(&admin, &ActionType::Rebalance);
+        client.propose_action(&admin, &ActionType::Rebalance);
+
+
         assert_eq!(mock_client.balance(), 500);
 
         env.ledger().set_timestamp(12346); // Increment for subsequent update
         let mut allocations2: Map<Address, i128> = Map::new(&env);
         allocations2.set(mock_strategy_id.clone(), 200);
         client.set_oracle_data(&allocations2, &env.ledger().timestamp());
-client.propose_action(&admin, &ActionType::Rebalance);
+        client.propose_action(&admin, &ActionType::Rebalance);
+
+
         assert_eq!(mock_client.balance(), 200);
         assert_eq!(token_client.balance(&contract_id), 800);
         assert_eq!(token_client.balance(&mock_strategy_id), 200);
@@ -487,7 +495,9 @@ client.propose_action(&admin, &ActionType::Rebalance);
         allocations.set(mock_strategy_id1.clone(), 300);
         allocations.set(mock_strategy_id2.clone(), 400);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
-client.propose_action(&admin, &ActionType::Rebalance);
+        client.propose_action(&admin, &ActionType::Rebalance);
+
+
         assert_eq!(mock_client1.balance(), 300);
         assert_eq!(mock_client2.balance(), 400);
         assert_eq!(token_client.balance(&contract_id), 300);
@@ -796,7 +806,8 @@ fn test_withdraw_fails_when_cap_exceeded() {
 }
 
 #[test]
-#[should_panic(expected = "StaleOracleData")]fn test_rebalance_stale_oracle_rejected() {
+#[should_panic(expected = "StaleOracleData")]
+fn test_rebalance_stale_oracle_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -808,8 +819,9 @@ fn test_withdraw_fails_when_cap_exceeded() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);    
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    
     // Set max staleness to 100s
     client.set_max_staleness(&100);
 
@@ -821,8 +833,9 @@ let guardians = soroban_sdk::vec![&env, admin.clone()];
     // Advance time to 1101s (timestamp + 100 + 1)
     env.ledger().set_timestamp(timestamp + 100 + 1);
 
-// Propose Rebalance with threshold 1 -> triggers immediate execution via unwrap() -> panics with StaleOracleData
-    client.propose_action(&admin, &ActionType::Rebalance);}
+    // Propose Rebalance with threshold 1 -> triggers immediate execution via unwrap() -> panics with StaleOracleData
+    client.propose_action(&admin, &ActionType::Rebalance);
+}
 
 #[test]
 fn test_set_oracle_data_invalid_timestamp() {
@@ -837,8 +850,10 @@ fn test_set_oracle_data_invalid_timestamp() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-let guardians = soroban_sdk::vec![&env, admin.clone()];
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+
     let allocations: Map<Address, i128> = Map::new(&env);
     let now = 1000;
     env.ledger().set_timestamp(now);
