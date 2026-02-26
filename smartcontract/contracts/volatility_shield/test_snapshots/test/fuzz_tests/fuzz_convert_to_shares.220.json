@@ -71,52 +71,24 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ContractVersion"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "FeePercentage"
                             }
                           ]
                         },
                         "val": {
                           "u32": 0
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Guardians"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "MaxStaleness"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u64": 3600
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "NextProposalId"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u64": 1
                         }
                       },
                       {
@@ -147,18 +119,6 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Threshold"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "Token"
                             }
                           ]
@@ -178,7 +138,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 601720932220727285
+                            "lo": 332739482309168917
                           }
                         }
                       },
@@ -193,7 +153,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 73616835839257103
+                            "lo": 374972245410887830
                           }
                         }
                       },
