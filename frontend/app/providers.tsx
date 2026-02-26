@@ -13,13 +13,6 @@ export function Providers({ children }: { children: ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <FreighterProvider>
         <NetworkProvider>
-<<<<<<< HEAD
-          <CurrencyProvider>
-            <PriceProvider>
-              {children}
-            </PriceProvider>
-          </CurrencyProvider>
-=======
           <TourProvider>
             <CurrencyProvider>
               <PriceProvider>
@@ -27,7 +20,6 @@ export function Providers({ children }: { children: ReactNode }) {
               </PriceProvider>
             </CurrencyProvider>
           </TourProvider>
->>>>>>> origin/main
         </NetworkProvider>
       </FreighterProvider>
     </ThemeProvider>

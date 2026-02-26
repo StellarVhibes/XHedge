@@ -187,6 +187,37 @@ impl VolatilityShield {
         Ok(())
     }
 
+    pub fn add_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if guardians.contains(guardian.clone()) {
+            return Ok(());
+        }
+        guardians.push_back(guardian);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn remove_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        let index = guardians.first_index_of(guardian).ok_or(Error::Unauthorized)?;
+        guardians.remove(index);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if threshold == 0 || threshold > guardians.len() {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        Ok(())
+    }
+
+
     fn execute_action(env: &Env, action: &ActionType) -> Result<(), Error> {
         match action {
             ActionType::SetPaused(state) => {
