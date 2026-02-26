@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
-import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase } from "@/lib/stellar";
+import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase, estimateTransactionFee } from "@/lib/stellar";
 import VaultAPYChart from "@/components/VaultAPYChart";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
@@ -27,6 +27,8 @@ export default function VaultPage() {
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+  const [estimatingFee, setEstimatingFee] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error" | null; message: string }>({
     type: null,
     message: "",
@@ -47,6 +49,40 @@ export default function VaultPage() {
   useEffect(() => {
     loadMetrics();
   }, [loadMetrics]);
+
+  useEffect(() => {
+    const fetchFee = async () => {
+      if (!connected || !address || !amount || parseFloat(amount) <= 0) {
+        setEstimatedFee(null);
+        return;
+      }
+
+      setEstimatingFee(true);
+      try {
+        let xdr;
+        if (activeTab === "deposit") {
+          xdr = await buildDepositXdr(CONTRACT_ID, address, amount, network);
+        } else {
+          xdr = await buildWithdrawXdr(CONTRACT_ID, address, amount, network);
+        }
+
+        const { fee, error } = await estimateTransactionFee(xdr, network);
+        if (!error && fee) {
+          const feeXlm = (Number(fee) / 1e7).toFixed(5);
+          setEstimatedFee(feeXlm);
+        } else {
+          setEstimatedFee(null);
+        }
+      } catch (e) {
+        setEstimatedFee(null);
+      } finally {
+        setEstimatingFee(false);
+      }
+    };
+
+    const timeoutId = setTimeout(fetchFee, 500);
+    return () => clearTimeout(timeoutId);
+  }, [amount, activeTab, connected, address, network]);
 
   const userBalance = metrics ? parseFloat(metrics.userBalance) / 1e7 : 0;
   const userShares = metrics ? parseFloat(metrics.userShares) / 1e7 : 0;
@@ -217,6 +253,20 @@ export default function VaultPage() {
                   min="0"
                   step="0.01"
                 />
+                {(estimatingFee || estimatedFee) && amount && parseFloat(amount) > 0 && (
+                  <div className="mt-2 text-sm text-muted-foreground flex items-center justify-between">
+                    <span>Estimated Network Fee:</span>
+                    <span>
+                      {estimatingFee ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Calculating...
+                        </span>
+                      ) : (
+                        `~${estimatedFee} XLM`
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {activeTab === "deposit" && (

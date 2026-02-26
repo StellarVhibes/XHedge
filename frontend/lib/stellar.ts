@@ -1,7 +1,7 @@
-import { 
-  Horizon, 
-  Networks, 
-  TransactionBuilder, 
+import {
+  Horizon,
+  Networks,
+  TransactionBuilder,
   Operation,
   Address,
   nativeToScVal,
@@ -115,14 +115,14 @@ export async function fetchReferralData(
 export function calculateSharePrice(totalAssets: string, totalShares: string): string {
   const assets = BigInt(totalAssets || "0");
   const shares = BigInt(totalShares || "0");
-  
+
   if (shares === BigInt(0)) {
     return "1.0000000";
   }
-  
+
   const pricePerShare = (assets * BigInt(1e7)) / shares;
   const price = Number(pricePerShare) / 1e7;
-  
+
   return price.toFixed(7);
 }
 
@@ -146,7 +146,7 @@ export async function fetchTransactionHistory(
   userAddress: string | null
 ): Promise<Transaction[]> {
   if (!userAddress) return [];
-  
+
   // Mock transaction history
   return [
     {
@@ -192,9 +192,9 @@ export async function buildDepositXdr(
   const passphrase = NETWORK_PASSPHRASE[network];
 
   const contract = new Contract(contractId);
-  
+
   const amountBigInt = BigInt(Math.floor(parseFloat(amount) * 1e7)).toString();
-  
+
   const depositParams = [
     new Address(userAddress).toScVal(),
     nativeToScVal(amountBigInt, { type: "i128" })
@@ -224,9 +224,9 @@ export async function buildWithdrawXdr(
   const passphrase = NETWORK_PASSPHRASE[network];
 
   const contract = new Contract(contractId);
-  
+
   const sharesBigInt = BigInt(Math.floor(parseFloat(shares) * 1e7)).toString();
-  
+
   const withdrawParams = [
     new Address(userAddress).toScVal(),
     nativeToScVal(sharesBigInt, { type: "i128" })
@@ -248,19 +248,19 @@ export async function simulateAndAssembleTransaction(
   network: NetworkType = NetworkType.TESTNET
 ): Promise<{ result: string | null; error: string | null }> {
   try {
-    const rpcUrl = network === NetworkType.MAINNET 
+    const rpcUrl = network === NetworkType.MAINNET
       ? "https://rpc.mainnet.stellar.org"
       : network === NetworkType.FUTURENET
         ? "https://rpc-futurenet.stellar.org"
         : "https://rpc.testnet.stellar.org";
-    
+
     const server = new rpc.Server(rpcUrl);
     const passphrase = NETWORK_PASSPHRASE[network];
 
     const transaction = TransactionBuilder.fromXDR(xdrString, passphrase);
-    
+
     const simulated = await server.simulateTransaction(transaction);
-    
+
     if (!("error" in simulated)) {
       const assembled = rpc.assembleTransaction(transaction, simulated);
       return { result: assembled.build().toXDR(), error: null };
@@ -268,9 +268,43 @@ export async function simulateAndAssembleTransaction(
 
     return { result: null, error: "Simulation failed" };
   } catch (error) {
-    return { 
-      result: null, 
-      error: error instanceof Error ? error.message : "Failed to assemble transaction" 
+    return {
+      result: null,
+      error: error instanceof Error ? error.message : "Failed to assemble transaction"
+    };
+  }
+}
+
+export async function estimateTransactionFee(
+  xdrString: string,
+  network: NetworkType = NetworkType.TESTNET
+): Promise<{ fee: string | null; error: string | null }> {
+  try {
+    const rpcUrl = network === NetworkType.MAINNET
+      ? "https://rpc.mainnet.stellar.org"
+      : network === NetworkType.FUTURENET
+        ? "https://rpc-futurenet.stellar.org"
+        : "https://rpc.testnet.stellar.org";
+
+    const server = new rpc.Server(rpcUrl);
+    const passphrase = NETWORK_PASSPHRASE[network];
+
+    const transaction = TransactionBuilder.fromXDR(xdrString, passphrase);
+
+    const simulated = await server.simulateTransaction(transaction);
+
+    if (!("error" in simulated) && simulated.minResourceFee) {
+      // Base fee + resource fee + inclusion buffer
+      const minResourceFee = BigInt(simulated.minResourceFee);
+      const totalEstimatedFee = (minResourceFee + BigInt(10000)).toString(); // adding 10000 stroops as an inclusion buffer
+      return { fee: totalEstimatedFee, error: null };
+    }
+
+    return { fee: null, error: "Simulation failed to estimate fee" };
+  } catch (error) {
+    return {
+      fee: null,
+      error: error instanceof Error ? error.message : "Failed to estimate fee"
     };
   }
 }
@@ -280,31 +314,31 @@ export async function submitTransaction(
   network: NetworkType = NetworkType.TESTNET
 ): Promise<{ hash: string | null; error: string | null }> {
   try {
-    const rpcUrl = network === NetworkType.MAINNET 
+    const rpcUrl = network === NetworkType.MAINNET
       ? "https://rpc.mainnet.stellar.org"
       : network === NetworkType.FUTURENET
         ? "https://rpc-futurenet.stellar.org"
         : "https://rpc.testnet.stellar.org";
-    
+
     const server = new rpc.Server(rpcUrl);
     const passphrase = NETWORK_PASSPHRASE[network];
-    
+
     const transaction = TransactionBuilder.fromXDR(
       signedXdr,
       passphrase
     );
-    
+
     const response = await server.sendTransaction(transaction);
-    
+
     if (response.status === "PENDING" || response.status === "DUPLICATE") {
       return { hash: response.hash, error: null };
     }
-    
+
     return { hash: null, error: "Transaction failed" };
   } catch (error) {
-    return { 
-      hash: null, 
-      error: error instanceof Error ? error.message : "Failed to submit transaction" 
+    return {
+      hash: null,
+      error: error instanceof Error ? error.message : "Failed to submit transaction"
     };
   }
 }

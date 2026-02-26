@@ -7,6 +7,7 @@ import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
+import { RewardSummary } from "@/components/reward-summary";
 
 
 
@@ -46,7 +47,10 @@ export default function Home() {
           <WalletButton />
         </div>
 
+
         <VaultOverviewCard />
+
+        <RewardSummary />
 
         <div className="grid gap-4 md:grid-cols-2">
           <Link
