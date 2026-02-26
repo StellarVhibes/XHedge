@@ -28,4 +28,12 @@ impl MockStrategy {
             .instance()
             .set(&DataKey::Balance, &(current - amount));
     }
+
+    /// Simulate price drift by directly modifying the balance
+    /// This represents external factors affecting the strategy's value
+    pub fn simulate_price_drift(env: Env, new_balance: i128) {
+        env.storage()
+            .instance()
+            .set(&DataKey::Balance, &new_balance);
+    }
 }
