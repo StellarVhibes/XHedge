@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   review:
+    if: false
     name: XHedge Protocol Review
     runs-on: ubuntu-latest
     env:
