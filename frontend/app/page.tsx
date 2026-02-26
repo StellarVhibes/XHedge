@@ -9,13 +9,6 @@ import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
 import { RiskChart } from "@/components/RiskChart";
 
-import { useState, useEffect } from "react";
-
-interface Slice {
-  name: string;
-  value: number;
-}
-
 
 
 export default function Home() {
