@@ -5,6 +5,7 @@ import { NetworkProvider } from "./context/NetworkContext";
 import { FreighterProvider } from "./context/FreighterContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { PriceProvider } from "./context/PriceContext";
+import { PartnerAuthProvider } from "./context/PartnerAuthContext";
 import { ReactNode } from "react";
 import { TourProvider } from "@/components/TourContext";
 
@@ -16,7 +17,9 @@ export function Providers({ children }: { children: ReactNode }) {
           <TourProvider>
             <CurrencyProvider>
               <PriceProvider>
-                {children}
+                <PartnerAuthProvider>
+                  {children}
+                </PartnerAuthProvider>
               </PriceProvider>
             </CurrencyProvider>
           </TourProvider>
