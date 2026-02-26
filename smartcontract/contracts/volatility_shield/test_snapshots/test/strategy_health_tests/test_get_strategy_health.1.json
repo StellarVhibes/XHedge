@@ -126,6 +126,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ContractVersion"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "FeePercentage"
                             }
                           ]
@@ -243,6 +255,14 @@
                                     },
                                     "val": {
                                       "u64": 1
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "proposed_at"
+                                    },
+                                    "val": {
+                                      "u64": 0
                                     }
                                   },
                                   {
