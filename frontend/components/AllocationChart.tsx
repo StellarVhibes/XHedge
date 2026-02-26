@@ -1,7 +1,7 @@
 "use client";
-import React from 'react';
+import React, { memo } from 'react';
 
-type Slice = { name: string; value: number; color?: string };
+export type Slice = { name: string; value: number; color?: string };
 
 function polarToCartesian(cx: number, cy: number, r: number, angle: number) {
   const rad = (angle - 90) * (Math.PI / 180.0);
@@ -18,7 +18,7 @@ function describeArc(cx: number, cy: number, r: number, startAngle: number, endA
   return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
 }
 
-export default function AllocationChart({ slices }: { slices: Slice[] }) {
+const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slice[] }) {
   const total = slices.reduce((s, c) => s + c.value, 0) || 1;
   const size = 220;
   const cx = size / 2;
@@ -55,4 +55,6 @@ export default function AllocationChart({ slices }: { slices: Slice[] }) {
       </div>
     </div>
   );
-}
+});
+
+export default AllocationChart;

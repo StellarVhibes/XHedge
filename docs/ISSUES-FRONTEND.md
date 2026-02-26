@@ -203,3 +203,47 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
 - **Tasks:**
   - [x] Audit all pages on mobile viewports.
   - [x] Fix navigation menu and table overflows.
+
+
+
+### Issue #FE-41: Onboarding Tour Component
+**Priority:** Medium
+**Labels:** `frontend`, `ux`
+**Description:** Guide new users through the dashboard.
+- **Tasks:**
+  - [ ] Integrate a tour library (e.g., `react-joyride`).
+  - [ ] Define steps for Treasury and Strategy sections.
+
+### Issue #FE-42: Governance/Voting UI
+**Priority:** Low
+**Labels:** `frontend`, `governance`
+**Description:** Layout for future voting features.
+- **Tasks:**
+  - [ ] Create `/governance` route.
+  - [ ] Build placeholder cards for active proposals.
+
+### Issue #FE-43: Advanced Chart Filters
+**Priority:** Medium
+**Labels:** `frontend`, `chart`
+**Description:** Add timeframe filters to performance charts.
+- **Tasks:**
+  - [ ] Add 1D, 1W, 1M, 1Y filters to Recharts components.
+  - [ ] Update data fetching logic based on filters.
+
+### Issue #FE-44: History Export to CSV
+**Priority:** Low
+**Labels:** `frontend`, `data`
+**Description:** Allow users to download transaction logs.
+- **Tasks:**
+  - [ ] Implement CSV generation from transaction data.
+  - [ ] Add "Download CSV" button to History.
+
+### Issue #FE-45: Real-time Price Tracker
+**Priority:** Medium
+**Labels:** `frontend`, `hook`
+**Description:** Live updates for asset prices.
+- **Tasks:**
+  - [ ] Create `usePriceTracker` custom hook.
+  - [ ] Use polling or WebSockets for live data.
+
+---
