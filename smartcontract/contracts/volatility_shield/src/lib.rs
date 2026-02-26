@@ -21,14 +21,11 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
-<<<<<<< HEAD
     SlippageExceeded = 11,
-=======
-    ProposalNotFound = 11,
-    AlreadyApproved = 12,
-    ProposalExecuted = 13,
-    InsufficientApprovals = 14,
->>>>>>> origin/main
+    ProposalNotFound = 12,
+    AlreadyApproved = 13,
+    ProposalExecuted = 14,
+    InsufficientApprovals = 15,
 }
 
 // ─────────────────────────────────────────────
@@ -55,13 +52,28 @@ pub enum DataKey {
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
-<<<<<<< HEAD
-=======
     Guardians,
     Threshold,
     Proposals,
     NextProposalId,
->>>>>>> origin/main
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActionType {
+    SetPaused(bool),
+    AddStrategy(Address),
+    Rebalance(u32),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub action: ActionType,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
 }
 
 // ─────────────────────────────────────────────
@@ -110,8 +122,6 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
-<<<<<<< HEAD
-=======
     // ── Governance ────────────────────────────
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
         proposer.require_auth();
@@ -218,14 +228,13 @@ impl VolatilityShield {
             ActionType::AddStrategy(strategy) => {
                 Self::internal_add_strategy(env, strategy.clone())?;
             }
-            ActionType::Rebalance => {
-                Self::internal_rebalance(env)?;
+            ActionType::Rebalance(max_slippage) => {
+                Self::internal_rebalance(env, *max_slippage)?;
             }
         }
         Ok(())
     }
 
->>>>>>> origin/main
     // ── Initialization ────────────────────────
     /// Must be called once. Stores roles and configuration.
     pub fn init(
@@ -235,6 +244,8 @@ impl VolatilityShield {
         oracle: Address,
         treasury: Address,
         fee_percentage: u32,
+        guardians: Vec<Address>,
+        threshold: u32,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
@@ -260,6 +271,10 @@ impl VolatilityShield {
 
         // Initialize contract version
         env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+
+        // Multisig initialization
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
 
         Ok(())
     }
@@ -397,19 +412,12 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
-<<<<<<< HEAD
-    /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
-    /// **Slippage protection**: reverts entire rebalance if any strategy deviates beyond max_slippage_bps.
-    pub fn rebalance(env: Env, max_slippage_bps: u32) -> Result<(), Error> {
-        let admin = Self::read_admin(&env);
-        let oracle = Self::get_oracle(&env);
-=======
     /// **Access control**: must be called via the multi-sig governance system.
-    fn internal_rebalance(env: &Env) -> Result<(), Error> {
+    fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
         Self::check_version(env, 1);
         let admin  = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
->>>>>>> origin/main
+
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(&env, &admin, &oracle);
@@ -546,14 +554,10 @@ impl VolatilityShield {
     }
 
     // ── Strategy Management ───────────────────
-<<<<<<< HEAD
-    pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
-        Self::require_admin(&env);
-=======
     fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
         Self::check_version(env, 1);
         Self::require_admin(env);
->>>>>>> origin/main
+
 
         let mut strategies: Vec<Address> = env
             .storage()
@@ -672,6 +676,17 @@ impl VolatilityShield {
             .persistent()
             .get(&DataKey::Balance(user))
             .unwrap_or(0)
+    }
+
+    pub fn get_guardians(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Threshold).unwrap_or(1)
     }
 
     // ── Internal Helpers ──────────────────────
