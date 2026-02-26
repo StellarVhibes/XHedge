@@ -1453,3 +1453,351 @@ fn test_timelock_events_emitted() {
     client.propose_action(&admin, &ActionType::SetPaused(true));
     // TimelockExecuted event should be emitted during execution
 }
+
+// ── Withdrawal Queue Tests ─────────────────────────
+
+#[test]
+fn test_withdraw_queue_threshold_setting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set withdrawal queue threshold
+    client.set_withdraw_queue_threshold(&1000);
+}
+
+#[test]
+fn test_withdraw_below_threshold_processes_immediately() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold to 1000
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Setup user with balance
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &200);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Withdraw 50 shares (converts to 250 assets, below threshold)
+    client.withdraw(&user, &50);
+
+    // Should process immediately
+    assert_eq!(client.balance(&user), 150);
+    assert_eq!(token_client.balance(&user), 250);
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+}
+
+#[test]
+fn test_withdraw_above_threshold_queues() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold to 1000
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Setup user with balance
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &500);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Withdraw 300 shares (converts to 1500 assets, above threshold)
+    client.withdraw(&user, &300);
+
+    // Should be queued, balance locked
+    assert_eq!(client.balance(&user), 200);
+    let pending = client.get_pending_withdrawals();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending.get(0).unwrap().user, user);
+    assert_eq!(pending.get(0).unwrap().shares, 300);
+}
+
+#[test]
+fn test_process_withdraw_queue() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Setup user with balance
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &500);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Queue a withdrawal
+    client.withdraw(&user, &300);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+
+    // Process the queue
+    client.process_withdraw_queue();
+
+    // Withdrawal should be processed
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+    assert_eq!(token_client.balance(&user), 1500); // 300 shares * 5 = 1500 assets
+    assert_eq!(client.total_shares(), 700);
+    assert_eq!(client.total_assets(), 3500);
+}
+
+#[test]
+fn test_cancel_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set queue threshold
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Setup user with balance
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &500);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Queue a withdrawal
+    client.withdraw(&user, &300);
+    assert_eq!(client.balance(&user), 200);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+
+    // Cancel the withdrawal
+    client.cancel_withdraw(&user);
+
+    // Balance should be restored
+    assert_eq!(client.balance(&user), 500);
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "user already has a pending withdrawal")]
+fn test_cannot_queue_multiple_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&1000);
+
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    // Give user enough balance for both withdrawals
+    client.set_balance(&user, &600);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Queue first withdrawal (300 shares = 1500 assets, above threshold of 1000)
+    client.withdraw(&user, &300);
+    // User now has 300 shares remaining
+
+    // Try to queue another - should panic because user already has pending withdrawal
+    // This will try to withdraw 250 shares = 1250 assets, which is above threshold
+    client.withdraw(&user, &250);
+}
+
+#[test]
+fn test_process_withdraw_queue_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Try to process empty queue
+    let result = client.try_process_withdraw_queue();
+    assert_eq!(result, Err(Ok(Error::QueueEmpty)));
+}
+
+#[test]
+fn test_cancel_withdraw_not_found() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let user = Address::generate(&env);
+
+    // Try to cancel non-existent withdrawal
+    let result = client.try_cancel_withdraw(&user);
+    assert_eq!(result, Err(Ok(Error::WithdrawalNotFound)));
+}
+
+#[test]
+fn test_withdrawal_queue_fifo_order() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&1000);
+
+    // Setup two users
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user1, &300);
+    client.set_balance(&user2, &300);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Queue withdrawals in order
+    client.withdraw(&user1, &300);
+    client.withdraw(&user2, &300);
+
+    let pending = client.get_pending_withdrawals();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending.get(0).unwrap().user, user1);
+    assert_eq!(pending.get(1).unwrap().user, user2);
+
+    // Process first withdrawal
+    client.process_withdraw_queue();
+    assert_eq!(token_client.balance(&user1), 1500);
+    assert_eq!(token_client.balance(&user2), 0);
+
+    // Process second withdrawal
+    client.process_withdraw_queue();
+    assert_eq!(token_client.balance(&user2), 1500);
+}
+
+#[test]
+fn test_withdrawal_queue_full_lifecycle() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_queue_threshold(&1000);
+
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &500);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // 1. Queue withdrawal
+    client.withdraw(&user, &300);
+    assert_eq!(client.balance(&user), 200);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+
+    // 2. Cancel withdrawal
+    client.cancel_withdraw(&user);
+    assert_eq!(client.balance(&user), 500);
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+
+    // 3. Queue again
+    client.withdraw(&user, &300);
+    assert_eq!(client.balance(&user), 200);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+
+    // 4. Process withdrawal
+    client.process_withdraw_queue();
+    assert_eq!(client.balance(&user), 200);
+    assert_eq!(token_client.balance(&user), 1500);
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+}
