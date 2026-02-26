@@ -21,7 +21,14 @@ pub enum Error {
     WithdrawalCapExceeded = 8,
     StaleOracleData = 9,
     InvalidTimestamp = 10,
+<<<<<<< HEAD
     SlippageExceeded = 11,
+=======
+    ProposalNotFound = 11,
+    AlreadyApproved = 12,
+    ProposalExecuted = 13,
+    InsufficientApprovals = 14,
+>>>>>>> origin/main
 }
 
 // ─────────────────────────────────────────────
@@ -41,12 +48,20 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    ContractVersion,
     MaxDepositPerUser,
     MaxTotalAssets,
     MaxWithdrawPerTx,
     OracleLastUpdate,
     MaxStaleness,
     TargetAllocations,
+<<<<<<< HEAD
+=======
+    Guardians,
+    Threshold,
+    Proposals,
+    NextProposalId,
+>>>>>>> origin/main
 }
 
 // ─────────────────────────────────────────────
@@ -95,6 +110,122 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
+<<<<<<< HEAD
+=======
+    // ── Governance ────────────────────────────
+    pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
+        proposer.require_auth();
+        
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
+        if !guardians.contains(proposer.clone()) {
+            panic!("not a guardian");
+        }
+
+        let id = env.storage().instance().get(&DataKey::NextProposalId).unwrap_or(1);
+        env.storage().instance().set(&DataKey::NextProposalId, &(id + 1));
+
+        let mut proposal = Proposal {
+            id,
+            proposer: proposer.clone(),
+            action: action.clone(),
+            approvals: soroban_sdk::vec![&env, proposer],
+            executed: false,
+        };
+
+        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+        if threshold <= 1 {
+            Self::execute_action(&env, &action).unwrap();
+            proposal.executed = true;
+        }
+
+        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
+        proposals.set(id, proposal);
+        env.storage().instance().set(&DataKey::Proposals, &proposals);
+
+        id
+    }
+
+    pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
+        guardian.require_auth();
+
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).ok_or(Error::NotInitialized)?;
+        if !guardians.contains(guardian.clone()) {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).ok_or(Error::NotInitialized)?;
+        let mut proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalExecuted);
+        }
+
+        if proposal.approvals.contains(guardian.clone()) {
+            return Err(Error::AlreadyApproved);
+        }
+
+        proposal.approvals.push_back(guardian);
+        
+        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+        if proposal.approvals.len() >= threshold {
+            Self::execute_action(&env, &proposal.action)?;
+            proposal.executed = true;
+        }
+
+        proposals.set(proposal_id, proposal);
+        env.storage().instance().set(&DataKey::Proposals, &proposals);
+
+        Ok(())
+    }
+
+    pub fn add_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if guardians.contains(guardian.clone()) {
+            return Ok(());
+        }
+        guardians.push_back(guardian);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn remove_guardian(env: Env, guardian: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        let index = guardians.first_index_of(guardian).ok_or(Error::Unauthorized)?;
+        guardians.remove(index);
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        Ok(())
+    }
+
+    pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        if threshold == 0 || threshold > guardians.len() {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        Ok(())
+    }
+
+
+    fn execute_action(env: &Env, action: &ActionType) -> Result<(), Error> {
+        match action {
+            ActionType::SetPaused(state) => {
+                env.storage().instance().set(&DataKey::Paused, state);
+                env.events().publish((symbol_short!("paused"),), state);
+            }
+            ActionType::AddStrategy(strategy) => {
+                Self::internal_add_strategy(env, strategy.clone())?;
+            }
+            ActionType::Rebalance => {
+                Self::internal_rebalance(env)?;
+            }
+        }
+        Ok(())
+    }
+
+>>>>>>> origin/main
     // ── Initialization ────────────────────────
     /// Must be called once. Stores roles and configuration.
     pub fn init(
@@ -127,11 +258,15 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::MaxStaleness, &3600u64);
 
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+
         Ok(())
     }
 
     // ── Deposit ───────────────────────────────
     pub fn deposit(env: Env, from: Address, amount: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("deposit amount must be positive");
@@ -196,6 +331,7 @@ impl VolatilityShield {
 
     // ── Withdraw ──────────────────────────────
     pub fn withdraw(env: Env, from: Address, shares: i128) {
+        Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
@@ -261,11 +397,19 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
+<<<<<<< HEAD
     /// **Access control**: must be called by the stored `Admin` OR the stored `Oracle`.
     /// **Slippage protection**: reverts entire rebalance if any strategy deviates beyond max_slippage_bps.
     pub fn rebalance(env: Env, max_slippage_bps: u32) -> Result<(), Error> {
         let admin = Self::read_admin(&env);
         let oracle = Self::get_oracle(&env);
+=======
+    /// **Access control**: must be called via the multi-sig governance system.
+    fn internal_rebalance(env: &Env) -> Result<(), Error> {
+        Self::check_version(env, 1);
+        let admin  = Self::read_admin(env);
+        let oracle = Self::get_oracle(env);
+>>>>>>> origin/main
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(&env, &admin, &oracle);
@@ -402,8 +546,14 @@ impl VolatilityShield {
     }
 
     // ── Strategy Management ───────────────────
+<<<<<<< HEAD
     pub fn add_strategy(env: Env, strategy: Address) -> Result<(), Error> {
         Self::require_admin(&env);
+=======
+    fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
+        Self::check_version(env, 1);
+        Self::require_admin(env);
+>>>>>>> origin/main
 
         let mut strategies: Vec<Address> = env
             .storage()
@@ -427,6 +577,7 @@ impl VolatilityShield {
     }
 
     pub fn harvest(env: Env) -> Result<i128, Error> {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
 
         let strategies = Self::get_strategies(&env);
@@ -602,6 +753,7 @@ impl VolatilityShield {
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
     pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) {
+        Self::check_version(&env, 1);
         Self::require_admin(&env);
         env.storage()
             .instance()
@@ -636,6 +788,38 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::MaxStaleness)
             .unwrap_or(3600)
+    }
+
+    // ── Contract Upgrade & Migration ──────────────────
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::require_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+    }
+
+    pub fn migrate(env: Env, new_version: u32) {
+        Self::require_admin(&env);
+        let current_version = Self::version(&env);
+        if new_version <= current_version {
+            panic!("new version must be greater than current version");
+        }
+        
+        // Execute any necessary state migrations here if migrating from specific versions
+        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
+        
+        env.storage().instance().set(&DataKey::ContractVersion, &new_version);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("migrate")), new_version);
+    }
+    
+    pub fn version(env: &Env) -> u32 {
+        env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(0)
+    }
+
+    pub fn check_version(env: &Env, expected_version: u32) {
+        let current = Self::version(env);
+        if current != expected_version {
+            panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
+        }
     }
 
     pub fn is_paused(env: Env) -> bool {
