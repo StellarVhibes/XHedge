@@ -6,6 +6,7 @@ import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
+import { RiskChart } from "@/components/RiskChart";
 
 export default function Home() {
   const [slices, setSlices] = useState<{ name: string; value: number }[] | null>(null);
@@ -40,10 +41,21 @@ export default function Home() {
               <p className="text-muted-foreground">Volatility Shield for Weak Currencies</p>
             </div>
           </div>
-          <WalletButton />
+          <div id="tour-sidebar-wallet">
+            <WalletButton />
+          </div>
         </div>
 
-        <VaultOverviewCard />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <VaultOverviewCard />
+          </div>
+          <div className="lg:col-span-1 flex">
+            <div className="w-full h-full">
+              <RiskChart score={45} />
+            </div>
+          </div>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Link
