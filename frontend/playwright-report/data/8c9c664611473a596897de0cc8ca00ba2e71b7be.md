@@ -1,0 +1,73 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e6]
+          - generic [ref=e8]: XHedge
+        - navigation [ref=e9]:
+          - link "Dashboard" [ref=e10] [cursor=pointer]:
+            - /url: /
+            - img [ref=e11]
+            - text: Dashboard
+          - link "Vault" [ref=e14] [cursor=pointer]:
+            - /url: /vault
+            - img [ref=e15]
+            - text: Vault
+          - link "Strategies" [ref=e17] [cursor=pointer]:
+            - /url: /strategies
+            - img [ref=e18]
+            - text: Strategies
+          - link "Portfolio" [ref=e21] [cursor=pointer]:
+            - /url: /portfolio
+            - img [ref=e22]
+            - text: Portfolio
+          - link "Referrals" [ref=e25] [cursor=pointer]:
+            - /url: /referrals
+            - img [ref=e26]
+            - text: Referrals
+          - link "Settings" [ref=e31] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e32]
+            - text: Settings
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e38]: Currency
+            - generic [ref=e39]:
+              - button "USD ($)" [ref=e40] [cursor=pointer]
+              - button "NGN (₦)" [ref=e41] [cursor=pointer]
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - img [ref=e44]
+              - generic [ref=e47]: Network
+            - generic [ref=e48]:
+              - button "mainnet" [ref=e49] [cursor=pointer]:
+                - generic [ref=e50]: mainnet
+              - button "testnet" [ref=e51] [cursor=pointer]:
+                - generic [ref=e52]: testnet
+              - button "futurenet" [ref=e54] [cursor=pointer]:
+                - generic [ref=e55]: futurenet
+        - generic [ref=e57]:
+          - generic [ref=e59]: XH
+          - generic [ref=e60]:
+            - generic [ref=e61]: XHedge
+            - generic [ref=e62]: Volatility Shield
+    - main [ref=e63]:
+      - generic [ref=e65]:
+        - heading "Vault" [level=1] [ref=e66]
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - button "Deposit" [ref=e69] [cursor=pointer]:
+              - img [ref=e70]
+              - text: Deposit
+            - button "Withdraw" [ref=e72] [cursor=pointer]:
+              - img [ref=e73]
+              - text: Withdraw
+          - generic [ref=e76]: Connect your wallet to deposit or withdraw funds
+  - button "Open Next.js Dev Tools" [ref=e82] [cursor=pointer]:
+    - img [ref=e83]
+  - alert [ref=e86]
+```

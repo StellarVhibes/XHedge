@@ -352,6 +352,9 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Guardians, &guardians);
         env.storage().instance().set(&DataKey::Threshold, &threshold);
 
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+
         Ok(())
     }
 
@@ -836,7 +839,6 @@ impl VolatilityShield {
         Self::check_version(env, 1);
         Self::require_admin(env);
 
-
         let mut strategies: Vec<Address> = env
             .storage()
             .instance()
@@ -1276,6 +1278,7 @@ impl VolatilityShield {
             panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
         }
     }
+
 
     pub fn is_paused(env: Env) -> bool {
         env.storage()

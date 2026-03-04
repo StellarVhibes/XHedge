@@ -6,6 +6,7 @@ import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
+import { RewardSummary } from "@/components/reward-summary";
 interface Slice {
   name: string;
   value: number;
@@ -61,6 +62,8 @@ export default function Home() {
           </div>
         </div>
 
+        <RewardSummary />
+
         <div className="grid gap-4 md:grid-cols-2">
           <Link
             href="/vault"
@@ -90,7 +93,7 @@ export default function Home() {
         <TransactionList />
 
         <AiInsightStream />
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }
