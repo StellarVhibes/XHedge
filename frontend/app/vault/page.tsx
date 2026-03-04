@@ -428,7 +428,6 @@ export default function VaultPage() {
                   disabled={!connected || loading}
                 />
               </div>
-
               <Button 
                 onClick={handleWithdraw} 
                 disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
