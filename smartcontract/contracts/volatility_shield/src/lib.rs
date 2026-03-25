@@ -159,14 +159,20 @@ impl VolatilityShield {
     // ── Governance ────────────────────────────
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> u64 {
         proposer.require_auth();
-        
+
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
         if !guardians.contains(proposer.clone()) {
             panic!("not a guardian");
         }
 
-        let id = env.storage().instance().get(&DataKey::NextProposalId).unwrap_or(1);
-        env.storage().instance().set(&DataKey::NextProposalId, &(id + 1));
+        let id = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextProposalId)
+            .unwrap_or(1);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextProposalId, &(id + 1));
 
         let proposed_at = env.ledger().timestamp();
         let mut proposal = Proposal {
@@ -179,12 +185,14 @@ impl VolatilityShield {
         };
 
         // Emit TimelockStarted event
-        env.events().publish(
-            (symbol_short!("Timelock"),),
-            (id, proposed_at),
-        );
+        env.events()
+            .publish((symbol_short!("Timelock"),), (id, proposed_at));
 
-        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1);
         if threshold <= 1 {
             // Try to execute, but if timelock hasn't elapsed, the proposal will remain unexecuted
             let res = Self::execute_action(&env, &action, proposed_at);
@@ -197,9 +205,15 @@ impl VolatilityShield {
             }
         }
 
-        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).unwrap_or(Map::new(&env));
+        let mut proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(&env));
         proposals.set(id, proposal);
-        env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposals, &proposals);
 
         id
     }
@@ -207,12 +221,20 @@ impl VolatilityShield {
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
         guardian.require_auth();
 
-        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).ok_or(Error::NotInitialized)?;
+        let guardians: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .ok_or(Error::NotInitialized)?;
         if !guardians.contains(guardian.clone()) {
             return Err(Error::Unauthorized);
         }
 
-        let mut proposals: Map<u64, Proposal> = env.storage().instance().get(&DataKey::Proposals).ok_or(Error::NotInitialized)?;
+        let mut proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .ok_or(Error::NotInitialized)?;
         let mut proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
 
         if proposal.executed {
@@ -224,49 +246,74 @@ impl VolatilityShield {
         }
 
         proposal.approvals.push_back(guardian);
-        
-        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap_or(1);
+
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1);
         if proposal.approvals.len() >= threshold {
             Self::execute_action(&env, &proposal.action, proposal.proposed_at)?;
             proposal.executed = true;
         }
 
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposals, &proposals);
 
         Ok(())
     }
 
     pub fn add_guardian(env: Env, guardian: Address) -> Result<(), Error> {
         Self::require_admin(&env);
-        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        let mut guardians: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .unwrap_or(Vec::new(&env));
         if guardians.contains(guardian.clone()) {
             return Ok(());
         }
         guardians.push_back(guardian);
-        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardians, &guardians);
         Ok(())
     }
 
     pub fn remove_guardian(env: Env, guardian: Address) -> Result<(), Error> {
         Self::require_admin(&env);
-        let mut guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
-        let index = guardians.first_index_of(guardian).ok_or(Error::Unauthorized)?;
+        let mut guardians: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .unwrap_or(Vec::new(&env));
+        let index = guardians
+            .first_index_of(guardian)
+            .ok_or(Error::Unauthorized)?;
         guardians.remove(index);
-        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardians, &guardians);
         Ok(())
     }
 
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
         Self::require_admin(&env);
-        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap_or(Vec::new(&env));
+        let guardians: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .unwrap_or(Vec::new(&env));
         if threshold == 0 || threshold > guardians.len() {
             return Err(Error::Unauthorized);
         }
-        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Threshold, &threshold);
         Ok(())
     }
-
 
     fn execute_action(env: &Env, action: &ActionType, proposed_at: u64) -> Result<(), Error> {
         // Check if timelock has elapsed
@@ -285,17 +332,18 @@ impl VolatilityShield {
         }
 
         // Emit TimelockExecuted event
-        env.events().publish(
-            (symbol_short!("TlockExec"),),
-            (),
-        );
+        env.events().publish((symbol_short!("TlockExec"),), ());
 
         Ok(())
     }
 
     fn assert_timelock_elapsed(env: &Env, proposed_at: u64) -> Result<(), Error> {
-        let timelock_duration: u64 = env.storage().instance().get(&DataKey::TimelockDuration).unwrap_or(0);
-        
+        let timelock_duration: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TimelockDuration)
+            .unwrap_or(0);
+
         // If timelock duration is 0, no timelock is enforced
         if timelock_duration == 0 {
             return Ok(());
@@ -303,7 +351,7 @@ impl VolatilityShield {
 
         let now = env.ledger().timestamp();
         let elapsed = now.checked_sub(proposed_at).unwrap_or(0);
-        
+
         if elapsed < timelock_duration {
             return Err(Error::TimelockNotElapsed);
         }
@@ -346,14 +394,22 @@ impl VolatilityShield {
             .set(&DataKey::MaxStaleness, &3600u64);
 
         // Initialize contract version
-        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::ContractVersion, &1u32);
 
         // Multisig initialization
-        env.storage().instance().set(&DataKey::Guardians, &guardians);
-        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardians, &guardians);
+        env.storage()
+            .instance()
+            .set(&DataKey::Threshold, &threshold);
 
         // Initialize contract version
-        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::ContractVersion, &1u32);
 
         Ok(())
     }
@@ -457,7 +513,11 @@ impl VolatilityShield {
         // --------------------------------
 
         // Check if withdrawal exceeds queue threshold
-        let queue_threshold: i128 = env.storage().instance().get(&DataKey::WithdrawQueueThreshold).unwrap_or(i128::MAX);
+        let queue_threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueThreshold)
+            .unwrap_or(i128::MAX);
         if assets_to_withdraw > queue_threshold {
             // Queue the withdrawal instead of processing immediately
             Self::queue_withdraw(env, from, shares);
@@ -492,7 +552,6 @@ impl VolatilityShield {
             .publish((symbol_short!("withdraw"), from.clone()), shares);
     }
 
-
     // ── Withdrawal Queue ───────────────────────
     /// Queue a withdrawal request for processing later.
     /// This is called automatically by withdraw() when the amount exceeds the threshold.
@@ -511,12 +570,14 @@ impl VolatilityShield {
         }
 
         let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
-        
+
         // Check if withdrawal exceeds queue threshold
-        let queue_threshold: i128 = env.storage().instance()
+        let queue_threshold: i128 = env
+            .storage()
+            .instance()
             .get(&DataKey::WithdrawQueueThreshold)
             .unwrap_or(i128::MAX);
-        
+
         if assets_to_withdraw <= queue_threshold {
             panic!("withdrawal amount does not exceed queue threshold");
         }
@@ -529,12 +590,16 @@ impl VolatilityShield {
         };
 
         // Add to pending withdrawals queue
-        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env));
-        
+
         pending_withdrawals.push_back(queued_withdrawal);
-        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
 
         // Emit WithdrawQueued event
         env.events()
@@ -548,25 +613,34 @@ impl VolatilityShield {
         if threshold < 0 {
             panic!("threshold must be non-negative");
         }
-        env.storage().instance().set(&DataKey::WithdrawQueueThreshold, &threshold);
-        env.events().publish((symbol_short!("QueueThr"),), threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueThreshold, &threshold);
+        env.events()
+            .publish((symbol_short!("QueueThr"),), threshold);
     }
 
     /// Process queued withdrawals (admin only)
     pub fn process_queued_withdrawals(env: Env, limit: u32) -> u32 {
         Self::require_admin(&env);
-        
-        let pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+
+        let pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env));
-        
+
         let mut processed = 0;
         let mut remaining_withdrawals = Vec::new(&env);
-        
+
         let mut total_shares = Self::total_shares(&env);
         let mut total_assets = Self::total_assets(&env);
 
-        let token: Address = env.storage().instance().get(&DataKey::Token).expect("Token not initialized");
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
         let token_client = token::Client::new(&env, &token);
 
         for queued_withdrawal in pending_withdrawals.iter() {
@@ -574,46 +648,52 @@ impl VolatilityShield {
                 remaining_withdrawals.push_back(queued_withdrawal.clone());
                 continue;
             }
-            
+
             // Process the withdrawal
             let assets_to_withdraw = Self::convert_to_assets(env.clone(), queued_withdrawal.shares);
-            
+
             total_shares = total_shares.checked_sub(queued_withdrawal.shares).unwrap();
             total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
-            
+
             token_client.transfer(
                 &env.current_contract_address(),
                 &queued_withdrawal.user,
                 &assets_to_withdraw,
             );
-            
-            env.events()
-                .publish((symbol_short!("WithdrawP"), queued_withdrawal.user.clone()), queued_withdrawal.shares);
-            
+
+            env.events().publish(
+                (symbol_short!("WithdrawP"), queued_withdrawal.user.clone()),
+                queued_withdrawal.shares,
+            );
+
             processed += 1;
         }
-        
+
         // Update totals
         Self::set_total_shares(env.clone(), total_shares);
         Self::set_total_assets(env.clone(), total_assets);
-        
+
         // Update remaining withdrawals
-        env.storage().instance().set(&DataKey::PendingWithdrawals, &remaining_withdrawals);
-        
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingWithdrawals, &remaining_withdrawals);
+
         processed
     }
 
     /// Cancel a queued withdrawal
     pub fn cancel_queued_withdrawal(env: Env, from: Address) -> Result<(), Error> {
         from.require_auth();
-        
-        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env));
-        
+
         let mut found_index: Option<u32> = None;
         let mut found_withdrawal: Option<QueuedWithdrawal> = None;
-        
+
         for i in 0..pending_withdrawals.len() {
             let w = pending_withdrawals.get(i).unwrap();
             if w.user == from {
@@ -622,37 +702,41 @@ impl VolatilityShield {
                 break;
             }
         }
-        
+
         let index = found_index.ok_or(Error::WithdrawalNotFound)?;
         let w = found_withdrawal.unwrap();
-        
+
         pending_withdrawals.remove(index);
-        
+
         // Return shares to user balance
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage().persistent().set(&balance_key, &(current_balance + w.shares));
-        
-        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
-        
-        env.events().publish(
-            (symbol_short!("WdrwCncl"),),
-            (from, w.shares),
-        );
-        
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(current_balance + w.shares));
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+
+        env.events()
+            .publish((symbol_short!("WdrwCncl"),), (from, w.shares));
+
         Ok(())
     }
 
     /// Get the current withdrawal queue threshold
     pub fn get_withdraw_queue_threshold(env: Env) -> i128 {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&DataKey::WithdrawQueueThreshold)
             .unwrap_or(i128::MAX)
     }
 
     /// Get all pending queued withdrawals
     pub fn get_pending_withdrawals(env: Env) -> Vec<QueuedWithdrawal> {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env))
     }
@@ -667,7 +751,7 @@ impl VolatilityShield {
     /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
         Self::check_version(env, 1);
-        let admin  = Self::read_admin(env);
+        let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
@@ -802,26 +886,43 @@ impl VolatilityShield {
     }
 
     /// Validates allocation data for logical correctness.
-    /// - Checks that all allocation percentages sum to 100% (10000 basis points)
-    /// - Ensures individual allocations are non-negative
-    /// - Rejects allocations with zero-address strategies
-    fn validate_allocations(_env: &Env, allocations: &Map<Address, i128>) -> Result<(), Error> {
-        let mut total_percentage: i128 = 0;
+    ///
+    /// Invariants enforced (all in a single O(n) pass over the allocation map):
+    /// - Every strategy address must be present in the on-chain strategy registry
+    ///   (`ZeroAddressStrategy`). This is the Soroban-native analogue of the EVM
+    ///   "zero-address" guard — an unregistered contract must never receive funds.
+    /// - Every individual allocation value must be non-negative (`NegativeAllocation`).
+    /// - Non-empty allocations must sum exactly to 10 000 basis points / 100%
+    ///   (`InvalidAllocationSum`). An empty map (total = 0) is accepted for
+    ///   initialization / reset purposes.
+    ///
+    /// Time complexity : O(n) where n = number of entries in the allocation map.
+    /// Space complexity: O(s) for the single registered-strategies Vec read from
+    ///                   storage, where s = number of registered strategies.
+    fn validate_allocations(env: &Env, allocations: &Map<Address, i128>) -> Result<(), Error> {
+        // Read the registered strategy registry once — O(s) space, one storage hit.
+        let registered: Vec<Address> = Self::get_strategies(env);
 
-        for (_strategy_addr, allocation) in allocations.iter() {
+        let mut total_bps: i128 = 0;
 
-            // Check for negative allocation
+        for (strategy_addr, allocation) in allocations.iter() {
+            // Guard 1: strategy must be in the on-chain registry.
+            if !registered.contains(strategy_addr.clone()) {
+                return Err(Error::ZeroAddressStrategy);
+            }
+
+            // Guard 2: individual allocation must be non-negative.
             if allocation < 0 {
                 return Err(Error::NegativeAllocation);
             }
 
-            // Sum up percentages
-            total_percentage = total_percentage.checked_add(allocation).unwrap_or(i128::MAX);
+            // Accumulate; saturate at i128::MAX on overflow (caught by sum check below).
+            total_bps = total_bps.checked_add(allocation).unwrap_or(i128::MAX);
         }
 
-        // Validate sum equals 100% (10000 basis points)
-        // Allow empty allocations (total = 0) for initialization
-        if total_percentage != 0 && total_percentage != 10000 {
+        // Guard 3: non-empty allocations must sum exactly to 100% (10 000 bps).
+        // An empty map (total_bps == 0) is allowed for initialization / reset.
+        if total_bps != 0 && total_bps != 10_000 {
             return Err(Error::InvalidAllocationSum);
         }
 
@@ -893,7 +994,7 @@ impl VolatilityShield {
     /// Check health of all strategies and compare expected vs actual balances
     pub fn check_strategy_health(env: Env) -> Result<Vec<Address>, Error> {
         Self::require_admin(&env);
-        
+
         let strategies = Self::get_strategies(&env);
         if strategies.is_empty() {
             return Err(Error::NoStrategies);
@@ -901,9 +1002,10 @@ impl VolatilityShield {
 
         let mut unhealthy_strategies = Vec::new(&env);
         let current_time = env.ledger().timestamp();
-        
+
         // Get expected allocations from oracle data
-        let expected_allocations: Map<Address, i128> = env.storage()
+        let expected_allocations: Map<Address, i128> = env
+            .storage()
             .instance()
             .get(&DataKey::TargetAllocations)
             .unwrap_or(Map::new(&env));
@@ -911,23 +1013,22 @@ impl VolatilityShield {
         for strategy_addr in strategies.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
             let actual_balance = strategy.balance();
-            
+
             // Get expected balance from allocations
-            let expected_balance = expected_allocations
-                .get(strategy_addr.clone())
-                .unwrap_or(0);
-            
+            let expected_balance = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let current_health = env.storage()
-                .instance()
-                .get(&health_key)
-                .unwrap_or(StrategyHealth {
-                    last_known_balance: expected_balance,
-                    last_check_timestamp: current_time,
-                    is_healthy: true,
-                });
-            
+            let current_health =
+                env.storage()
+                    .instance()
+                    .get(&health_key)
+                    .unwrap_or(StrategyHealth {
+                        last_known_balance: expected_balance,
+                        last_check_timestamp: current_time,
+                        is_healthy: true,
+                    });
+
             // Check if strategy is unhealthy (significant deviation from expected)
             let balance_deviation = if expected_balance > 0 {
                 // Allow 10% deviation before flagging as unhealthy
@@ -937,12 +1038,13 @@ impl VolatilityShield {
                 // If expected is 0, any positive actual balance is considered healthy
                 false
             };
-            
+
             let is_healthy = !balance_deviation;
-            
+
             // Update health data if changed
-            if is_healthy != current_health.is_healthy || 
-               actual_balance != current_health.last_known_balance {
+            if is_healthy != current_health.is_healthy
+                || actual_balance != current_health.last_known_balance
+            {
                 let new_health = StrategyHealth {
                     last_known_balance: actual_balance,
                     last_check_timestamp: current_time,
@@ -950,70 +1052,74 @@ impl VolatilityShield {
                 };
                 env.storage().instance().set(&health_key, &new_health);
             }
-            
+
             // If unhealthy, add to list for flagging
             if !is_healthy {
                 unhealthy_strategies.push_back(strategy_addr.clone());
             }
         }
-        
+
         Ok(unhealthy_strategies)
     }
 
     /// Flag a strategy as unhealthy (admin only)
     pub fn flag_strategy(env: Env, strategy: Address) -> Result<(), Error> {
         Self::require_admin(&env);
-        
+
         // Verify strategy exists
         let strategies = Self::get_strategies(&env);
         if !strategies.contains(strategy.clone()) {
             return Err(Error::NotInitialized);
         }
-        
+
         let health_key = DataKey::StrategyHealth(strategy.clone());
         let current_time = env.ledger().timestamp();
-        
+
         // Update health to unhealthy
         let updated_health = StrategyHealth {
             last_known_balance: 0, // Will be updated on next health check
             last_check_timestamp: current_time,
             is_healthy: false,
         };
-        
+
         env.storage().instance().set(&health_key, &updated_health);
-        
+
         // Emit StrategyFlagged event
         env.events()
             .publish((symbol_short!("StrategyF"), strategy.clone()), current_time);
-        
+
         Ok(())
     }
 
     /// Remove a strategy and withdraw all funds first (admin only)
     pub fn remove_strategy(env: Env, strategy: Address) -> Result<(), Error> {
         Self::require_admin(&env);
-        
+
         // Verify strategy exists
         let mut strategies = Self::get_strategies(&env);
         let strategy_index = strategies.iter().position(|s| s == strategy);
-        
+
         if strategy_index.is_none() {
             return Err(Error::NotInitialized);
         }
-        
+
         // Withdraw all funds from strategy first
         let strategy_client = StrategyClient::new(&env, strategy.clone());
         let strategy_balance = strategy_client.balance();
-        
+
         if strategy_balance > 0 {
             // Transfer all funds back to vault
             let asset_addr = Self::get_asset(&env);
             let token_client = token::Client::new(&env, &asset_addr);
-            
+
             // Withdraw from strategy
             strategy_client.withdraw(strategy_balance);
-            token_client.transfer(&strategy, &env.current_contract_address(), &strategy_balance);
-            
+            token_client.transfer(
+                &strategy,
+                &env.current_contract_address(),
+                &strategy_balance,
+            );
+
             // Update total assets to reflect returned funds
             let current_assets = Self::total_assets(&env);
             Self::set_total_assets(
@@ -1021,19 +1127,23 @@ impl VolatilityShield {
                 current_assets.checked_add(strategy_balance).unwrap(),
             );
         }
-        
+
         // Remove from strategies list
         strategies.remove(strategy_index.unwrap() as u32);
-        env.storage().instance().set(&DataKey::Strategies, &strategies);
-        
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategies, &strategies);
+
         // Clean up health data
         let health_key = DataKey::StrategyHealth(strategy.clone());
         env.storage().instance().remove(&health_key);
-        
+
         // Emit StrategyRemoved event
-        env.events()
-            .publish((symbol_short!("StrategyR"), strategy.clone()), strategy_balance);
-        
+        env.events().publish(
+            (symbol_short!("StrategyR"), strategy.clone()),
+            strategy_balance,
+        );
+
         Ok(())
     }
 
@@ -1121,7 +1231,10 @@ impl VolatilityShield {
     }
 
     pub fn get_threshold(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::Threshold).unwrap_or(1)
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1)
     }
 
     // ── Internal Helpers ──────────────────────
@@ -1226,7 +1339,6 @@ impl VolatilityShield {
             .publish((symbol_short!("Caps"), symbol_short!("withdraw")), per_tx);
     }
 
-
     pub fn set_max_staleness(env: Env, seconds: u64) {
         Self::require_admin(&env);
         env.storage()
@@ -1236,8 +1348,11 @@ impl VolatilityShield {
 
     pub fn set_timelock_duration(env: Env, duration: u64) {
         Self::require_admin(&env);
-        env.storage().instance().set(&DataKey::TimelockDuration, &duration);
-        env.events().publish((symbol_short!("TimelockD"),), duration);
+        env.storage()
+            .instance()
+            .set(&DataKey::TimelockDuration, &duration);
+        env.events()
+            .publish((symbol_short!("TimelockD"),), duration);
     }
 
     pub fn max_staleness(env: &Env) -> u64 {
@@ -1251,7 +1366,8 @@ impl VolatilityShield {
     pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
         Self::require_admin(&env);
         env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.events().publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+        env.events()
+            .publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
     }
 
     pub fn migrate(env: Env, new_version: u32) {
@@ -1260,25 +1376,35 @@ impl VolatilityShield {
         if new_version <= current_version {
             panic!("new version must be greater than current version");
         }
-        
+
         // Execute any necessary state migrations here if migrating from specific versions
         // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
-        
-        env.storage().instance().set(&DataKey::ContractVersion, &new_version);
-        env.events().publish((symbol_short!("upgrade"), symbol_short!("migrate")), new_version);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ContractVersion, &new_version);
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("migrate")),
+            new_version,
+        );
     }
-    
+
     pub fn version(env: &Env) -> u32 {
-        env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::ContractVersion)
+            .unwrap_or(0)
     }
 
     pub fn check_version(env: &Env, expected_version: u32) {
         let current = Self::version(env);
         if current != expected_version {
-            panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
+            panic!(
+                "VersionMismatch: Expected contract version {} but found {}",
+                expected_version, current
+            );
         }
     }
-
 
     pub fn is_paused(env: Env) -> bool {
         env.storage()

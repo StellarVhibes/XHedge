@@ -29,7 +29,9 @@ fn test_init_stores_roles() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
+    client.init(
+        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32,
+    );
 
     assert_eq!(client.read_admin(), admin);
     assert_eq!(client.get_oracle(), oracle);
@@ -54,10 +56,26 @@ fn test_init_already_initialized() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32, &soroban_sdk::vec![&env, admin.clone()], &1u32);
+    let result = client.try_init(
+        &admin,
+        &asset,
+        &oracle,
+        &treasury,
+        &500u32,
+        &soroban_sdk::vec![&env, admin.clone()],
+        &1u32,
+    );
     assert!(result.is_ok());
 
-    let result = client.try_init(&admin, &asset, &oracle, &treasury, &500u32, &soroban_sdk::vec![&env, admin.clone()], &1u32);
+    let result = client.try_init(
+        &admin,
+        &asset,
+        &oracle,
+        &treasury,
+        &500u32,
+        &soroban_sdk::vec![&env, admin.clone()],
+        &1u32,
+    );
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
@@ -182,7 +200,9 @@ fn test_take_fees() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32);
+    client.init(
+        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32,
+    );
 
     let deposit_amount = 1000;
     let remaining = client.take_fees(&deposit_amount);
@@ -204,7 +224,10 @@ fn test_deposit_success() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    let guardians = soroban_sdk::vec![&env, admin.clone()]; client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let user = Address::generate(&env);
     let deposit_amount = 1000;
@@ -232,7 +255,10 @@ fn test_withdraw_success() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
-    let guardians = soroban_sdk::vec![&env, admin.clone()]; client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
     client.set_total_shares(&1000);
     client.set_total_assets(&5000);
 
@@ -289,7 +315,7 @@ fn test_rebalance_oracle_auth_accepted() {
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
-    
+
     // Propose Rebalance with threshold 1 -> immediate execution
     client.propose_action(&oracle, &ActionType::Rebalance(50u32));
 }
@@ -311,10 +337,10 @@ fn test_multisig_set_paused() {
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
 
     let id = client.propose_action(&admin, &ActionType::SetPaused(true));
-    
+
     // One approval not enough
     assert!(!client.is_paused());
-    
+
     // Second approval triggers execution
     client.approve_action(&oracle, &id);
     assert!(client.is_paused());
@@ -353,7 +379,15 @@ fn test_multisig_unauthorized_propose() {
 
     let admin = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+    client.init(
+        &admin,
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &0,
+        &guardians,
+        &1,
+    );
 
     let stranger = Address::generate(&env);
     let result = client.try_propose_action(&stranger, &ActionType::Rebalance(50u32));
@@ -387,9 +421,7 @@ fn test_guardian_crud() {
     client.remove_guardian(&guardian_2);
     assert_eq!(client.get_guardians().len(), 1);
     assert!(!client.get_guardians().contains(guardian_2));
-
 }
-
 
 #[cfg(test)]
 mod strategy_health_tests {
@@ -524,7 +556,8 @@ mod strategy_health_tests {
         env.mock_all_auths_allowing_non_root_auth();
 
         let token_admin = Address::generate(&env);
-        let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+        let (token_id, stellar_asset_client, token_client) =
+            create_token_contract(&env, &token_admin);
 
         let contract_id = env.register_contract(None, VolatilityShield);
         let client = VolatilityShieldClient::new(&env, &contract_id);
@@ -534,7 +567,9 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(
+            &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+        );
 
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
@@ -678,7 +713,7 @@ fn test_timelock_duration_setting() {
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
-    
+
     // Verify it was set (we can't directly read it, but execution will respect it)
 }
 
@@ -760,7 +795,7 @@ fn test_timelock_with_multisig_approval() {
 
     // Propose action (threshold is 2, so it won't execute immediately)
     let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
-    
+
     // Try to approve immediately - should fail due to timelock
     let result = client.try_approve_action(&oracle, &proposal_id);
     assert_eq!(result, Err(Ok(Error::TimelockNotElapsed)));
@@ -865,7 +900,9 @@ fn test_withdraw_below_threshold_processes_immediately() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     // Set queue threshold to 1000
     client.set_withdraw_queue_threshold(&1000);
@@ -901,7 +938,9 @@ fn test_withdraw_above_threshold_queues() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     // Set queue threshold to 1000
     client.set_withdraw_queue_threshold(&1000);
@@ -939,7 +978,9 @@ fn test_process_withdraw_queue() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     // Set queue threshold
     client.set_withdraw_queue_threshold(&1000);
@@ -980,7 +1021,9 @@ fn test_cancel_withdraw() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     // Set queue threshold
     client.set_withdraw_queue_threshold(&1000);
@@ -1024,7 +1067,9 @@ fn test_cannot_queue_multiple_withdrawals() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1101,7 +1146,9 @@ fn test_withdrawal_queue_fifo_order() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1148,7 +1195,9 @@ fn test_withdrawal_queue_full_lifecycle() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1181,9 +1230,21 @@ fn test_withdrawal_queue_full_lifecycle() {
     assert_eq!(client.balance(&user), 800);
     assert_eq!(token_client.balance(&user), 1500);
     assert_eq!(client.get_pending_withdrawals().len(), 0);
-
 }
 // ── Oracle Allocation Validation Tests ─────────────────────────
+//
+// All tests that supply a non-empty allocation map first register the strategy
+// addresses via propose_action (AddStrategy) so the new on-chain registry
+// membership guard in validate_allocations is satisfied.  Tests that
+// specifically exercise the ZeroAddressStrategy path intentionally skip
+// registration.
+
+/// Helper: register one strategy address and return it.
+fn register_strategy(env: &Env, client: &VolatilityShieldClient, admin: &Address) -> Address {
+    let strategy = Address::generate(env);
+    client.propose_action(admin, &ActionType::AddStrategy(strategy.clone()));
+    strategy
+}
 
 #[test]
 fn test_valid_allocation_sum_to_100_percent() {
@@ -1201,9 +1262,10 @@ fn test_valid_allocation_sum_to_100_percent() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
-    let strategy2 = Address::generate(&env);
-    let strategy3 = Address::generate(&env);
+    // Register all three strategies before submitting oracle data.
+    let strategy1 = register_strategy(&env, &client, &admin);
+    let strategy2 = register_strategy(&env, &client, &admin);
+    let strategy3 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
     allocations.set(strategy1, 3000); // 30%
@@ -1231,6 +1293,7 @@ fn test_empty_allocation_accepted() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
+    // An empty map has no addresses to register — the sum is 0, which is allowed.
     let allocations: Map<Address, i128> = Map::new(&env);
 
     env.ledger().set_timestamp(1000);
@@ -1254,13 +1317,12 @@ fn test_allocation_sum_less_than_100_percent_rejected() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
-    let strategy2 = Address::generate(&env);
+    let strategy1 = register_strategy(&env, &client, &admin);
+    let strategy2 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
     allocations.set(strategy1, 3000); // 30%
-    allocations.set(strategy2, 5000); // 50%
-    // Total: 80% (should be 100%)
+    allocations.set(strategy2, 5000); // 50% — total 80%, must be 100%.
 
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
@@ -1283,15 +1345,14 @@ fn test_allocation_sum_greater_than_100_percent_rejected() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
-    let strategy2 = Address::generate(&env);
-    let strategy3 = Address::generate(&env);
+    let strategy1 = register_strategy(&env, &client, &admin);
+    let strategy2 = register_strategy(&env, &client, &admin);
+    let strategy3 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
     allocations.set(strategy1, 4000); // 40%
     allocations.set(strategy2, 5000); // 50%
-    allocations.set(strategy3, 2500); // 25%
-    // Total: 115% (should be 100%)
+    allocations.set(strategy3, 2500); // 25% — total 115%, must be 100%.
 
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
@@ -1314,18 +1375,17 @@ fn test_negative_allocation_rejected() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
-    let strategy2 = Address::generate(&env);
+    let strategy1 = register_strategy(&env, &client, &admin);
+    let strategy2 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
-    allocations.set(strategy1, -1000); // -10% (invalid)
+    allocations.set(strategy1, -1000); // -10% — invalid.
     allocations.set(strategy2, 11000); // 110%
 
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
     assert_eq!(result, Err(Ok(Error::NegativeAllocation)));
 }
-
 
 #[test]
 fn test_single_strategy_100_percent_allocation() {
@@ -1343,10 +1403,10 @@ fn test_single_strategy_100_percent_allocation() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
+    let strategy1 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
-    allocations.set(strategy1, 10000); // 100%
+    allocations.set(strategy1, 10000); // 100% to one strategy — valid.
 
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
@@ -1369,14 +1429,75 @@ fn test_multiple_negative_allocations_rejected() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let strategy1 = Address::generate(&env);
-    let strategy2 = Address::generate(&env);
+    let strategy1 = register_strategy(&env, &client, &admin);
+    let strategy2 = register_strategy(&env, &client, &admin);
 
     let mut allocations: Map<Address, i128> = Map::new(&env);
-    allocations.set(strategy1, -5000); // -50%
+    allocations.set(strategy1, -5000); // -50% — invalid.
     allocations.set(strategy2, -5000); // -50%
 
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
     assert_eq!(result, Err(Ok(Error::NegativeAllocation)));
+}
+
+/// An allocation referencing an address that was never registered as a strategy
+/// must be rejected with `ZeroAddressStrategy`. This is the Soroban-native
+/// equivalent of the EVM zero-address guard — the oracle must not be able to
+/// direct funds to an arbitrary or attacker-controlled address.
+#[test]
+fn test_unregistered_strategy_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Intentionally do NOT register this address — simulates a rogue/zero address.
+    let rogue = Address::generate(&env);
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(rogue, 10000);
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::ZeroAddressStrategy)));
+}
+
+/// Partially-registered allocation: one valid strategy + one rogue strategy.
+/// The guard must catch the unregistered entry regardless of ordering.
+#[test]
+fn test_partially_unregistered_allocation_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let valid_strategy = register_strategy(&env, &client, &admin);
+    let rogue_strategy = Address::generate(&env); // not registered
+
+    let mut allocations: Map<Address, i128> = Map::new(&env);
+    allocations.set(valid_strategy, 5000); // 50%
+    allocations.set(rogue_strategy, 5000); // 50% — but address is not in registry
+
+    env.ledger().set_timestamp(1000);
+    let result = client.try_set_oracle_data(&allocations, &1000);
+    assert_eq!(result, Err(Ok(Error::ZeroAddressStrategy)));
 }
