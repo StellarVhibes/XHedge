@@ -8,6 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useInactivityLogout } from "../../hooks/use-inactivity-logout";
 
 /* ── Freighter API v2 ─────────────────────────────────── */
 import {
@@ -156,6 +157,12 @@ export function FreighterProvider({ children }: { children: ReactNode }) {
       error: null,
     });
   }, []);
+
+  useInactivityLogout({
+    timeout: 15 * 60 * 1000,
+    onLogout: disconnect,
+    onWarning: () => console.warn("Session expiring in 60 seconds..."),
+  });
 
   return (
     <FreighterContext.Provider value={{ ...state, connect, disconnect }}>
