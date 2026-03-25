@@ -101,7 +101,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Sidebar */}
         <div className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:ml-72 lg:inset-0",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:inset-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}>
           <div className="flex h-full flex-col">
@@ -183,7 +183,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="lg:pl-64">
           {/* Top Bar */}
           <div className="sticky top-0 z-20 flex h-16 items-center justify-between bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-4 lg:px-8">
-
             <div className="flex items-center gap-4">
               <div className="text-sm text-muted-foreground">
                 Partner Dashboard
