@@ -1,0 +1,90 @@
+{
+    "Home": {
+        "title": "XHedge",
+        "description": "Escudo de volatilidad para monedas débiles",
+        "depositFunds": {
+            "title": "Depositar Fondos",
+            "description": "Deposite activos en la bóveda"
+        },
+        "withdrawFunds": {
+            "title": "Retirar Fondos",
+            "description": "Retire sus activos de la bóveda"
+        },
+        "noAllocationData": "No hay datos de asignación disponibles"
+    },
+    "Common": {
+        "loading": "Cargando...",
+        "error": "Error",
+        "wallet": {
+            "connect": "Conectar Billetera",
+            "disconnect": "Desconectar"
+        }
+    },
+    "Vault": {
+        "title": "Bóveda",
+        "deposit": "Depositar",
+        "withdraw": "Retirar",
+        "yourBalance": "Tu Saldo",
+        "yourShares": "Tus Acciones",
+        "currentAPY": "APY Actual",
+        "depositAmount": "Cantidad a Depositar",
+        "withdrawAmount": "Cantidad a Retirar",
+        "enterAmountToDeposit": "Introduce la cantidad a depositar",
+        "enterAmountToWithdraw": "Introduce la cantidad a retirar",
+        "processing": "Procesando...",
+        "legalAgreementRequired": "Se requiere acuerdo legal",
+        "termsOfService": "Términos de Servicio",
+        "privacyPolicy": "Política de Privacidad",
+        "accepted": "Aceptado",
+        "notAccepted": "No Aceptado",
+        "continueToDeposit": "Continuar al Depósito"
+    },
+    "Settings": {
+        "title": "Configuración",
+        "description": "Administre sus preferencias de notificación y visualización",
+        "displayPreferences": "Preferencias de Visualización",
+        "displayDescription": "Personalice cómo XHedge se ve y formatea los datos para usted.",
+        "theme": "Tema",
+        "themes": {
+            "light": "Claro",
+            "dark": "Oscuro",
+            "system": "Sistema"
+        },
+        "currencyFormat": "Formato de Moneda",
+        "notifications": "Preferencias de Notificación",
+        "notificationsDescription": "Controle qué alertas y actualizaciones recibe.",
+        "save": "Guardar Preferencias",
+        "saved": "Guardado"
+    },
+    "Navigation": {
+        "dashboard": "Tablero",
+        "vault": "Bóveda",
+        "strategies": "Estrategias",
+        "portfolio": "Portafolio",
+        "referrals": "Referidos",
+        "settings": "Configuración",
+        "switchLanguage": "Idioma"
+    },
+    "Referrals": {
+        "title": "Programa de Referidos",
+        "description": "Invite a amigos y gane recompensas por cada depósito que realicen.",
+        "yourLink": "Su Enlace de Referido",
+        "linkDescription": "Comparta este enlace con sus amigos. Recibirá el 5% de sus recompensas de staking.",
+        "connectToGenerate": "Conecte su billetera para generar un enlace de referido único.",
+        "stats": {
+            "totalReferrals": "Total de Referidos",
+            "activeFriends": "Amigos Activos",
+            "totalEarned": "Total Ganado",
+            "pending": "Pendiente"
+        },
+        "recentRewards": "Recompensas Recientes",
+        "table": {
+            "friendAddress": "Dirección del Amigo",
+            "activity": "Actividad",
+            "reward": "Su Recompensa",
+            "date": "Fecha"
+        },
+        "noRewards": "Aún no hay recompensas registradas. ¡Empiece a compartir su enlace para ganar!",
+        "copied": "¡Copiado!"
+    }
+}

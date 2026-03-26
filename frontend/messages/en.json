@@ -1,0 +1,90 @@
+{
+    "Home": {
+        "title": "XHedge",
+        "description": "Volatility Shield for Weak Currencies",
+        "depositFunds": {
+            "title": "Deposit Funds",
+            "description": "Deposit assets into the vault"
+        },
+        "withdrawFunds": {
+            "title": "Withdraw Funds",
+            "description": "Withdraw your assets from the vault"
+        },
+        "noAllocationData": "No allocation data available"
+    },
+    "Common": {
+        "loading": "Loading...",
+        "error": "Error",
+        "wallet": {
+            "connect": "Connect Wallet",
+            "disconnect": "Disconnect"
+        }
+    },
+    "Vault": {
+        "title": "Vault",
+        "deposit": "Deposit",
+        "withdraw": "Withdraw",
+        "yourBalance": "Your Balance",
+        "yourShares": "Your Shares",
+        "currentAPY": "Current APY",
+        "depositAmount": "Deposit Amount",
+        "withdrawAmount": "Withdraw Amount",
+        "enterAmountToDeposit": "Enter amount to deposit",
+        "enterAmountToWithdraw": "Enter amount to withdraw",
+        "processing": "Processing...",
+        "legalAgreementRequired": "Legal Agreement Required",
+        "termsOfService": "Terms of Service",
+        "privacyPolicy": "Privacy Policy",
+        "accepted": "Accepted",
+        "notAccepted": "Not Accepted",
+        "continueToDeposit": "Continue to Deposit"
+    },
+    "Settings": {
+        "title": "Settings",
+        "description": "Manage your notification and display preferences",
+        "displayPreferences": "Display Preferences",
+        "displayDescription": "Customize how XHedge looks and formats data for you.",
+        "theme": "Theme",
+        "themes": {
+            "light": "Light",
+            "dark": "Dark",
+            "system": "System"
+        },
+        "currencyFormat": "Currency Format",
+        "notifications": "Notification Preferences",
+        "notificationsDescription": "Control which alerts and updates you receive.",
+        "save": "Save Preferences",
+        "saved": "Saved"
+    },
+    "Navigation": {
+        "dashboard": "Dashboard",
+        "vault": "Vault",
+        "strategies": "Strategies",
+        "portfolio": "Portfolio",
+        "referrals": "Referrals",
+        "settings": "Settings",
+        "switchLanguage": "Language"
+    },
+    "Referrals": {
+        "title": "Referral Program",
+        "description": "Invite friends and earn rewards on every deposit they make.",
+        "yourLink": "Your Referral Link",
+        "linkDescription": "Share this link with your friends. You'll receive 5% of their staking rewards.",
+        "connectToGenerate": "Connect your wallet to generate a unique referral link.",
+        "stats": {
+            "totalReferrals": "Total Referrals",
+            "activeFriends": "Active Friends",
+            "totalEarned": "Total Earned",
+            "pending": "Pending"
+        },
+        "recentRewards": "Recent Rewards",
+        "table": {
+            "friendAddress": "Friend Address",
+            "activity": "Activity",
+            "reward": "Your Reward",
+            "date": "Date"
+        },
+        "noRewards": "No rewards recorded yet. Start sharing your link to earn!",
+        "copied": "Copied!"
+    }
+}

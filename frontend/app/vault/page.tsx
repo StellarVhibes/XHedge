@@ -23,7 +23,11 @@ const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ
 
 type TabType = "deposit" | "withdraw";
 
+import { useTranslations } from "@/lib/i18n-context";
+
 export default function VaultPage() {
+  const t = useTranslations("Vault");
+  const commonT = useTranslations("Common");
   const { connected, address, signTransaction } = useWallet();
   const { network } = useNetwork();
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
@@ -37,7 +41,7 @@ export default function VaultPage() {
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1M');
   const [chartData, setChartData] = useState<DataPoint[]>([]);
-  
+
   // Legal acceptance state
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -49,7 +53,7 @@ export default function VaultPage() {
   useEffect(() => {
     const savedTerms = localStorage.getItem('terms_accepted');
     const savedPrivacy = localStorage.getItem('privacy_accepted');
-    
+
     if (savedTerms === 'true') {
       setTermsAccepted(true);
     }
@@ -61,7 +65,7 @@ export default function VaultPage() {
   // Load initial chart data
   useEffect(() => {
     setChartData(generateMockData(selectedTimeframe));
-  }, []);
+  }, [selectedTimeframe]);
 
   // Handle timeframe changes with loading state
   const handleTimeframeChange = async (timeframe: Timeframe) => {
@@ -280,31 +284,29 @@ export default function VaultPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Vault</h1>
+      <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
 
       <div className="rounded-lg border bg-card">
         <div className="flex border-b">
           <button
             onClick={() => setActiveTab("deposit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "deposit"
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
                 ? "bg-background text-foreground border-b-2 border-primary"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             <ArrowUpFromLine className="h-4 w-4" />
-            Deposit
+            {t('deposit')}
           </button>
           <button
             onClick={() => setActiveTab("withdraw")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "withdraw"
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
                 ? "bg-background text-foreground border-b-2 border-primary"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             <ArrowDownToLine className="h-4 w-4" />
-            Withdraw
+            {t('withdraw')}
           </button>
         </div>
 
@@ -313,7 +315,7 @@ export default function VaultPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Your Balance</CardTitle>
+                  <CardTitle className="text-sm">{t('yourBalance')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{userBalance.toFixed(2)} XLM</div>
@@ -321,7 +323,7 @@ export default function VaultPage() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Your Shares</CardTitle>
+                  <CardTitle className="text-sm">{t('yourShares')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{userShares.toFixed(2)}</div>
@@ -329,7 +331,7 @@ export default function VaultPage() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Current APY</CardTitle>
+                  <CardTitle className="text-sm">{t('currentAPY')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
@@ -344,12 +346,12 @@ export default function VaultPage() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="deposit-amount" className="block text-sm font-medium mb-2">
-                  Deposit Amount
+                  {t('depositAmount')}
                 </label>
                 <Input
                   id="deposit-amount"
                   type="number"
-                  placeholder="Enter amount to deposit"
+                  placeholder={t('enterAmountToDeposit')}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   disabled={!connected || loading}
@@ -375,16 +377,16 @@ export default function VaultPage() {
                 <div className="flex sm:items-center max-sm:flex-col gap-4 text-sm">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
-                    <span>Terms of Service:</span>
+                    <span>{t('termsOfService')}:</span>
                     <Badge variant={termsAccepted ? "default" : "secondary"}>
-                      {termsAccepted ? "Accepted" : "Not Accepted"}
+                      {termsAccepted ? t('accepted') : t('notAccepted')}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
                     <Shield className="h-4 w-4" />
-                    <span>Privacy Policy:</span>
+                    <span>{t('privacyPolicy')}:</span>
                     <Badge variant={privacyAccepted ? "default" : "secondary"}>
-                      {privacyAccepted ? "Accepted" : "Not Accepted"}
+                      {privacyAccepted ? t('accepted') : t('notAccepted')}
                     </Badge>
                   </div>
                 </div>
@@ -395,18 +397,18 @@ export default function VaultPage() {
                 )}
               </div>
 
-              <Button 
-                onClick={handleDeposit} 
+              <Button
+                onClick={handleDeposit}
                 disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
                 className="w-full"
               >
                 {loading ? (
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Processing...
+                    {t('processing')}
                   </div>
                 ) : (
-                  "Deposit"
+                  t('deposit')
                 )}
               </Button>
             </div>
@@ -416,29 +418,29 @@ export default function VaultPage() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="withdraw-amount" className="block text-sm font-medium mb-2">
-                  Withdraw Amount
+                  {t('withdrawAmount')}
                 </label>
                 <Input
                   id="withdraw-amount"
                   type="number"
-                  placeholder="Enter amount to withdraw"
+                  placeholder={t('enterAmountToWithdraw')}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   disabled={!connected || loading}
                 />
               </div>
-              <Button 
-                onClick={handleWithdraw} 
+              <Button
+                onClick={handleWithdraw}
                 disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
                 className="w-full"
               >
                 {loading ? (
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Processing...
+                    {t('processing')}
                   </div>
                 ) : (
-                  "Withdraw"
+                  t('withdraw')
                 )}
               </Button>
             </div>
@@ -487,7 +489,7 @@ export default function VaultPage() {
         <Modal
           isOpen={showLegalWarning}
           onClose={() => setShowLegalWarning(false)}
-          title="Legal Agreement Required"
+          title={t('legalAgreementRequired')}
           size="md"
         >
           <div className="space-y-6">
@@ -502,7 +504,7 @@ export default function VaultPage() {
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
-                  <span className="font-medium">Terms of Service</span>
+                  <span className="font-medium">{t('termsOfService')}</span>
                 </div>
                 <Button
                   variant="outline"
@@ -519,7 +521,7 @@ export default function VaultPage() {
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <Shield className="h-5 w-5" />
-                  <span className="font-medium">Privacy Policy</span>
+                  <span className="font-medium">{t('privacyPolicy')}</span>
                 </div>
                 <Button
                   variant="outline"
@@ -539,7 +541,7 @@ export default function VaultPage() {
                 onClick={handleLegalAgreement}
                 disabled={!termsAccepted || !privacyAccepted}
               >
-                Continue to Deposit
+                {t('continueToDeposit')}
               </Button>
             </div>
           </div>
