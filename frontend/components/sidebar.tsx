@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Home, Shield, LineChart, Settings, Wallet, Menu, X, Users, Globe } from "lucide-react";
+import { Home, Shield, LineChart, Settings, Wallet, Menu, X, Users, Globe, Vote } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/strategies", label: "Strategies", icon: LineChart },
   { href: "/portfolio", label: "Portfolio", icon: Wallet },
   { href: "/referrals", label: "Referrals", icon: Users },
+  { href: "/governance", label: "Governance", icon: Vote },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
