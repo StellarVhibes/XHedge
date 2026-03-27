@@ -13,7 +13,7 @@ import { useNetwork } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase, estimateTransactionFee } from "@/lib/stellar";
 import VaultAPYChart from "@/components/VaultAPYChart";
 import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
-import { generateMockData, DataPoint } from "@/lib/chart-data";
+import { fetchApyData, DataPoint } from "@/lib/chart-data";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
@@ -64,19 +64,20 @@ export default function VaultPage() {
 
   // Load initial chart data
   useEffect(() => {
-    setChartData(generateMockData(selectedTimeframe));
-  }, [selectedTimeframe]);
+    void handleTimeframeChange(selectedTimeframe);
+  }, []);
 
   // Handle timeframe changes with loading state
   const handleTimeframeChange = async (timeframe: Timeframe) => {
     setChartLoading(true);
     setSelectedTimeframe(timeframe);
 
-    // Simulate API call delay for smooth transitions
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    setChartData(generateMockData(timeframe));
-    setChartLoading(false);
+    try {
+      const data = await fetchApyData(timeframe);
+      setChartData(data);
+    } finally {
+      setChartLoading(false);
+    }
   };
 
   // Load vault data
