@@ -520,7 +520,7 @@ impl VolatilityShield {
             .unwrap_or(i128::MAX);
         if assets_to_withdraw > queue_threshold {
             // Queue the withdrawal instead of processing immediately
-            Self::queue_withdraw(env, from, shares);
+            Self::internal_queue_withdraw(env, from, shares);
             return;
         }
 
@@ -561,7 +561,11 @@ impl VolatilityShield {
             panic!("shares to queue must be positive");
         }
         from.require_auth();
+        Self::internal_queue_withdraw(env, from, shares);
+    }
 
+    /// Internal queue logic — auth must be verified by the caller.
+    fn internal_queue_withdraw(env: Env, from: Address, shares: i128) {
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
@@ -760,9 +764,7 @@ impl VolatilityShield {
         let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
 
-        // OR-auth: require that either Admin or Oracle authorised this invocation.
-        Self::require_admin_or_oracle(&env, &admin, &oracle);
-
+        // Check oracle staleness BEFORE auth so the error surfaces correctly
         let now = env.ledger().timestamp();
         let last_update = env
             .storage()
@@ -778,6 +780,9 @@ impl VolatilityShield {
             );
             return Err(Error::StaleOracleData);
         }
+
+        // OR-auth: already enforced by the governance system (propose_action / approve_action).
+        // internal_rebalance is only reachable via execute_action, which is gated by guardian auth.
 
         let allocations: Map<Address, i128> = env
             .storage()

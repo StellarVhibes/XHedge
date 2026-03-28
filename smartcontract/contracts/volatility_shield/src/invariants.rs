@@ -4,6 +4,8 @@ use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
 
+extern crate std;
+
 fn setup_test_env() -> (Env, VolatilityShieldClient<'static>, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
@@ -31,7 +33,7 @@ proptest! {
     ) {
         let (env, client, _admin, _asset) = setup_test_env();
         let mut total_expected_shares = 0i128;
-        let mut users = core::vec::Vec::new();
+        let mut users = std::vec::Vec::new();
 
         for amount in amounts {
             let user = Address::generate(&env);
