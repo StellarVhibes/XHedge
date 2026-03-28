@@ -42,7 +42,6 @@ jobs:
           cargo build --target wasm32-unknown-unknown --release
 
   frontend:
-    if: false
     name: Frontend CI
     runs-on: ubuntu-latest
     steps:
