@@ -934,6 +934,11 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::Threshold, &threshold);
 
+        // Initialize per-asset total for the primary asset
+        env.storage()
+            .instance()
+            .set(&DataKey::AssetTotalAssets(asset), &0_i128);
+
         Self::bump_instance_ttl(&env);
 
         Ok(())
@@ -989,7 +994,7 @@ impl VolatilityShield {
             panic!("Compliance check failed: {:?}", e);
         }
 
-        // Verify asset is accepted
+        // Verify asset is supported
         if !Self::is_supported_asset(env.clone(), asset.clone()) {
             panic!("unsupported asset");
         }
