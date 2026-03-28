@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowUpFromLine,
   ArrowDownToLine,
@@ -14,6 +14,9 @@ import { formatNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { ColumnDef } from '@tanstack/react-table';
 import ReactTableVirtualized from '@/app/components/VirtualizedTable';
+import { useStaleData } from '@/hooks/use-stale-data';
+import { StaleBadge } from '@/components/StaleBadge';
+import { TransactionListSkeleton } from '@/components/ui/skeleton';
 
 /**
  * Builds a CSV string from a list of transactions, mirroring the UI table columns.
@@ -45,24 +48,24 @@ function buildTransactionCsv(transactions: Transaction[]): string {
  */
 export function TransactionList() {
   const { connected, address } = useWallet();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { state, setData, setLoading, setError } = useStaleData<Transaction[]>(5 * 60 * 1000);
+  const transactions = state.data ?? [];
+
+  const loadHistory = useCallback(async () => {
+    if (!connected || !address) return;
+    setLoading(true);
+    try {
+      const history = await fetchTransactionHistory(address);
+      setData(history);
+    } catch (error) {
+      console.error('Failed to fetch history:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load transactions');
+    }
+  }, [connected, address, setData, setLoading, setError]);
 
   useEffect(() => {
-    async function loadHistory() {
-      if (!connected || !address) return;
-      setLoading(true);
-      try {
-        const history = await fetchTransactionHistory(address);
-        setTransactions(history);
-      } catch (error) {
-        console.error('Failed to fetch history:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadHistory();
-  }, [connected, address]);
+  }, [loadHistory]);
 
   const handleDownloadCsv = useCallback(() => {
     if (!transactions.length) return;
@@ -156,31 +159,36 @@ export function TransactionList() {
           <Clock className="w-6 h-6 text-primary" />
           <h2 className="text-xl font-semibold">Recent Activity</h2>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleDownloadCsv}
-          disabled={loading || transactions.length === 0}
-          aria-label="Download transaction history as CSV"
-        >
-          <Download className="w-4 h-4" />
-          <span className="hidden sm:inline">Download CSV</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <StaleBadge
+            lastFetchedAt={state.lastFetchedAt}
+            isStale={state.isStale}
+            onRefresh={loadHistory}
+            refreshing={state.loading}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadCsv}
+            disabled={state.loading || transactions.length === 0}
+            aria-label="Download transaction history as CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Download CSV</span>
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground animate-pulse">
-            Loading activity...
-          </div>
+        {state.loading ? (
+          <TransactionListSkeleton rows={3} />
         ) : transactions.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             No recent activity found.
           </div>
         ) : (
-          
-           <ReactTableVirtualized columns={columns} data={transactions} />
+          <ReactTableVirtualized columns={columns} data={transactions} />
         )}
       </div>
     </div>
