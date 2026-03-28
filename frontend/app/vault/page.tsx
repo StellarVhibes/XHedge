@@ -18,10 +18,10 @@ import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
 import { getVolatilityShieldAddress } from "@/lib/contracts.config";
+import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
+import { useTranslations } from "@/lib/i18n-context";
 
 type TabType = "deposit" | "withdraw";
-
-import { useTranslations } from "@/lib/i18n-context";
 
 export default function VaultPage() {
   const t = useTranslations("Vault");
@@ -445,14 +445,9 @@ export default function VaultPage() {
             </div>
           )}
 
-          {status.type && (
-            <div
-              className={`p-4 rounded-lg ${status.type === "success"
-                ? "bg-green-500/10 text-green-500"
-                : "bg-red-500/10 text-red-500"
-                }`}
-            >
-              {status.message}
+          {signingStep === "error" && signingErrorMessage && (
+            <div className="p-4 rounded-lg bg-red-500/10 text-red-500">
+              {signingErrorMessage}
             </div>
           )}
         </div>
