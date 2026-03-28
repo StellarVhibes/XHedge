@@ -64,6 +64,7 @@
         "referrals": "Referrals",
         "settings": "Settings",
         "governance": "Governance",
+        "bridge": "Bridge",
         "switchLanguage": "Language"
     },
     "Governance": {
@@ -101,5 +102,36 @@
         },
         "noRewards": "No rewards recorded yet. Start sharing your link to earn!",
         "copied": "Copied!"
+    },
+    "Bridge": {
+        "title": "Cross-Chain Bridge",
+        "description": "Bridge your assets to and from Stellar seamlessly.",
+        "form": {
+            "sourceChain": "Source Chain",
+            "destinationChain": "Destination Chain",
+            "asset": "Asset",
+            "amount": "Amount",
+            "estimate": "Estimated Fees & Time",
+            "estimatedFee": "Estimated Fee",
+            "estimatedTime": "Estimated Time",
+            "bridgeAction": "Bridge Assets",
+            "insufficientLiquidity": "Insufficient liquidity on bridge",
+            "bridgeUnavailable": "Bridge service currently unavailable",
+            "selectChain": "Select Chain",
+            "selectAsset": "Select Asset",
+            "selectSource": "Select Source",
+            "selectDest": "Select Destination"
+        },
+        "monitor": {
+            "title": "Transaction Monitor",
+            "noTransactions": "No active bridge transactions.",
+            "status": {
+                "pending": "Pending",
+                "confirming": "Confirming",
+                "completed": "Completed",
+                "failed": "Failed"
+            },
+            "viewOnExplorer": "View on Explorer"
+        }
     }
 }
