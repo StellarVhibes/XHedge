@@ -589,6 +589,12 @@ impl VolatilityShield {
             timestamp: env.ledger().timestamp(),
         };
 
+        // Subtract shares from user balance immediately to prevent double-spending/inflation
+        let new_user_balance = current_balance.checked_sub(shares).unwrap();
+        env.storage()
+            .persistent()
+            .set(&balance_key, &new_user_balance);
+
         // Add to pending withdrawals queue
         let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
             .storage()
@@ -790,10 +796,19 @@ impl VolatilityShield {
             initial_balances.set(strategy_addr.clone(), strategy.balance());
         }
 
+        let total_assets = Self::total_assets(env);
+
         // Execute rebalance operations
-        for (strategy_addr, target_allocation) in allocations.iter() {
+        for (strategy_addr, bps_allocation) in allocations.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
             let current_balance = strategy.balance();
+            
+            // Convert BPS to absolute target allocation
+            let target_allocation = total_assets
+                .checked_mul(bps_allocation)
+                .unwrap()
+                .checked_div(10_000)
+                .unwrap_or(0);
 
             if target_allocation > current_balance {
                 // Vault → Strategy
@@ -815,8 +830,12 @@ impl VolatilityShield {
             let final_balance = strategy.balance();
             let _initial_balance = initial_balances.get(strategy_addr.clone()).unwrap_or(0);
 
-            // Calculate expected balance based on target allocation
-            let expected_balance = target_allocation;
+            // Calculate expected balance based on target allocation (BPS -> Absolute)
+            let expected_balance = total_assets
+                .checked_mul(target_allocation)
+                .unwrap()
+                .checked_div(10_000)
+                .unwrap_or(0);
 
             // Calculate slippage in basis points
             if expected_balance > 0 {
@@ -1010,12 +1029,19 @@ impl VolatilityShield {
             .get(&DataKey::TargetAllocations)
             .unwrap_or(Map::new(&env));
 
+        let total_assets = Self::total_assets(&env);
+
         for strategy_addr in strategies.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
             let actual_balance = strategy.balance();
 
-            // Get expected balance from allocations
-            let expected_balance = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+            // Get expected balance from allocations (BPS -> Absolute)
+            let bps_allocation = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+            let expected_balance = total_assets
+                .checked_mul(bps_allocation)
+                .unwrap()
+                .checked_div(10_000)
+                .unwrap_or(0);
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
@@ -1457,3 +1483,5 @@ impl VolatilityShield {
 }
 
 mod test;
+#[cfg(test)]
+mod invariants;
