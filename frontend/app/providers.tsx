@@ -12,9 +12,14 @@ import { Toaster } from "sonner";
 
 import { I18nProvider } from "@/lib/i18n-context";
 
-export function Providers({ children }: { children: ReactNode }) {
+interface ProvidersProps {
+  children: ReactNode;
+  nonce?: string;
+}
+
+export function Providers({ children, nonce }: ProvidersProps) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem nonce={nonce}>
       <I18nProvider>
         <FreighterProvider>
           <NetworkProvider>
