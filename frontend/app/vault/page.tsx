@@ -13,7 +13,7 @@ import { useNetwork } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase, estimateTransactionFee } from "@/lib/stellar";
 import VaultAPYChart from "@/components/VaultAPYChart";
 import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
-import { fetchApyData, DataPoint } from "@/lib/chart-data";
+import { generateMockData, fetchApyData, DataPoint } from "@/lib/chart-data";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
@@ -292,8 +292,8 @@ export default function VaultPage() {
           <button
             onClick={() => setActiveTab("deposit")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
-                ? "bg-background text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
               }`}
           >
             <ArrowUpFromLine className="h-4 w-4" />
@@ -302,8 +302,8 @@ export default function VaultPage() {
           <button
             onClick={() => setActiveTab("withdraw")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
-                ? "bg-background text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
               }`}
           >
             <ArrowDownToLine className="h-4 w-4" />
