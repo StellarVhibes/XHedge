@@ -170,9 +170,9 @@ export default function PartnerPerformance() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex sm:items-center justify-between gap-2 max-sm:flex-col">
         <div>
           <h1 className="text-3xl font-bold">Performance Analytics</h1>
           <p className="text-muted-foreground">
@@ -264,7 +264,7 @@ export default function PartnerPerformance() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={performanceData}>
+                <ComposedChart data={performanceData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis yAxisId="left" />

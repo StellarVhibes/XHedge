@@ -94,7 +94,7 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
     <div
       key={duplicate ? `dup-${entry.id}` : entry.id}
       className={[
-        "flex items-start gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+        "flex items-start gap-2 rounded-md border px-3 py-2 text-sm transition-colors max-md:flex-col",
         entry.type === "rebalance"
           ? "border-primary/20 bg-primary/10 text-foreground"
           : entry.type === "warning"
@@ -105,7 +105,7 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
       <span className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground">
         {formatTime(entry.timestamp)}
       </span>
-      <EntryIcon type={entry.type} />
+      <div className="flex items-start gap-2"><EntryIcon type={entry.type} />
       <span className="leading-relaxed">
         {entry.type === "rebalance" ? (
           <>
@@ -116,6 +116,7 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
           entry.message
         )}
       </span>
+</div>
     </div>
   ));
 }

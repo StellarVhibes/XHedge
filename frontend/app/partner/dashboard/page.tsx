@@ -156,9 +156,9 @@ export default function PartnerDashboard() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex sm:items-center justify-between gap-2 max-sm:flex-col">
         <div>
           <h1 className="text-3xl font-bold">Partner Dashboard</h1>
           <p className="text-muted-foreground">

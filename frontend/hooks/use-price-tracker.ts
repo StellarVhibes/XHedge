@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 
 export interface AssetPrices {
-    XLM: number;
-    USDC: number;
-    [key: string]: number;
+  XLM: number;
+  USDC: number;
+  [key: string]: number;
 }
 
-export function usePriceTracker(intervalMs: number = 60000) {
+export function usePriceTracker(intervalMs: number = 60000): {
+  prices: AssetPrices;
+  loading: boolean;
+  error: string | null;
+} {
     const [prices, setPrices] = useState<AssetPrices>({ XLM: 0, USDC: 1 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

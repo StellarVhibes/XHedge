@@ -90,7 +90,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <PartnerGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
         {/* Mobile sidebar backdrop */}
         {sidebarOpen && (
           <div 
@@ -101,7 +101,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Sidebar */}
         <div className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:inset-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}>
           <div className="flex h-full flex-col">
@@ -182,28 +182,28 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Main Content */}
         <div className="lg:pl-64">
           {/* Top Bar */}
-          <div className="sticky top-0 z-30 flex h-16 items-center justify-between bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-4 lg:px-8">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="lg:hidden"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
-
+          <div className="sticky top-0 z-20 flex h-16 items-center justify-between bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-4 lg:px-8">
             <div className="flex items-center gap-4">
               <div className="text-sm text-muted-foreground">
                 Partner Dashboard
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-lg:mr-20">
               <Badge variant="secondary" className="hidden sm:inline-flex">
                 <DollarSign className="h-3 w-3 mr-1" />
                 Ecosystem Partner
               </Badge>
             </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden ml-20 absolute top-1/2 -translate-y-1/2 right-0"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
           </div>
 
           {/* Page Content */}

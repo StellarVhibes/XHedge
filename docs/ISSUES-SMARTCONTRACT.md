@@ -280,15 +280,15 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [ ] Reject rebalance if oracle data is older than `MAX_STALENESS` (configurable).
   - [ ] Emit `StaleOracleRejected` event.
 
-### Issue #SC-24b: Oracle Data Validation — Allocation Sanity Checks
+### Issue #SC-24b: Oracle Data Validation — Allocation Sanity Checks [COMPLETED]
 **Priority:** High
 **Labels:** `smart-contract`, `security`, `oracle`
 **Description:** Validate the oracle's allocation data for logical correctness before rebalancing.
 - **Tasks:**
-  - [ ] Validate allocation percentages sum to 100% in `rebalance()`.
-  - [ ] Validate individual allocation values are non-negative.
-  - [ ] Reject allocations with zero-address strategies.
-  - [ ] Write tests for malformed allocation scenarios.
+  - [x] Validate allocation percentages sum to 100% in `rebalance()`.
+  - [x] Validate individual allocation values are non-negative.
+  - [x] Reject allocations with zero-address strategies.
+  - [x] Write tests for malformed allocation scenarios.
 
 ### Issue #SC-25a: Withdrawal Queue — Core Queue Mechanism
 **Priority:** Medium

@@ -41,7 +41,7 @@ export function RewardSummary() {
                 <h2 className="text-xl font-bold text-foreground">Reward Summary</h2>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="grid sm:grid-cols-2 gap-4 mb-8">
                 <div className="p-4 rounded-lg bg-accent/50 border">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                         <Gift className="w-4 h-4" />

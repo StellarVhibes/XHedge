@@ -201,8 +201,8 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
 **Labels:** `frontend`, `ui`
 **Description:** Ensure full functionality on smartphones.
 - **Tasks:**
-  - [x] Audit all pages on mobile viewports.
-  - [x] Fix navigation menu and table overflows.
+  - [x] Audit all pages on mobile viewports. (@your-github-username - YYYY-MM-DD HH:MM)
+  - [x] Fix navigation menu and table overflows. (@your-github-username - YYYY-MM-DD HH:MM)
 
 
 
