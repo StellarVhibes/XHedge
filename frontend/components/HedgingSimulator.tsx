@@ -189,7 +189,7 @@ export default function HedgingSimulator() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-4 max-sm:flex-col">
+          <div className="flex gap-4">
             <Button 
               onClick={runSimulation} 
               disabled={isSimulating}

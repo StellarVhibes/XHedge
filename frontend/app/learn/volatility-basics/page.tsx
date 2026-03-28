@@ -345,7 +345,7 @@ export default function VolatilityBasicsPage() {
       <div className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex sm:items-center gap-4 max-sm:flex-col">
+            <div className="flex items-center gap-4">
               <Link href="/learn">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="h-4 w-4 mr-2" />

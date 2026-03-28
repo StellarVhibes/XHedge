@@ -17,13 +17,11 @@ import { fetchApyData, DataPoint } from "@/lib/chart-data";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
+import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
-
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+import { useTranslations } from "@/lib/i18n-context";
 
 type TabType = "deposit" | "withdraw";
-
-import { useTranslations } from "@/lib/i18n-context";
 
 export default function VaultPage() {
   const t = useTranslations("Vault");
@@ -91,7 +89,7 @@ export default function VaultPage() {
     try {
       setLoading(true);
       const data = await fetchVaultData(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         network
       );
@@ -114,9 +112,9 @@ export default function VaultPage() {
       try {
         let xdr;
         if (activeTab === "deposit") {
-          xdr = await buildDepositXdr(CONTRACT_ID, address, amount, network);
+          xdr = await buildDepositXdr(getVolatilityShieldAddress(network), address, amount, network);
         } else {
-          xdr = await buildWithdrawXdr(CONTRACT_ID, address, amount, network);
+          xdr = await buildWithdrawXdr(getVolatilityShieldAddress(network), address, amount, network);
         }
 
         const { fee, error } = await estimateTransactionFee(xdr, network);
@@ -158,7 +156,7 @@ export default function VaultPage() {
       const passphrase = getNetworkPassphrase(network);
 
       const xdr = await buildDepositXdr(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         amount,
         network
@@ -219,7 +217,7 @@ export default function VaultPage() {
       const passphrase = getNetworkPassphrase(network);
 
       const xdr = await buildWithdrawXdr(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         amount,
         network
@@ -292,8 +290,8 @@ export default function VaultPage() {
           <button
             onClick={() => setActiveTab("deposit")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
-                ? "bg-background text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
               }`}
           >
             <ArrowUpFromLine className="h-4 w-4" />
@@ -302,8 +300,8 @@ export default function VaultPage() {
           <button
             onClick={() => setActiveTab("withdraw")}
             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
-                ? "bg-background text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
               }`}
           >
             <ArrowDownToLine className="h-4 w-4" />
@@ -447,6 +445,11 @@ export default function VaultPage() {
             </div>
           )}
 
+          {signingStep === "error" && signingErrorMessage && (
+            <div className="p-4 rounded-lg bg-red-500/10 text-red-500">
+              {signingErrorMessage}
+            </div>
+          )}
         </div>
       </div>
 

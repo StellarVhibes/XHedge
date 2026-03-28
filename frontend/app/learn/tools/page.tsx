@@ -22,7 +22,7 @@ export default function ToolsPage() {
       {/* Header */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex sm:items-center gap-4 max-sm:flex-col">
+          <div className="flex items-center gap-4">
             <Link href="/learn">
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -57,7 +57,7 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-blue-500 rounded-full" />
                     <span>Real-time calculations</span>
@@ -100,7 +100,7 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full" />
                     <span>Portfolio protection</span>
@@ -136,7 +136,7 @@ export default function ToolsPage() {
         <div className="space-y-12">
           {/* Volatility Calculator */}
           <section>
-            <div className="flex sm:items-center justify-between mb-6 max-sm:flex-col-reverse">
+            <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                   <Calculator className="h-6 w-6 text-blue-600" />
@@ -146,7 +146,7 @@ export default function ToolsPage() {
                   Input price data to calculate historical volatility and understand market behavior
                 </p>
               </div>
-              <Badge className="bg-blue-100 text-blue-800 max-w-max">
+              <Badge className="bg-blue-100 text-blue-800">
                 Interactive Tool
               </Badge>
             </div>
@@ -155,7 +155,7 @@ export default function ToolsPage() {
 
           {/* Hedging Simulator */}
           <section>
-            <div className="flex sm:items-center justify-between mb-6 max-sm:flex-col-reverse">
+            <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                   <Shield className="h-6 w-6 text-green-600" />
@@ -165,7 +165,7 @@ export default function ToolsPage() {
                   Simulate different hedging strategies and see how they protect against market losses
                 </p>
               </div>
-              <Badge className="bg-green-100 text-green-800 max-w-max">
+              <Badge className="bg-green-100 text-green-800">
                 Interactive Tool
               </Badge>
             </div>

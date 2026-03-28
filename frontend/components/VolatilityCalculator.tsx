@@ -111,7 +111,7 @@ export default function VolatilityCalculator() {
         <CardContent className="space-y-6">
           {/* Input Section */}
           <div className="space-y-4">
-            <div className="flex sm:items-center justify-between max-sm:flex-col gap-2">
+            <div className="flex items-center justify-between">
               <Label className="text-sm font-medium">Price Data (Daily Closing Prices)</Label>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={addPriceField}>
