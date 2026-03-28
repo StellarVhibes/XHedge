@@ -97,7 +97,7 @@ proptest! {
         let user = Address::generate(&env);
         stellar_asset_client.mint(&user, &amount);
         
-        client.deposit(&user, &amount);
+        client.deposit(&user, &token_id, &amount);
         let shares = client.balance(&user);
         
         assert_eq!(client.total_shares(), shares);

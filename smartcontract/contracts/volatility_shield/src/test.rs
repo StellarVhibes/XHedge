@@ -233,7 +233,7 @@ fn test_deposit_success() {
     let deposit_amount = 1000;
     stellar_asset_client.mint(&user, &deposit_amount);
 
-    client.deposit(&user, &deposit_amount);
+    client.deposit(&user, &token_id, &deposit_amount);
 
     assert_eq!(client.balance(&user), 1000);
     assert_eq!(client.total_assets(), 1000);
@@ -1523,7 +1523,7 @@ fn test_queue_withdraw_prevents_double_spending() {
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
-    client.deposit(&user, &1000);
+    client.deposit(&user, &token_id, &1000);
 
     // Set threshold so 600 triggers queue
     client.set_withdraw_queue_threshold(&500);
@@ -1558,7 +1558,7 @@ fn test_cancel_queued_withdrawal_restores_balance() {
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
-    client.deposit(&user, &1000);
+    client.deposit(&user, &token_id, &1000);
 
     client.set_withdraw_queue_threshold(&500);
     client.withdraw(&user, &600);
@@ -1610,7 +1610,7 @@ fn test_deposit_while_paused_fails() {
 
     client.set_paused(&true);
     let user = Address::generate(&env);
-    client.deposit(&user, &100);
+    client.deposit(&user, &asset, &100);
 }
 
 #[test]
@@ -1627,7 +1627,7 @@ fn test_deposit_zero_fails() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    client.deposit(&Address::generate(&env), &0);
+    client.deposit(&Address::generate(&env), &asset, &0);
 }
 
 #[test]
