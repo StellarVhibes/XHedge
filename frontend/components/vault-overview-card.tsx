@@ -1,20 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Shield, TrendingUp, TrendingDown, RefreshCw, Wallet } from "lucide-react";
+import { Shield, TrendingUp, RefreshCw, Wallet } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork } from "@/app/context/NetworkContext";
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { fetchVaultData, VaultMetrics } from "@/lib/stellar";
 import { formatNumber } from "@/lib/utils";
 import { getVolatilityShieldAddress } from "@/lib/contracts.config";
+import { useStaleData } from "@/hooks/use-stale-data";
+import { StaleBadge } from "@/components/StaleBadge";
+import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
 
 export function VaultOverviewCard() {
   const { connected, address } = useWallet();
   const { network } = useNetwork();
   const { format } = useCurrency();
-  const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { state, setData, setLoading, setError } = useStaleData<VaultMetrics>(5 * 60 * 1000);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadVaultData = useCallback(async (isRefresh = false) => {
@@ -24,20 +26,20 @@ export function VaultOverviewCard() {
       setLoading(true);
     }
 
-    try {
-      const data = await fetchVaultData(
-        getVolatilityShieldAddress(network),
-        address,
-        network
-      );
-      setMetrics(data);
-    } catch (error) {
+  try {
+    const data = await fetchVaultData(
+      getVolatilityShieldAddress(network),
+      address,
+      network
+    );
+    setData(data);
+  } catch (error) {
       console.error("Failed to fetch vault data:", error);
+      setError(error instanceof Error ? error.message : "Failed to load vault data");
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
-  }, [address, network]);
+  }, [address, network, setData, setLoading, setError]);
 
   useEffect(() => {
     loadVaultData();
@@ -47,17 +49,11 @@ export function VaultOverviewCard() {
     loadVaultData(true);
   };
 
-  if (loading) {
-    return (
-      <div className="rounded-lg border bg-card p-6 shadow-sm">
-        <div className="flex items-center justify-center py-8">
-          <RefreshCw className="w-6 h-6 animate-spin text-primary" />
-          <span className="ml-2 text-muted-foreground">Loading vault data...</span>
-        </div>
-      </div>
-    );
+  if (state.loading) {
+    return <VaultOverviewSkeleton />;
   }
 
+  const metrics = state.data;
   const totalAssets = parseFloat(metrics?.totalAssets || "0") / 1e7;
   const totalShares = parseFloat(metrics?.totalShares || "0") / 1e7;
   const sharePrice = parseFloat(metrics?.sharePrice || "1.0000000");
@@ -70,14 +66,22 @@ export function VaultOverviewCard() {
           <Shield className="w-6 h-6 text-primary" />
           <h2 className="text-xl font-semibold">Vault Overview</h2>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-          title="Refresh data"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <StaleBadge
+            lastFetchedAt={state.lastFetchedAt}
+            isStale={state.isStale}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+          />
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+            title="Refresh data"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -110,6 +114,12 @@ export function VaultOverviewCard() {
           icon={<Wallet className="w-4 h-4 text-muted-foreground" />}
         />
       </div>
+
+      {state.error && (
+        <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          {state.error} — showing last known data.
+        </div>
+      )}
 
       {!connected && (
         <div className="mt-4 p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">

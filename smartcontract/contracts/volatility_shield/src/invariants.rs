@@ -2,9 +2,7 @@
 use super::*;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env, Vec};
-
-extern crate std;
+use soroban_sdk::{Address, Env};
 
 fn setup_test_env() -> (Env, VolatilityShieldClient<'static>, Address, Address) {
     let env = Env::default();
@@ -33,11 +31,11 @@ proptest! {
     ) {
         let (env, client, _admin, _asset) = setup_test_env();
         let mut total_expected_shares = 0i128;
-        let mut users = std::vec::Vec::new();
+        let mut users = soroban_sdk::Vec::new(&env);
 
         for amount in amounts {
             let user = Address::generate(&env);
-            users.push(user.clone());
+            users.push_back(user.clone());
             client.set_total_assets(&(client.total_assets() + amount));
             let shares = client.convert_to_shares(&amount);
             client.set_balance(&user, &shares);
@@ -49,7 +47,7 @@ proptest! {
         
         // Verify individual balances sum to total_shares
         let mut sum_balances = 0i128;
-        for user in users {
+        for user in users.iter() {
             sum_balances += client.balance(&user);
         }
         assert_eq!(sum_balances, client.total_shares());
@@ -57,7 +55,7 @@ proptest! {
 
     #[test]
     fn test_conversion_invariants(amount in 1i128..1_000_000_000i128) {
-        let (env, client, _admin, _asset) = setup_test_env();
+        let (_env, client, _admin, _asset) = setup_test_env();
         
         // Initial state
         assert_eq!(client.convert_to_shares(&amount), amount);
@@ -88,10 +86,7 @@ proptest! {
         let treasury = Address::generate(&env);
         
         let token_admin = Address::generate(&env);
-        let (token_id, stellar_asset_client, _token_client) = {
-            let contract_id = env.register_stellar_asset_contract_v2(token_admin.clone());
-            (contract_id.address(), StellarAssetClient::new(&env, &contract_id.address()), TokenClient::new(&env, &contract_id.address()))
-        };
+        let (token_id, stellar_asset_client, _token_client) = create_token_contract(&env, &token_admin);
 
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
