@@ -5,6 +5,8 @@ const nextConfig = {
     domains: [],
     unoptimized: false,
   },
+  // Security headers are now managed by middleware.ts (CSP with nonce support).
+  // Keeping static fallback headers here for environments that bypass middleware.
   async headers() {
     return [
       {
