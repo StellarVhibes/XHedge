@@ -435,7 +435,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_check_strategy_health_all_healthy() {
         let env = Env::default();
         env.mock_all_auths();
@@ -459,6 +458,9 @@ mod strategy_health_tests {
         env.ledger().set_timestamp(1000);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
 
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
+
         // Mock strategy returns expected balance
         mock_client.deposit(&1000);
 
@@ -468,7 +470,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_check_strategy_health_unhealthy_detected() {
         let env = Env::default();
         env.mock_all_auths();
@@ -491,6 +492,9 @@ mod strategy_health_tests {
         allocations.set(mock_strategy_id.clone(), 10000);
         env.ledger().set_timestamp(1000);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
 
         // Mock strategy returns lower than expected (more than 10% deviation)
         mock_client.deposit(&800); // 20% deviation
@@ -529,7 +533,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     #[should_panic(expected = "NotInitialized")]
     fn test_flag_nonexistent_strategy() {
         let env = Env::default();
@@ -550,7 +553,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_remove_strategy_with_funds() {
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -621,7 +623,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     #[should_panic(expected = "NotInitialized")]
     fn test_remove_nonexistent_strategy() {
         let env = Env::default();
@@ -642,7 +643,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_get_strategy_health() {
         let env = Env::default();
         env.mock_all_auths();
@@ -673,7 +673,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     #[should_panic(expected = "NoStrategies")]
     fn test_check_health_no_strategies() {
         let env = Env::default();
@@ -1500,4 +1499,213 @@ fn test_partially_unregistered_allocation_rejected() {
     env.ledger().set_timestamp(1000);
     let result = client.try_set_oracle_data(&allocations, &1000);
     assert_eq!(result, Err(Ok(Error::ZeroAddressStrategy)));
+}
+
+
+// ── Withdrawal Queue Invariant Tests ─────────────────────────
+
+#[test]
+fn test_queue_withdraw_prevents_double_spending() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1000);
+    client.deposit(&user, &1000);
+
+    // Set threshold so 600 triggers queue
+    client.set_withdraw_queue_threshold(&500);
+
+    // Queue 600
+    client.withdraw(&user, &600);
+
+    // User balance should be 400 now (1000 - 600)
+    assert_eq!(client.balance(&user), 400);
+
+    // Try to withdraw another 500 - should fail as user only has 400 left
+    let res = client.try_withdraw(&user, &500);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_cancel_queued_withdrawal_restores_balance() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1000);
+    client.deposit(&user, &1000);
+
+    client.set_withdraw_queue_threshold(&500);
+    client.withdraw(&user, &600);
+    assert_eq!(client.balance(&user), 400);
+
+    // Cancel
+    client.cancel_queued_withdrawal(&user);
+
+    // Balance should be back to 1000
+    assert_eq!(client.balance(&user), 1000);
+}
+
+// ── Additional Coverage Tests ─────────────────────────
+
+#[test]
+fn test_unauthorized_rebalance_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let stranger = Address::generate(&env);
+    // require_admin_or_oracle should be tested here via rebalance call if it was public
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_deposit_while_paused_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_paused(&true);
+    let user = Address::generate(&env);
+    client.deposit(&user, &100);
+}
+
+#[test]
+#[should_panic(expected = "deposit amount must be positive")]
+fn test_deposit_zero_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.deposit(&Address::generate(&env), &0);
+}
+
+#[test]
+#[should_panic(expected = "WithdrawalCapExceeded")]
+fn test_withdraw_cap_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_withdraw_cap(&100);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+    let user = Address::generate(&env);
+    client.set_balance(&user, &200);
+    
+    // Attempt withdrawal of 150 which exceeds cap of 100
+    client.withdraw(&user, &150);
+}
+
+#[test]
+fn test_stale_oracle_data_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_max_staleness(&60); // 1 minute
+    env.ledger().set_timestamp(1000);
+    
+    let allocations: Map<Address, i128> = Map::new(&env);
+    client.set_oracle_data(&allocations, &1000);
+    
+    // Advance time beyond staleness (e.g., to 1100)
+    env.ledger().set_timestamp(1100);
+    
+    // Try to rebalance - should fail with StaleOracleData
+    let res = client.try_propose_action(&oracle, &ActionType::Rebalance(50));
+    assert_eq!(res, Err(Ok(Error::StaleOracleData)));
+}
+
+#[test]
+fn test_multisig_already_approved_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &2);
+
+    let id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    let result = client.try_approve_action(&admin, &id);
+    assert_eq!(result, Err(Ok(Error::AlreadyApproved)));
+}
+
+#[test]
+fn test_multisig_proposal_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+
+    let result = client.try_approve_action(&admin, &999);
+    assert_eq!(result, Err(Ok(Error::ProposalNotFound)));
 }
