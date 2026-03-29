@@ -663,9 +663,10 @@ mod strategy_health_tests {
         client.set_timelock_duration(&0u64);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
-        // Initially no health data exists (populated on first flag or health check)
+        // Initially health data is populated when strategy is added (healthy by default)
         let health = client.get_strategy_health(&mock_strategy_id);
-        assert!(health.is_none());
+        assert!(health.is_some());
+        assert!(health.unwrap().is_healthy);
 
         // After flagging, should be unhealthy
         client.flag_strategy(&mock_strategy_id);
@@ -1725,5 +1726,5 @@ fn test_multisig_proposal_not_found() {
     );
 
     let result = client.try_approve_action(&admin, &999);
-    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+    assert_eq!(result, Err(Ok(Error::ProposalNotFound)));
 }
