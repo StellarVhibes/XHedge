@@ -1203,7 +1203,12 @@ impl VolatilityShield {
             let actual_balance = strategy.balance();
 
             // Get expected balance from allocations
-            let expected_balance = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+            let bps_allocation = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+            let expected_balance = total_assets
+                .checked_mul(bps_allocation)
+                .unwrap_or(0)
+                .checked_div(10_000)
+                .unwrap_or(0);
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
