@@ -67,6 +67,8 @@ pub enum DataKey {
     StrategyHealth(Address),
     TimelockDuration,
     GovernanceToken,
+    AssetBalance(Address, Address),
+    AssetTotalAssets(Address),
 }
 
 // ─────────────────────────────────────────────
@@ -1389,6 +1391,11 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::Asset)
             .expect("Not initialized")
+    }
+
+    /// Check if the asset is an accepted underlying asset.
+    pub fn is_accepted_asset(env: Env, asset: Address) -> bool {
+        asset == Self::get_asset(&env)
     }
 
     /// Get the list of all registered strategy addresses.
