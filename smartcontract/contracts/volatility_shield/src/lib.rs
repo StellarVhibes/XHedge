@@ -66,6 +66,7 @@ pub enum DataKey {
     PendingWithdrawals,
     StrategyHealth(Address),
     TimelockDuration,
+    GovernanceToken,
 }
 
 // ─────────────────────────────────────────────
@@ -262,6 +263,31 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::Proposals, &proposals);
 
+        Ok(())
+    }
+
+    pub fn set_governance_token(env: Env, token: Address) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceToken, &token);
+        env.events()
+            .publish((symbol_short!("GovToken"),), token);
+    }
+
+    pub fn get_voting_power(env: Env, user: Address) -> i128 {
+        let gov_token: Option<Address> = env.storage().instance().get(&DataKey::GovernanceToken);
+        if let Some(token_addr) = gov_token {
+            let client = token::Client::new(&env, &token_addr);
+            client.balance(&user)
+        } else {
+            let balance_key = DataKey::Balance(user);
+            env.storage().persistent().get(&balance_key).unwrap_or(0)
+        }
+    }
+
+    pub fn cast_vote(_env: Env, _proposal_id: u64, _support: bool) -> Result<(), Error> {
+        // TODO: Implement cast_vote
         Ok(())
     }
 
