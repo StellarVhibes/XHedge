@@ -13,7 +13,11 @@ interface Slice {
 }
 import { RiskChart } from "@/components/RiskChart";
 
+import { useTranslations } from "@/lib/i18n-context";
+
 export default function Home() {
+  const t = useTranslations("Home");
+  const commonT = useTranslations("Common");
   const [slices, setSlices] = useState<{ name: string; value: number }[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,14 +30,14 @@ export default function Home() {
       .then((data) => {
         if (!mounted) return;
         if (data?.slices) setSlices(data.slices);
-        else setError('No allocation data available');
+        else setError(t('noAllocationData'));
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [t]);
 
   return (
     <div className="min-h-screen md:p-8">
@@ -42,8 +46,8 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Shield className="h-10 w-10 text-primary" />
             <div>
-              <h1 className="text-3xl font-bold text-foreground">XHedge</h1>
-              <p className="text-muted-foreground">Volatility Shield for Weak Currencies</p>
+              <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+              <p className="text-muted-foreground">{t('description')}</p>
             </div>
           </div>
           <div id="tour-sidebar-wallet">
@@ -71,8 +75,8 @@ export default function Home() {
           >
             <ArrowUpFromLine className="h-8 w-8 text-primary" />
             <div>
-              <h2 className="font-semibold text-foreground">Deposit Funds</h2>
-              <p className="text-sm text-muted-foreground">Deposit assets into the vault</p>
+              <h2 className="font-semibold text-foreground">{t('depositFunds.title')}</h2>
+              <p className="text-sm text-muted-foreground">{t('depositFunds.description')}</p>
             </div>
           </Link>
 
@@ -82,9 +86,9 @@ export default function Home() {
           >
             <ArrowDownToLine className="h-8 w-8 text-primary" />
             <div>
-              <h2 className="font-semibold text-foreground">Withdraw Funds</h2>
+              <h2 className="font-semibold text-foreground">{t('withdrawFunds.title')}</h2>
               <p className="text-sm text-muted-foreground">
-                Withdraw your assets from the vault
+                {t('withdrawFunds.description')}
               </p>
             </div>
           </Link>

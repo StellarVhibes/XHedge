@@ -11,10 +11,12 @@ pub struct MockStrategy;
 
 #[contractimpl]
 impl MockStrategy {
+    /// Get the current balance of the strategy.
     pub fn balance(env: Env) -> i128 {
         env.storage().instance().get(&DataKey::Balance).unwrap_or(0)
     }
 
+    /// Deposit funds into the strategy.
     pub fn deposit(env: Env, amount: i128) {
         let current: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
         env.storage()
@@ -22,6 +24,7 @@ impl MockStrategy {
             .set(&DataKey::Balance, &(current + amount));
     }
 
+    /// Withdraw funds from the strategy.
     pub fn withdraw(env: Env, amount: i128) {
         let current: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
         env.storage()

@@ -64,3 +64,8 @@ export function generateMockData(timeframe: Timeframe): DataPoint[] {
   
   return dataPoints;
 }
+
+export async function fetchApyData(timeframe: Timeframe): Promise<DataPoint[]> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  return generateMockData(timeframe);
+}

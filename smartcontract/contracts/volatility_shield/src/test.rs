@@ -1,9 +1,8 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::testutils::Events as EventsTrait;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, IntoVal, Map};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Map};
 
 extern crate std;
 
@@ -233,7 +232,7 @@ fn test_deposit_success() {
     let deposit_amount = 1000;
     stellar_asset_client.mint(&user, &deposit_amount);
 
-    client.deposit(&user, &deposit_amount);
+    client.deposit(&user, &token_id, &deposit_amount);
 
     assert_eq!(client.balance(&user), 1000);
     assert_eq!(client.total_assets(), 1000);
@@ -428,14 +427,13 @@ mod strategy_health_tests {
     use super::*;
     use mock_strategy::MockStrategyClient;
 
-    fn create_mock_strategy(env: &Env) -> (Address, MockStrategyClient) {
+    fn create_mock_strategy(env: &Env) -> (Address, MockStrategyClient<'_>) {
         let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
         let mock_client = MockStrategyClient::new(env, &mock_strategy_id);
         (mock_strategy_id, mock_client)
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_check_strategy_health_all_healthy() {
         let env = Env::default();
         env.mock_all_auths();
@@ -459,6 +457,9 @@ mod strategy_health_tests {
         env.ledger().set_timestamp(1000);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
 
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
+
         // Mock strategy returns expected balance
         mock_client.deposit(&1000);
 
@@ -468,7 +469,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_check_strategy_health_unhealthy_detected() {
         let env = Env::default();
         env.mock_all_auths();
@@ -491,6 +491,9 @@ mod strategy_health_tests {
         allocations.set(mock_strategy_id.clone(), 10000);
         env.ledger().set_timestamp(1000);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
 
         // Mock strategy returns lower than expected (more than 10% deviation)
         mock_client.deposit(&800); // 20% deviation
@@ -529,8 +532,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
-    #[should_panic(expected = "NotInitialized")]
     fn test_flag_nonexistent_strategy() {
         let env = Env::default();
         env.mock_all_auths();
@@ -546,11 +547,12 @@ mod strategy_health_tests {
         client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let nonexistent_strategy = Address::generate(&env);
-        client.flag_strategy(&nonexistent_strategy);
+        let result = client.try_flag_strategy(&nonexistent_strategy);
+        assert_eq!(result, Err(Ok(Error::NotInitialized)));
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
+    #[ignore] // mock_strategy does not hold real tokens; remove_strategy's token transfer requires actual token balance
     fn test_remove_strategy_with_funds() {
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -563,7 +565,6 @@ mod strategy_health_tests {
         let client = VolatilityShieldClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
@@ -574,8 +575,8 @@ mod strategy_health_tests {
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
-        // Mint tokens to vault and deposit to strategy
-        stellar_asset_client.mint(&contract_id, &1000);
+        // Mint tokens directly to strategy so vault can pull them back
+        stellar_asset_client.mint(&mock_strategy_id, &1000);
         mock_client.deposit(&1000);
 
         // Remove strategy
@@ -621,8 +622,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
-    #[should_panic(expected = "NotInitialized")]
     fn test_remove_nonexistent_strategy() {
         let env = Env::default();
         env.mock_all_auths();
@@ -638,11 +637,11 @@ mod strategy_health_tests {
         client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let nonexistent_strategy = Address::generate(&env);
-        client.remove_strategy(&nonexistent_strategy);
+        let result = client.try_remove_strategy(&nonexistent_strategy);
+        assert_eq!(result, Err(Ok(Error::NotInitialized)));
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
     fn test_get_strategy_health() {
         let env = Env::default();
         env.mock_all_auths();
@@ -658,9 +657,10 @@ mod strategy_health_tests {
         client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
+        client.set_timelock_duration(&0u64);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
-        // Initially should have default health
+        // Initially health data is populated when strategy is added (healthy by default)
         let health = client.get_strategy_health(&mock_strategy_id);
         assert!(health.is_some());
         assert!(health.unwrap().is_healthy);
@@ -673,8 +673,6 @@ mod strategy_health_tests {
     }
 
     #[test]
-    #[ignore] // TODO: contract design mismatch with upstream; needs investigation
-    #[should_panic(expected = "NoStrategies")]
     fn test_check_health_no_strategies() {
         let env = Env::default();
         env.mock_all_auths();
@@ -689,8 +687,9 @@ mod strategy_health_tests {
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-        // Try to check health with no strategies
-        client.check_strategy_health();
+        // Try to check health with no strategies — should return NoStrategies error
+        let result = client.try_check_strategy_health();
+        assert_eq!(result, Err(Ok(Error::NoStrategies)));
     }
 }
 
@@ -768,7 +767,7 @@ fn test_timelock_blocks_immediate_execution() {
 
     // Propose action - this will store the proposal with timestamp
     // Since threshold is 1, it will try to execute but timelock will block
-    let _proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
     assert!(!client.is_paused()); // Should not be paused because timelock blocked execution
 }
 
@@ -955,8 +954,8 @@ fn test_withdraw_above_threshold_queues() {
     // Queue 300 shares via queue_withdraw (converts to 1500 assets, above threshold)
     client.queue_withdraw(&user, &300);
 
-    // Should be queued; balance is NOT reduced until processed
-    assert_eq!(client.balance(&user), 500);
+    // Balance is reduced immediately to prevent double-spending (500 - 300 = 200)
+    assert_eq!(client.balance(&user), 200);
     let pending = client.get_pending_withdrawals();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending.get(0).unwrap().user, user);
@@ -1037,16 +1036,15 @@ fn test_cancel_withdraw() {
 
     // Queue a withdrawal directly (300 shares = 1500 assets > threshold of 1000)
     client.queue_withdraw(&user, &300);
-    // Balance stays at 500 until the withdrawal is processed
-    assert_eq!(client.balance(&user), 500);
+    // Balance is reduced immediately to prevent double-spending (500 - 300 = 200)
+    assert_eq!(client.balance(&user), 200);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
 
     // Cancel the withdrawal
     client.cancel_queued_withdrawal(&user);
 
-    // cancel_queued_withdrawal returns shares to balance even though queue_withdraw didn't reduce it
-    // So balance becomes 500 + 300 = 800 (contract behavior)
-    assert_eq!(client.balance(&user), 800);
+    // cancel_queued_withdrawal restores the deducted shares (200 + 300 = 500)
+    assert_eq!(client.balance(&user), 500);
     assert_eq!(client.get_pending_withdrawals().len(), 0);
 }
 
@@ -1209,25 +1207,23 @@ fn test_withdrawal_queue_full_lifecycle() {
 
     // 1. Queue withdrawal via queue_withdraw
     client.queue_withdraw(&user, &300);
-    // Balance stays at 500 until the queue is processed
-    assert_eq!(client.balance(&user), 500);
+    // Balance is reduced immediately to prevent double-spending (500 - 300 = 200)
+    assert_eq!(client.balance(&user), 200);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
 
-    // 2. Cancel withdrawal - cancel_queued_withdrawal returns shares, so balance = 500 + 300 = 800
+    // 2. Cancel withdrawal - restores the deducted shares (200 + 300 = 500)
     client.cancel_queued_withdrawal(&user);
-    assert_eq!(client.balance(&user), 800);
+    assert_eq!(client.balance(&user), 500);
     assert_eq!(client.get_pending_withdrawals().len(), 0);
 
-    // 3. Queue again (user has 800 shares now)
+    // 3. Queue again (user has 500 shares now, deducted to 200 after queuing)
     client.queue_withdraw(&user, &300);
-    assert_eq!(client.balance(&user), 800); // still 800 until processed
+    assert_eq!(client.balance(&user), 200);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
 
-    // 4. Process withdrawal — process_queued_withdrawals does NOT reduce user balance,
-    // it only reduces total_shares/total_assets and transfers tokens.
-    // User balance stays at 800 (queue_withdraw doesn't deduct, cancel added 300 back).
+    // 4. Process withdrawal — transfers tokens to user
     client.process_queued_withdrawals(&1);
-    assert_eq!(client.balance(&user), 800);
+    assert_eq!(client.balance(&user), 200);
     assert_eq!(token_client.balance(&user), 1500);
     assert_eq!(client.get_pending_withdrawals().len(), 0);
 }
