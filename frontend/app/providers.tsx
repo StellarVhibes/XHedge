@@ -9,8 +9,10 @@ import { PartnerAuthProvider } from "./context/PartnerAuthContext";
 import { ReactNode } from "react";
 import { TourProvider } from "@/components/TourContext";
 import { Toaster } from "sonner";
-
+import { NotificationProvider } from "./context/NotificationContext";
 import { I18nProvider } from "@/lib/i18n-context";
+
+import { NotificationDrawer } from "@/components/NotificationDrawer";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -27,7 +29,10 @@ export function Providers({ children, nonce }: ProvidersProps) {
               <CurrencyProvider>
                 <PriceProvider>
                   <PartnerAuthProvider>
-                    {children}
+                    <NotificationProvider>
+                      {children}
+                      <NotificationDrawer />
+                    </NotificationProvider>
                   </PartnerAuthProvider>
                 </PriceProvider>
               </CurrencyProvider>

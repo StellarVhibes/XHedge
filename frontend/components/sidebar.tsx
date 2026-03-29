@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
 import { usePrices } from "@/app/context/PriceContext";
+import { NotificationBell } from "./NotificationBell";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -44,6 +45,10 @@ export function Sidebar() {
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
+      <div className="fixed top-4 right-4 z-50 lg:hidden">
+        <NotificationBell className="bg-sidebar border border-sidebar-border shadow-sm" />
+      </div>
+
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
@@ -58,9 +63,12 @@ export function Sidebar() {
         )}
       >
         <div className="flex flex-col h-full">
-          <div className="flex items-center gap-2 px-6 py-5 border-b border-sidebar-border">
-            <Shield className="w-8 h-8 text-primary" />
-            <span className="text-xl font-bold text-foreground">XHedge</span>
+          <div className="flex items-center justify-between px-6 py-5 border-b border-sidebar-border">
+            <div className="flex items-center gap-2">
+              <Shield className="w-8 h-8 text-primary" />
+              <span className="text-xl font-bold text-foreground">XHedge</span>
+            </div>
+            <NotificationBell className="hidden lg:flex" />
           </div>
 
           <nav className="flex-1 px-3 py-4 space-y-1">
