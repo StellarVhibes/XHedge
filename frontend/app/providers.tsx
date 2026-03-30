@@ -43,7 +43,6 @@ export function Providers({ children, nonce }: ProvidersProps) {
           </NetworkProvider>
         </FreighterProvider>
         <Toaster richColors closeButton position="top-right" />
-      </I18nProvider>
-    </ThemeProvider>
+      </I18nProvider>    </ThemeProvider>
   );
 }

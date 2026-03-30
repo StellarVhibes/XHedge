@@ -34,7 +34,6 @@ import {
   submitTransaction,
   VaultMetrics,
 } from "@/lib/stellar";
-
 type TabType = "deposit" | "withdraw";
 
 interface PreviewState {
@@ -53,9 +52,7 @@ export default function VaultPage() {
   const t = useTranslations("Vault");
   const { connected, address, signTransaction } = useWallet();
   const { network } = useNetwork();
-  const { prices } = usePrices();
-
-  const {
+  const { prices } = usePrices();  const {
     optimisticBalance,
     optimisticShares,
     hasPending,
@@ -79,7 +76,6 @@ export default function VaultPage() {
   const [chartError, setChartError] = useState<string | null>(null);
   const [signingStep, setSigningStep] = useState<SigningStep>("idle");
   const [signingErrorMessage, setSigningErrorMessage] = useState("");
-
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -302,6 +298,7 @@ export default function VaultPage() {
     confirmTx,
     loadVaultData,
     failTx,
+    metrics?.sharePrice,
   ]);
 
   const handleWithdraw = useCallback(async () => {
@@ -331,12 +328,14 @@ export default function VaultPage() {
 
       setSigningStep("signing");
       const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
+
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
 
       setSigningStep("submitting");
       const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
+
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
@@ -372,7 +371,6 @@ export default function VaultPage() {
   const feeUsd = preview.feeXlm * (prices.XLM || 0);
   const outputLabel = activeTab === "deposit" ? "shares" : "assets";
   const inputId = activeTab === "deposit" ? "deposit-amount" : "withdraw-amount";
-
   const activePending = pendingTxs.filter((tx) => tx.status === "pending");
 
   return (
@@ -383,6 +381,15 @@ export default function VaultPage() {
         <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-2 text-yellow-600 text-sm">
           <Clock className="w-4 h-4 animate-pulse" />
           {activePending.length} pending transaction{activePending.length > 1 ? "s" : ""} - balances shown are estimated
+        </div>
+      )}
+
+      {/* Pending transactions indicator */}
+      {hasPending && (
+        <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-2 text-yellow-600 text-sm">
+          <Clock className="w-4 h-4 animate-pulse" />
+          {activePending.length} pending transaction{activePending.length > 1 ? "s" : ""} —
+          balances shown are estimated
         </div>
       )}
 
