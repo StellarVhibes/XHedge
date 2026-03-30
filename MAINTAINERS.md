@@ -4,7 +4,7 @@ The current maintainers of this project are:
 
 *   **@bbkenny** (Project Lead) - jouleself@gmail.com
 
-## Roles & Responsibilities
+## Roles & Responsibilities.
 
 Maintainers are responsible for:
 *   Reviewing code.

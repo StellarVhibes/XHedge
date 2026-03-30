@@ -64,6 +64,7 @@
         "referrals": "Referidos",
         "settings": "Configuración",
         "governance": "Gobernanza",
+        "bridge": "Puente",
         "switchLanguage": "Idioma"
     },
     "Governance": {
@@ -101,5 +102,36 @@
         },
         "noRewards": "Aún no hay recompensas registradas. ¡Empiece a compartir su enlace para ganar!",
         "copied": "¡Copiado!"
+    },
+    "Bridge": {
+        "title": "Puente Multi-Cadena",
+        "description": "Transfiera sus activos hacia y desde Stellar sin problemas.",
+        "form": {
+            "sourceChain": "Cadena de Origen",
+            "destinationChain": "Cadena de Destino",
+            "asset": "Activo",
+            "amount": "Cantidad",
+            "estimate": "Tarifas y Tiempo Estimados",
+            "estimatedFee": "Tarifa Estimada",
+            "estimatedTime": "Tiempo Estimado",
+            "bridgeAction": "Transferir Activos",
+            "insufficientLiquidity": "Liquidez insuficiente en el puente",
+            "bridgeUnavailable": "Servicio de puente no disponible actualmente",
+            "selectChain": "Seleccionar Cadena",
+            "selectAsset": "Seleccionar Activo",
+            "selectSource": "Seleccionar Origen",
+            "selectDest": "Seleccionar Destino"
+        },
+        "monitor": {
+            "title": "Monitor de Transacciones",
+            "noTransactions": "No hay transacciones de puente activas.",
+            "status": {
+                "pending": "Pendiente",
+                "confirming": "Confirmando",
+                "completed": "Completado",
+                "failed": "Fallido"
+            },
+            "viewOnExplorer": "Ver en el Explorador"
+        }
     }
 }

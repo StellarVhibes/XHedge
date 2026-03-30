@@ -33,11 +33,11 @@ proptest! {
     ) {
         let (env, client, _admin, _asset) = setup_test_env();
         let mut total_expected_shares = 0i128;
-        let mut users = std::vec::Vec::new();
+        let mut users = Vec::new(&env);
 
         for amount in amounts {
             let user = Address::generate(&env);
-            users.push(user.clone());
+            users.push_back(user.clone());
             client.set_total_assets(&(client.total_assets() + amount));
             let shares = client.convert_to_shares(&amount);
             client.set_balance(&user, &shares);

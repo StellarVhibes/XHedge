@@ -23,12 +23,10 @@ const RPC_URLS: Record<NetworkType, string> = {
 
 export function useSorobanEvents(callback: (event: SorobanEvent) => void) {
   const { network } = useNetwork();
-  const { address } = useWallet();
   const lastLedgerRef = useRef<number | null>(null);
   const isPollingRef = useRef(false);
 
   useEffect(() => {
-    if (!address) return;
 
     const contractId = getVolatilityShieldAddress(network);
     const rpcUrl = RPC_URLS[network];
@@ -98,7 +96,8 @@ export function useSorobanEvents(callback: (event: SorobanEvent) => void) {
       }
     };
 
+    pollEvents();
     const interval = setInterval(pollEvents, 10000); // Poll every 10 seconds
     return () => clearInterval(interval);
-  }, [address, network, callback]);
+  }, [network, callback]);
 }

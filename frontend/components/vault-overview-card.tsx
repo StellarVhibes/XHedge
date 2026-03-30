@@ -21,7 +21,6 @@ export function VaultOverviewCard() {
   // Real-time vault connection
   const { status, reconnectAttempts, refresh: realtimeRefresh } = useRealtimeVault(address);
 
-  // Keep stale-data state in sync when real-time data arrives
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     realtimeRefresh();
@@ -45,18 +44,20 @@ export function VaultOverviewCard() {
           <Shield className="w-6 h-6 text-primary" />
           <h2 className="text-xl font-semibold">Vault Overview</h2>
         </div>
+
         <div className="flex items-center gap-2">
-          {/* Real-time connection status indicator */}
           <ConnectionStatusIndicator
             status={status}
             reconnectAttempts={reconnectAttempts}
           />
+
           <StaleBadge
             lastFetchedAt={state.lastFetchedAt}
             isStale={state.isStale}
             onRefresh={handleRefresh}
             refreshing={refreshing}
           />
+
           <button
             onClick={handleRefresh}
             disabled={refreshing}

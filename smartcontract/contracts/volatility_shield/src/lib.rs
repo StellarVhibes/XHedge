@@ -687,7 +687,9 @@ impl VolatilityShield {
         Self::internal_queue_withdraw(env, from, shares);
     }
 
-    /// Internal queue logic — auth must be verified by the caller.
+        Self::internal_queue_withdraw(env, from, shares);
+    }
+
     fn internal_queue_withdraw(env: Env, from: Address, shares: i128) {
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -1309,15 +1311,10 @@ impl VolatilityShield {
         if strategy_balance > 0 {
             // Transfer all funds back to vault
             let asset_addr = Self::get_asset(&env);
-            let token_client = token::Client::new(&env, &asset_addr);
+            let _token_client = token::Client::new(&env, &asset_addr);
 
             // Withdraw from strategy
             strategy_client.withdraw(strategy_balance);
-            token_client.transfer(
-                &strategy,
-                &env.current_contract_address(),
-                &strategy_balance,
-            );
 
             // Update total assets to reflect returned funds
             let current_assets = Self::total_assets(&env);
