@@ -11,6 +11,7 @@ import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import { useStaleData } from "@/hooks/use-stale-data";
 import { StaleBadge } from "@/components/StaleBadge";
 import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
+import { useSorobanEvents } from "@/hooks/use-soroban-events";
 
 export function VaultOverviewCard() {
   const { connected, address } = useWallet();
@@ -44,6 +45,16 @@ export function VaultOverviewCard() {
   useEffect(() => {
     loadVaultData();
   }, [loadVaultData]);
+
+  useSorobanEvents(
+    useCallback(
+      (event) => {
+        console.log("VaultOverviewCard received Soroban event:", event);
+        loadVaultData(true);
+      },
+      [loadVaultData]
+    )
+  );
 
   const handleRefresh = () => {
     loadVaultData(true);
