@@ -17,13 +17,11 @@ import { generateMockData, fetchApyData, DataPoint } from "@/lib/chart-data";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
+import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
-
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+import { useTranslations } from "@/lib/i18n-context";
 
 type TabType = "deposit" | "withdraw";
-
-import { useTranslations } from "@/lib/i18n-context";
 
 export default function VaultPage() {
   const t = useTranslations("Vault");
@@ -91,7 +89,7 @@ export default function VaultPage() {
     try {
       setLoading(true);
       const data = await fetchVaultData(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         network
       );
@@ -114,9 +112,9 @@ export default function VaultPage() {
       try {
         let xdr;
         if (activeTab === "deposit") {
-          xdr = await buildDepositXdr(CONTRACT_ID, address, amount, network);
+          xdr = await buildDepositXdr(getVolatilityShieldAddress(network), address, amount, network);
         } else {
-          xdr = await buildWithdrawXdr(CONTRACT_ID, address, amount, network);
+          xdr = await buildWithdrawXdr(getVolatilityShieldAddress(network), address, amount, network);
         }
 
         const { fee, error } = await estimateTransactionFee(xdr, network);
@@ -158,7 +156,7 @@ export default function VaultPage() {
       const passphrase = getNetworkPassphrase(network);
 
       const xdr = await buildDepositXdr(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         amount,
         network
@@ -219,7 +217,7 @@ export default function VaultPage() {
       const passphrase = getNetworkPassphrase(network);
 
       const xdr = await buildWithdrawXdr(
-        CONTRACT_ID,
+        getVolatilityShieldAddress(network),
         address,
         amount,
         network
@@ -447,6 +445,11 @@ export default function VaultPage() {
             </div>
           )}
 
+          {signingStep === "error" && signingErrorMessage && (
+            <div className="p-4 rounded-lg bg-red-500/10 text-red-500">
+              {signingErrorMessage}
+            </div>
+          )}
         </div>
       </div>
 
