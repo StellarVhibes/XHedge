@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from "lucide-react";
+import { ArrowUpFromLine, ArrowDownToLine, Loader2, Clock } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics } from "@/lib/stellar";
+import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData } from "@/lib/stellar";
 import { getNetworkPassphrase, NetworkType } from "@/lib/network";
+import { useVault } from "@/app/context/VaultContext";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
@@ -12,6 +13,18 @@ type TabType = "deposit" | "withdraw";
 
 export default function VaultPage() {
   const { connected, address, network, signTransaction } = useWallet();
+  const {
+    optimisticBalance,
+    optimisticShares,
+    hasPending,
+    pendingTxs,
+    addPendingDeposit,
+    addPendingWithdraw,
+    confirmTx,
+    failTx,
+    updateMetrics,
+  } = useVault();
+
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,27 +32,22 @@ export default function VaultPage() {
     type: null,
     message: "",
   });
-  const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
 
   const networkType = (network as NetworkType) || "testnet";
 
   const loadMetrics = useCallback(async () => {
     if (!connected || !address) return;
-    
     try {
       const data = await fetchVaultData(CONTRACT_ID, address, networkType === "PUBLIC" ? "PUBLIC" : "TESTNET");
-      setMetrics(data);
+      updateMetrics(data.userBalance, data.userShares);
     } catch (error) {
       console.error("Failed to load metrics:", error);
     }
-  }, [connected, address, networkType]);
+  }, [connected, address, networkType, updateMetrics]);
 
   useEffect(() => {
     loadMetrics();
   }, [loadMetrics]);
-
-  const userBalance = metrics ? parseFloat(metrics.userBalance) / 1e7 : 0;
-  const userShares = metrics ? parseFloat(metrics.userShares) / 1e7 : 0;
 
   const handleDeposit = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -47,44 +55,53 @@ export default function VaultPage() {
       return;
     }
 
+    // Optimistic update: add pending deposit immediately
+    const pendingId = addPendingDeposit(amount);
+
     setLoading(true);
     setStatus({ type: null, message: "" });
 
     try {
       const passphrase = getNetworkPassphrase(networkType);
-      
-      const xdr = await buildDepositXdr(
-        CONTRACT_ID,
-        address,
-        amount,
-        networkType
-      );
-      
-      const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
-        xdr,
-        networkType
-      );
-      
+
+      const xdr = await buildDepositXdr(CONTRACT_ID, address, amount, networkType);
+
+      const { result: assembledXdr, error: assembleError } =
+        await simulateAndAssembleTransaction(xdr, networkType);
+
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
-      
-      const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
-      
+
+      const { signedTxXdr, error: signError } = await signTransaction(
+        assembledXdr,
+        passphrase
+      );
+
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
-      
-      const { hash, error: submitError } = await submitTransaction(signedTxXdr, networkType);
-      
+
+      const { hash, error: submitError } = await submitTransaction(
+        signedTxXdr,
+        networkType
+      );
+
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
-      
-      setStatus({ type: "success", message: `Deposit successful! Transaction: ${hash.slice(0, 8)}...` });
+
+      // Confirm the pending transaction
+      confirmTx(pendingId, hash);
+      setStatus({
+        type: "success",
+        message: `Deposit confirmed! Tx: ${hash.slice(0, 8)}...`,
+      });
       setAmount("");
       await loadMetrics();
     } catch (error) {
+      // Rollback optimistic update
+      failTx(pendingId);
       setStatus({
         type: "error",
         message: error instanceof Error ? error.message : "Deposit failed",
@@ -92,7 +109,17 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, networkType, signTransaction, loadMetrics]);
+  }, [
+    connected,
+    address,
+    amount,
+    networkType,
+    signTransaction,
+    addPendingDeposit,
+    confirmTx,
+    failTx,
+    loadMetrics,
+  ]);
 
   const handleWithdraw = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -101,49 +128,59 @@ export default function VaultPage() {
     }
 
     const withdrawAmount = parseFloat(amount);
-    if (withdrawAmount > userShares) {
-      setStatus({ type: "error", message: `Insufficient balance. You have ${userShares.toFixed(2)} shares.` });
+    if (withdrawAmount > optimisticShares) {
+      setStatus({
+        type: "error",
+        message: `Insufficient balance. You have ${optimisticShares.toFixed(2)} shares.`,
+      });
       return;
     }
+
+    // Optimistic update: add pending withdrawal immediately
+    const pendingId = addPendingWithdraw(amount);
 
     setLoading(true);
     setStatus({ type: null, message: "" });
 
     try {
       const passphrase = getNetworkPassphrase(networkType);
-      
-      const xdr = await buildWithdrawXdr(
-        CONTRACT_ID,
-        address,
-        amount,
-        networkType
-      );
-      
-      const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
-        xdr,
-        networkType
-      );
-      
+
+      const xdr = await buildWithdrawXdr(CONTRACT_ID, address, amount, networkType);
+
+      const { result: assembledXdr, error: assembleError } =
+        await simulateAndAssembleTransaction(xdr, networkType);
+
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
-      
-      const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
-      
+
+      const { signedTxXdr, error: signError } = await signTransaction(
+        assembledXdr,
+        passphrase
+      );
+
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
-      
-      const { hash, error: submitError } = await submitTransaction(signedTxXdr, networkType);
-      
+
+      const { hash, error: submitError } = await submitTransaction(
+        signedTxXdr,
+        networkType
+      );
+
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
-      
-      setStatus({ type: "success", message: `Withdraw successful! Transaction: ${hash.slice(0, 8)}...` });
+
+      confirmTx(pendingId, hash);
+      setStatus({
+        type: "success",
+        message: `Withdraw confirmed! Tx: ${hash.slice(0, 8)}...`,
+      });
       setAmount("");
       await loadMetrics();
     } catch (error) {
+      failTx(pendingId);
       setStatus({
         type: "error",
         message: error instanceof Error ? error.message : "Withdraw failed",
@@ -151,11 +188,33 @@ export default function VaultPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, address, amount, userShares, networkType, signTransaction, loadMetrics]);
+  }, [
+    connected,
+    address,
+    amount,
+    optimisticShares,
+    networkType,
+    signTransaction,
+    addPendingWithdraw,
+    confirmTx,
+    failTx,
+    loadMetrics,
+  ]);
+
+  const activePending = pendingTxs.filter((tx) => tx.status === "pending");
 
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Vault</h1>
+
+      {/* Pending transactions indicator */}
+      {hasPending && (
+        <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-2 text-yellow-600 text-sm">
+          <Clock className="w-4 h-4 animate-pulse" />
+          {activePending.length} pending transaction{activePending.length > 1 ? "s" : ""} —
+          balances shown are estimated
+        </div>
+      )}
 
       <div className="rounded-lg border bg-card">
         <div className="flex border-b">
@@ -190,9 +249,31 @@ export default function VaultPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Optimistic balance display */}
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-muted/50">
+                <div>
+                  <div className="text-xs text-muted-foreground">USDC Balance</div>
+                  <div className="text-lg font-semibold">
+                    {optimisticBalance.toFixed(2)}
+                    {hasPending && (
+                      <span className="text-xs text-yellow-600 ml-1">*</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Shares (XHS)</div>
+                  <div className="text-lg font-semibold">
+                    {optimisticShares.toFixed(4)}
+                    {hasPending && (
+                      <span className="text-xs text-yellow-600 ml-1">*</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {activeTab === "withdraw" && (
-                <div className="text-sm text-muted-foreground mb-2">
-                  Available: {userShares.toFixed(2)} XHS
+                <div className="text-sm text-muted-foreground">
+                  Available: {optimisticShares.toFixed(2)} XHS
                 </div>
               )}
 
@@ -225,7 +306,7 @@ export default function VaultPage() {
               {activeTab === "withdraw" && (
                 <button
                   onClick={handleWithdraw}
-                  disabled={loading || !amount || userShares <= 0}
+                  disabled={loading || !amount || optimisticShares <= 0}
                   className="w-full py-3 px-4 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
