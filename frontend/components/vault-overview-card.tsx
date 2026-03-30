@@ -1,53 +1,32 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Shield, TrendingUp, RefreshCw, Wallet } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { useNetwork } from "@/app/context/NetworkContext";
 import { useCurrency } from "@/app/context/CurrencyContext";
-import { fetchVaultData, VaultMetrics } from "@/lib/stellar";
 import { formatNumber } from "@/lib/utils";
-import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import { useStaleData } from "@/hooks/use-stale-data";
 import { StaleBadge } from "@/components/StaleBadge";
 import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
+import { useRealtimeVault } from "@/hooks/use-realtime-vault";
+import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
+import type { VaultMetrics } from "@/lib/stellar";
 
 export function VaultOverviewCard() {
   const { connected, address } = useWallet();
-  const { network } = useNetwork();
   const { format } = useCurrency();
-  const { state, setData, setLoading, setError } = useStaleData<VaultMetrics>(5 * 60 * 1000);
+  const { state, setData, setLoading } = useStaleData<VaultMetrics>(5 * 60 * 1000);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadVaultData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+  // Real-time vault connection
+  const { status, reconnectAttempts, refresh: realtimeRefresh } = useRealtimeVault(address);
 
-    try {
-      const data = await fetchVaultData(
-        getVolatilityShieldAddress(network),
-        address,
-        network
-      );
-      setData(data);
-    } catch (error) {
-      console.error("Failed to fetch vault data:", error);
-      setError(error instanceof Error ? error.message : "Failed to load vault data");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [address, network, setData, setLoading, setError]);
-
-  useEffect(() => {
-    loadVaultData();
-  }, [loadVaultData]);
-
-  const handleRefresh = () => {
-    loadVaultData(true);
-  };
+  // Keep stale-data state in sync when real-time data arrives
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    realtimeRefresh();
+    setRefreshing(false);
+  }, [realtimeRefresh]);
 
   if (state.loading) {
     return <VaultOverviewSkeleton />;
@@ -67,6 +46,11 @@ export function VaultOverviewCard() {
           <h2 className="text-xl font-semibold">Vault Overview</h2>
         </div>
         <div className="flex items-center gap-2">
+          {/* Real-time connection status indicator */}
+          <ConnectionStatusIndicator
+            status={status}
+            reconnectAttempts={reconnectAttempts}
+          />
           <StaleBadge
             lastFetchedAt={state.lastFetchedAt}
             isStale={state.isStale}
@@ -118,6 +102,18 @@ export function VaultOverviewCard() {
       {state.error && (
         <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           {state.error} — showing last known data.
+        </div>
+      )}
+
+      {status === "disconnected" && (
+        <div className="mt-4 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center gap-2">
+          <span>Real-time connection lost. Data may be outdated.</span>
+          <button
+            onClick={handleRefresh}
+            className="underline text-red-400 hover:text-red-300 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
 
