@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "contracts/volatility_shield",
     "contracts/mock_strategy",
+    "contracts/mock_oracle",
 ]
 
 [workspace.dependencies]
