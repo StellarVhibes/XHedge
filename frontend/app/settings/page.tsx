@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { Settings, Bell, Palette, Monitor, Sun, Moon, Save, Check } from "lucide-react";
+import { Settings, Bell, Palette, Monitor, Sun, Moon, Save, Check, Shield } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
+import { getAnalyticsPreference, setAnalyticsPreference, trackSettingsChanged } from "@/lib/analytics";
 
 const NOTIFICATIONS_KEY = "xhedge-notifications";
 
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { currency, setCurrency } = useCurrency();
   const [notifications, setNotifications] = useState<NotificationPreferences>(DEFAULT_NOTIFICATIONS);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
   const [saved, setSaved] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -65,6 +67,11 @@ export default function SettingsPage() {
     }
   }, []);
 
+  // Load analytics preference from localStorage
+  useEffect(() => {
+    setAnalyticsEnabled(getAnalyticsPreference());
+  }, []);
+
   const handleNotificationChange = (key: keyof NotificationPreferences, value: boolean) => {
     setNotifications((prev) => {
       const updated = { ...prev, [key]: value };
@@ -75,6 +82,12 @@ export default function SettingsPage() {
       }
       return updated;
     });
+  };
+
+  const handleAnalyticsChange = (enabled: boolean) => {
+    setAnalyticsEnabled(enabled);
+    setAnalyticsPreference(enabled);
+    trackSettingsChanged('analytics', enabled);
   };
 
   const handleSave = () => {
@@ -224,6 +237,32 @@ export default function SettingsPage() {
               checked={notifications.weeklyReports}
               onCheckedChange={(val) => handleNotificationChange("weeklyReports", val)}
             />
+          </CardContent>
+        </Card>
+
+        {/* Privacy & Analytics */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <CardTitle className="text-lg">Privacy & Analytics</CardTitle>
+            </div>
+            <CardDescription>
+              Help us improve XHedge by sharing usage insights. We never collect personal data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <NotificationRow
+              label="Analytics"
+              description="Allow us to collect anonymized usage data to improve the app. No personal information is collected."
+              checked={analyticsEnabled}
+              onCheckedChange={handleAnalyticsChange}
+            />
+            <div className="mt-4 rounded-sm bg-muted/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                We respect your browser's "Do Not Track" preference. If enabled, analytics will not be sent regardless of this setting.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
