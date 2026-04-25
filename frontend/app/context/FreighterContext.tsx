@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useInactivityLogout } from "../../hooks/use-inactivity-logout";
+import { InactivityWarningModal } from "../components/InactivityWarningModal";
 
 /* ── Freighter API v2 ─────────────────────────────────── */
 import {
@@ -55,6 +56,7 @@ const FreighterContext = createContext<FreighterContextValue | undefined>(
 /* ── Provider ────────────────────────────────────────── */
 export function FreighterProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FreighterState>(initialState);
+  const [isWarningOpen, setIsWarningOpen] = useState(false);
 
   /**
    * Check if Freighter is installed and whether it has previously
@@ -156,17 +158,33 @@ export function FreighterProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       error: null,
     });
+    setIsWarningOpen(false);
   }, []);
 
-  useInactivityLogout({
+  const { resetInactivityTimer } = useInactivityLogout({
     timeout: 15 * 60 * 1000,
     onLogout: disconnect,
-    onWarning: () => console.warn("Session expiring in 60 seconds..."),
+    onWarning: () => {
+      setIsWarningOpen(true);
+    },
   });
 
   return (
     <FreighterContext.Provider value={{ ...state, connect, disconnect }}>
       {children}
+      <InactivityWarningModal
+        isOpen={isWarningOpen && state.isConnected}
+        warningSeconds={60}
+        onStayConnected={() => {
+          resetInactivityTimer();
+        }}
+        onDisconnectNow={() => {
+          disconnect();
+        }}
+        onClose={() => {
+          setIsWarningOpen(false);
+        }}
+      />
     </FreighterContext.Provider>
   );
 }
