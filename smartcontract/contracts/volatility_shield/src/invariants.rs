@@ -119,7 +119,7 @@ proptest! {
             client.add_guardian(&Address::generate(&env));
         }
         let guardians_count = client.get_guardians().len();
-        
+
         let res = client.try_set_threshold(&threshold_to_set);
         if threshold_to_set > guardians_count {
             assert!(res.is_err());
@@ -138,23 +138,23 @@ proptest! {
     ) {
         let (env, client, _admin, _asset) = setup_test_env();
         client.set_withdraw_queue_threshold(&0); // Force queue
-        
+
         let mut total_shares = 0;
         for &s in deposit_shares.iter() { total_shares += s; }
         client.set_total_shares(&total_shares);
         client.set_total_assets(&total_shares);
-        
+
         for &s in deposit_shares.iter() {
             let u = Address::generate(&env);
             client.set_balance(&u, &s);
             let _ = client.try_queue_withdraw(&u, &s);
         }
-        
+
         let mut queued = 0;
         for w in client.get_pending_withdrawals().iter() {
             queued += w.shares;
         }
-        
+
         assert!(queued <= client.total_shares());
     }
 
@@ -170,15 +170,15 @@ proptest! {
         let s2 = Address::generate(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(s1.clone()));
         client.propose_action(&admin, &ActionType::AddStrategy(s2.clone()));
-        
+
         let mut allocations = soroban_sdk::Map::new(&env);
         allocations.set(s1.clone(), alloc1);
         allocations.set(s2.clone(), alloc2);
-        
+
         env.ledger().set_timestamp(100);
         let timestamp = 50; // Valid timestamp compared to last update 0
         let res = client.try_set_oracle_data(&allocations, &timestamp);
-        
+
         let sum = alloc1 + alloc2;
         if sum == 10_000 {
             assert!(res.is_ok());
@@ -199,7 +199,7 @@ proptest! {
         env.mock_all_auths_allowing_non_root_auth();
         let token_admin = Address::generate(&env);
         let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
-        
+
         let contract_id = env.register_contract(None, VolatilityShield);
         let client = VolatilityShieldClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
@@ -207,23 +207,23 @@ proptest! {
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-        
+
         let mock_strategy_id = env.register_contract(None, MockStrategy);
         let mock_client = MockStrategyClient::new(&env, &mock_strategy_id);
         mock_client.init(&contract_id, &token_id);
-        
+
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
-        
+
         client.set_total_shares(&1000);
         client.set_total_assets(&1000);
-        
+
         let price_before = client.get_share_price();
-        
+
         stellar_asset_client.mint(&mock_strategy_id, &yield_amount);
         mock_client.deposit(&yield_amount);
-        
+
         let _ = client.harvest();
-        
+
         let price_after = client.get_share_price();
         assert!(price_after >= price_before);
     }
@@ -239,20 +239,20 @@ proptest! {
         env.mock_all_auths_allowing_non_root_auth();
         let token_admin = Address::generate(&env);
         let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
-        
+
         let contract_id = env.register_contract(None, VolatilityShield);
         let client = VolatilityShieldClient::new(&env, &contract_id);
-        
+
         let admin = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &token_id, &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
-        
-        client.set_deposit_cap(&cap, &100_000_000_000i128); 
-        
+
+        client.set_deposit_cap(&cap, &100_000_000_000i128);
+
         let user = Address::generate(&env);
         client.set_balance(&user, &0);
         stellar_asset_client.mint(&user, &deposit_amount);
-        
+
         let res = client.try_deposit(&user, &token_id, &deposit_amount);
         if deposit_amount > cap {
             assert!(res.is_err());

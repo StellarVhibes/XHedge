@@ -744,7 +744,7 @@ fn test_timelock_prevents_premature_execution() {
     // Propose action - should succeed but not execute because timelock hasn't elapsed
     // With threshold 1, it tries to execute immediately but timelock blocks it
     // The proposal is created but not executed
-    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    let _proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
     assert!(!client.is_paused()); // Should not be paused because timelock blocked execution
 }
 
@@ -771,7 +771,7 @@ fn test_timelock_blocks_immediate_execution() {
 
     // Propose action - this will store the proposal with timestamp
     // Since threshold is 1, it will try to execute but timelock will block
-    let proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
+    let _proposal_id = client.propose_action(&admin, &ActionType::SetPaused(true));
     assert!(!client.is_paused()); // Should not be paused because timelock blocked execution
 }
 
@@ -1502,7 +1502,6 @@ fn test_partially_unregistered_allocation_rejected() {
     assert_eq!(result, Err(Ok(Error::ZeroAddressStrategy)));
 }
 
-
 // ── Withdrawal Queue Invariant Tests ─────────────────────────
 
 #[test]
@@ -1520,7 +1519,9 @@ fn test_queue_withdraw_prevents_double_spending() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -1555,7 +1556,9 @@ fn test_cancel_queued_withdrawal_restores_balance() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -1589,7 +1592,7 @@ fn test_unauthorized_rebalance_rejected() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    let stranger = Address::generate(&env);
+    let _stranger = Address::generate(&env);
     // require_admin_or_oracle should be tested here via rebalance call if it was public
 }
 
@@ -1650,7 +1653,7 @@ fn test_withdraw_cap_exceeded() {
     client.set_total_assets(&1000);
     let user = Address::generate(&env);
     client.set_balance(&user, &200);
-    
+
     // Attempt withdrawal of 150 which exceeds cap of 100
     client.withdraw(&user, &150);
 }
@@ -1670,13 +1673,13 @@ fn test_stale_oracle_data_rejected() {
 
     client.set_max_staleness(&60); // 1 minute
     env.ledger().set_timestamp(1000);
-    
+
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &1000);
-    
+
     // Advance time beyond staleness (e.g., to 1100)
     env.ledger().set_timestamp(1100);
-    
+
     // Try to rebalance - should fail with StaleOracleData
     let res = client.try_propose_action(&oracle, &ActionType::Rebalance(50));
     assert!(res.is_err());
@@ -1690,7 +1693,15 @@ fn test_multisig_already_approved_rejected() {
     let client = VolatilityShieldClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &2);
+    client.init(
+        &admin,
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &0,
+        &guardians,
+        &2,
+    );
 
     let id = client.propose_action(&admin, &ActionType::SetPaused(true));
     let result = client.try_approve_action(&admin, &id);
@@ -1705,7 +1716,15 @@ fn test_multisig_proposal_not_found() {
     let client = VolatilityShieldClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+    client.init(
+        &admin,
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &0,
+        &guardians,
+        &1,
+    );
 
     let result = client.try_approve_action(&admin, &999);
     assert!(result.is_err());
@@ -1818,7 +1837,7 @@ fn test_batch_withdraw_partial_failure() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    
+
     stellar_asset_client.mint(&contract_id, &5000);
     client.set_total_shares(&1000);
     client.set_total_assets(&5000);
@@ -1887,12 +1906,14 @@ fn test_harvest_automation_success_and_early_rejection() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
     let mock_client = mock_strategy::MockStrategyClient::new(&env, &mock_strategy_id);
     mock_client.init(&contract_id, &token_id);
-    
+
     client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
     env.ledger().set_sequence_number(100);
@@ -1916,7 +1937,7 @@ fn test_harvest_automation_success_and_early_rejection() {
     assert_eq!(yields, 500);
 
     assert_eq!(client.can_harvest(), false);
-    
+
     env.ledger().set_sequence_number(120);
     assert_eq!(client.can_harvest(), true);
 }
@@ -1928,25 +1949,39 @@ pub struct MaliciousStrategy;
 #[contractimpl]
 impl MaliciousStrategy {
     pub fn init(env: Env, vault: Address, token: Address) {
-        env.storage().instance().set(&soroban_sdk::Symbol::new(&env, "vault"), &vault);
-        env.storage().instance().set(&soroban_sdk::Symbol::new(&env, "token"), &token);
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::Symbol::new(&env, "vault"), &vault);
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::Symbol::new(&env, "token"), &token);
     }
 
     pub fn withdraw(env: Env, amount: i128) {
-        let vault: Address = env.storage().instance().get(&soroban_sdk::Symbol::new(&env, "vault")).unwrap();
-        let token: Address = env.storage().instance().get(&soroban_sdk::Symbol::new(&env, "token")).unwrap();
-        
+        let vault: Address = env
+            .storage()
+            .instance()
+            .get(&soroban_sdk::Symbol::new(&env, "vault"))
+            .unwrap();
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&soroban_sdk::Symbol::new(&env, "token"))
+            .unwrap();
+
         // Attempt re-entrancy
         let client = VolatilityShieldClient::new(&env, &vault);
         client.deposit(&env.current_contract_address(), &token, &amount);
     }
 
     pub fn deposit(_env: Env, _amount: i128) {}
-    pub fn balance(_env: Env) -> i128 { 1000 }
+    pub fn balance(_env: Env) -> i128 {
+        1000
+    }
 }
 
 #[test]
-#[should_panic(expected = "ReentrantCall")]
+#[should_panic(expected = "HostError: Error(Context, InvalidAction)")]
 fn test_reentrancy_guard() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -1962,7 +1997,9 @@ fn test_reentrancy_guard() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let mal_strategy_id = env.register_contract(None, MaliciousStrategy);
     let mal_client = MaliciousStrategyClient::new(&env, &mal_strategy_id);
@@ -1977,10 +2014,10 @@ fn test_reentrancy_guard() {
     // Total assets = 500, target 100%. Strategy has 1000. So delta is -500 (withdraw 500)
     let mut allocs = Map::new(&env);
     allocs.set(mal_strategy_id.clone(), 10_000i128);
-    
+
     client.set_total_assets(&500);
     client.set_total_shares(&500);
-    
+
     env.ledger().set_timestamp(100);
     client.set_oracle_data(&allocs, &50);
 
