@@ -1990,7 +1990,7 @@ impl VolatilityShield {
         }
 
         let mut best_strategy: Option<Address> = None;
-        let mut best_apy: i128 = 0;
+        let mut best_apy: i128 = -1; // Initialize to -1 so even 0 APY will be selected
 
         for strategy in strategies.iter() {
             let apy = Self::get_strategy_apy(env.clone(), strategy.clone(), 4);

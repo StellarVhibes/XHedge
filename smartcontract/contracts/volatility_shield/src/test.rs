@@ -2142,7 +2142,7 @@ fn test_get_best_performing_strategy() {
 
     client.set_harvest_interval(&10);
 
-    // Harvest from both strategies
+    // First harvest - deposit and harvest
     env.ledger().set_sequence_number(100);
     stellar_asset_client.mint(&strategy1_id, &1000);
     strategy1_client.deposit(&1000);
@@ -2151,7 +2151,17 @@ fn test_get_best_performing_strategy() {
 
     // Advance ledger past harvest interval
     env.ledger().set_sequence_number(110);
+    client.harvest();
 
+    // Second harvest - add more yield to create growth history
+    // Note: Mock strategy doesn't retain balance after harvest, so we deposit again
+    stellar_asset_client.mint(&strategy1_id, &500);
+    strategy1_client.deposit(&500);
+    stellar_asset_client.mint(&strategy2_id, &2000);
+    strategy2_client.deposit(&2000);
+
+    // Advance ledger past harvest interval again
+    env.ledger().set_sequence_number(120);
     client.harvest();
 
     // Get best performing strategy
