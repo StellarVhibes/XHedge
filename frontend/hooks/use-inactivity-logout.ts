@@ -5,6 +5,8 @@ import { useEffect, useRef, useCallback } from "react";
 const DEFAULT_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const WARNING_THRESHOLD = 60 * 1000; // 60 seconds before logout
 
+export const inactivityLogoutEvents = new EventTarget();
+
 interface InactivityOptions {
   timeout?: number;
   onLogout: () => void;
@@ -24,8 +26,16 @@ export function useInactivityLogout({
     if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
 
     warningTimerRef.current = setTimeout(() => {
+      inactivityLogoutEvents.dispatchEvent(
+        new CustomEvent("warningThreshold", {
+          detail: {
+            warningThresholdMs: WARNING_THRESHOLD,
+            timeoutMs: timeout,
+          },
+        })
+      );
       onWarning?.();
-    }, timeout - WARNING_THRESHOLD);
+    }, Math.max(0, timeout - WARNING_THRESHOLD));
 
     timerRef.current = setTimeout(() => {
       onLogout();
@@ -53,4 +63,8 @@ export function useInactivityLogout({
       if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
     };
   }, [resetTimers]);
+
+  return {
+    resetInactivityTimer: resetTimers,
+  };
 }
