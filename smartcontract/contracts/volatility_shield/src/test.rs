@@ -695,6 +695,193 @@ mod strategy_health_tests {
         let result = client.try_check_strategy_health();
         assert_eq!(result, Err(Ok(Error::NoStrategies)));
     }
+
+    // ── Issue #334: consecutive-failure strike counter ────────────────────
+
+    /// AC-1: Three consecutive unhealthy checks auto-flag the strategy.
+    #[test]
+    fn test_three_consecutive_failures_auto_flags() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Allocate 100 % of vault assets to the strategy
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Vault thinks it has 1000 assets; strategy holds 800 (>10 % deviation → unhealthy)
+        client.set_total_assets(&1000);
+        mock_client.deposit(&800);
+
+        // Run health-check 3 times
+        for i in 1_u32..=3 {
+            env.ledger().set_timestamp(1000 + i as u64 * 100);
+            let unhealthy = client.check_strategy_health();
+            assert_eq!(
+                unhealthy.get(0).unwrap(),
+                mock_strategy_id,
+                "strategy should appear unhealthy on check {i}"
+            );
+        }
+
+        // After 3 failures the strategy must be auto-flagged
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert!(!health.is_healthy, "strategy should be auto-flagged after 3 failures");
+        assert_eq!(health.consecutive_failures, 3);
+    }
+
+    /// AC-2: A single successful check resets the consecutive-failure counter.
+    #[test]
+    fn test_single_recovery_resets_counter() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.set_total_assets(&1000);
+
+        // Two failures (strategy is under-funded)
+        mock_client.deposit(&800);
+        for i in 1_u32..=2 {
+            env.ledger().set_timestamp(1000 + i as u64 * 100);
+            client.check_strategy_health();
+        }
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert_eq!(health.consecutive_failures, 2, "should have 2 failures before recovery");
+
+        // Recovery: bring strategy balance in line with expected
+        mock_client.deposit(&200); // now 1000, within 10 % of 1000
+        env.ledger().set_timestamp(1400);
+        client.check_strategy_health();
+
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert_eq!(
+            health.consecutive_failures, 0,
+            "counter must reset to 0 after a successful check"
+        );
+    }
+
+    /// AC-3: Admin can configure a custom failure threshold.
+    #[test]
+    fn test_custom_threshold_configurable_by_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        // Default threshold is 3
+        assert_eq!(client.get_max_consecutive_failures(), 3);
+
+        // Admin bumps threshold to 5
+        client.set_max_consecutive_failures(&5u32);
+        assert_eq!(client.get_max_consecutive_failures(), 5);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.set_total_assets(&1000);
+        mock_client.deposit(&800); // consistently 20 % under
+
+        // 4 failures should NOT yet auto-flag (threshold = 5)
+        for i in 1_u32..=4 {
+            env.ledger().set_timestamp(1000 + i as u64 * 100);
+            client.check_strategy_health();
+        }
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert!(health.is_healthy, "should still be healthy after 4 failures when threshold is 5");
+        assert_eq!(health.consecutive_failures, 4);
+
+        // 5th failure → auto-flagged
+        env.ledger().set_timestamp(1500);
+        client.check_strategy_health();
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert!(!health.is_healthy, "should be auto-flagged on 5th failure");
+        assert_eq!(health.consecutive_failures, 5);
+    }
+
+    /// Default threshold stays 3 when admin never calls set_max_consecutive_failures.
+    #[test]
+    fn test_default_threshold_is_three() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        assert_eq!(client.get_max_consecutive_failures(), 3);
+    }
+
+    /// New strategy starts with consecutive_failures = 0.
+    #[test]
+    fn test_new_strategy_starts_with_zero_failures() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, _) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert_eq!(health.consecutive_failures, 0);
+        assert!(health.is_healthy);
+    }
 }
 
 // ── Timelock Tests ─────────────────────────

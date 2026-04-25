@@ -69,6 +69,8 @@ pub enum DataKey {
     WithdrawQueueThreshold,
     PendingWithdrawals,
     StrategyHealth(Address),
+    /// Admin-configurable consecutive-failure threshold (default: 3).
+    MaxConsecutiveFailures,
     TimelockDuration,
     GovernanceToken,
     AssetBalance(Address, Address),
@@ -124,6 +126,10 @@ pub struct StrategyHealth {
     pub last_known_balance: i128,
     pub last_check_timestamp: u64,
     pub is_healthy: bool,
+    /// Number of consecutive failed balance checks.
+    /// Resets to 0 on every successful check.
+    /// When this reaches `MaxConsecutiveFailures` the strategy is auto-flagged.
+    pub consecutive_failures: u32,
 }
 
 // ─────────────────────────────────────────────
@@ -1570,6 +1576,7 @@ impl VolatilityShield {
             last_known_balance: 0,
             last_check_timestamp: env.ledger().timestamp(),
             is_healthy: true,
+            consecutive_failures: 0,
         };
         env.storage().instance().set(&health_key, &default_health);
 
@@ -1744,6 +1751,12 @@ impl VolatilityShield {
             return Err(Error::NoStrategies);
         }
 
+        let max_failures: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3);
+
         let mut unhealthy_strategies = Vec::new(&env);
         let current_time = env.ledger().timestamp();
 
@@ -1770,7 +1783,7 @@ impl VolatilityShield {
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let current_health =
+            let mut current_health: StrategyHealth =
                 env.storage()
                     .instance()
                     .get(&health_key)
@@ -1778,6 +1791,7 @@ impl VolatilityShield {
                         last_known_balance: expected_balance,
                         last_check_timestamp: current_time,
                         is_healthy: true,
+                        consecutive_failures: 0,
                     });
 
             // Check if strategy is unhealthy (significant deviation from expected)
@@ -1790,24 +1804,31 @@ impl VolatilityShield {
                 false
             };
 
-            let is_healthy = !balance_deviation;
+            if balance_deviation {
+                // ── Failed check: increment strike counter ───────────────
+                current_health.consecutive_failures =
+                    current_health.consecutive_failures.saturating_add(1);
 
-            // Update health data if changed
-            if is_healthy != current_health.is_healthy
-                || actual_balance != current_health.last_known_balance
-            {
-                let new_health = StrategyHealth {
-                    last_known_balance: actual_balance,
-                    last_check_timestamp: current_time,
-                    is_healthy,
-                };
-                env.storage().instance().set(&health_key, &new_health);
-            }
+                if current_health.consecutive_failures >= max_failures {
+                    // Auto-flag after reaching the threshold
+                    current_health.is_healthy = false;
+                    env.events().publish(
+                        (symbol_short!("StrategyF"), strategy_addr.clone()),
+                        current_time,
+                    );
+                }
 
-            // If unhealthy, add to list for flagging
-            if !is_healthy {
                 unhealthy_strategies.push_back(strategy_addr.clone());
+            } else {
+                // ── Successful check: reset strike counter ───────────────
+                current_health.consecutive_failures = 0;
             }
+
+            // Always refresh balance and timestamp
+            current_health.last_known_balance = actual_balance;
+            current_health.last_check_timestamp = current_time;
+
+            env.storage().instance().set(&health_key, &current_health);
         }
 
         Ok(unhealthy_strategies)
@@ -1829,11 +1850,22 @@ impl VolatilityShield {
         let health_key = DataKey::StrategyHealth(strategy.clone());
         let current_time = env.ledger().timestamp();
 
-        // Update health to unhealthy
+        // Update health to unhealthy, preserving the existing counter
+        let existing: StrategyHealth = env
+            .storage()
+            .instance()
+            .get(&health_key)
+            .unwrap_or(StrategyHealth {
+                last_known_balance: 0,
+                last_check_timestamp: current_time,
+                is_healthy: true,
+                consecutive_failures: 0,
+            });
         let updated_health = StrategyHealth {
-            last_known_balance: 0, // Will be updated on next health check
+            last_known_balance: existing.last_known_balance,
             last_check_timestamp: current_time,
             is_healthy: false,
+            consecutive_failures: existing.consecutive_failures,
         };
 
         env.storage().instance().set(&health_key, &updated_health);
@@ -1904,6 +1936,30 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .get(&DataKey::StrategyHealth(strategy))
+    }
+
+    /// Set the number of consecutive failed balance checks before a strategy is
+    /// auto-flagged as unhealthy.  Defaults to 3 when not configured.
+    /// Only the admin can call this.
+    pub fn set_max_consecutive_failures(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        if threshold == 0 {
+            return Err(Error::NegativeAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxConsecutiveFailures, &threshold);
+        env.events()
+            .publish((symbol_short!("MaxFail"),), threshold);
+        Ok(())
+    }
+
+    /// Return the currently configured consecutive-failure threshold (default: 3).
+    pub fn get_max_consecutive_failures(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3)
     }
 
     /// Calculate annualized percentage yield (APY) for a strategy.
