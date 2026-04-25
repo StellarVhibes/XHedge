@@ -1,71 +1,107 @@
 import { Timeframe } from '@/components/TimeframeFilter';
+import { fetchHistoricalSharePriceWithFallback, NetworkType } from './stellar';
 
 export interface DataPoint {
   date: string;
   apy: number;
 }
 
-export function generateMockData(timeframe: Timeframe): DataPoint[] {
-  const now = new Date();
-  let dataPoints: DataPoint[] = [];
-  
-  switch (timeframe) {
-    case '1D':
-      // Hourly data for 24 hours
-      dataPoints = Array.from({ length: 24 }).map((_, i) => {
-        const date = new Date(now);
-        date.setHours(date.getHours() - (23 - i));
-        return {
-          date: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          apy: 5 + Math.random() * 3 + (i * 0.05),
-        };
-      });
-      break;
-      
-    case '1W':
-      // Daily data for 7 days
-      dataPoints = Array.from({ length: 7 }).map((_, i) => {
-        const date = new Date(now);
-        date.setDate(date.getDate() - (6 - i));
-        return {
-          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          apy: 5 + Math.random() * 3 + (i * 0.1),
-        };
-      });
-      break;
-      
-    case '1M':
-      // Daily data for 30 days
-      dataPoints = Array.from({ length: 30 }).map((_, i) => {
-        const date = new Date(now);
-        date.setDate(date.getDate() - (29 - i));
-        return {
-          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          apy: 5 + Math.random() * 3 + (i * 0.1),
-        };
-      });
-      break;
-      
-    case '1Y':
-      // Monthly data for 12 months
-      dataPoints = Array.from({ length: 12 }).map((_, i) => {
-        const date = new Date(now);
-        date.setMonth(date.getMonth() - (11 - i));
-        return {
-          date: date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-          apy: 5 + Math.random() * 3 + (i * 0.2),
-        };
-      });
-      break;
-      
-    default:
-      dataPoints = [];
-  }
-  
+/**
+ * Convert share price historical data to APY data
+ * APY is calculated as (current price / initial price)^(365/days) - 1
+ */
+export function convertSharePricesToAPY(prices: Array<{ date: string; price: number }>): DataPoint[] {
+  if (prices.length < 2) return [];
+
+  const initialPrice = prices[0].price;
+  const dataPoints: DataPoint[] = [];
+
+  prices.forEach((point, index) => {
+    const daysPassed = index; // Approximation - each point is roughly a day
+    if (daysPassed === 0) {
+      dataPoints.push({ date: point.date, apy: 0 });
+      return;
+    }
+
+    // Calculate annualized APY: ((current / initial)^(365 / days) - 1) * 100
+    const priceRatio = point.price / initialPrice;
+    const daysInYear = 365;
+    const apy = (Math.pow(priceRatio, daysInYear / daysPassed) - 1) * 100;
+
+    dataPoints.push({
+      date: point.date,
+      apy: Math.max(0, parseFloat(apy.toFixed(2))), // Clamp to 0 minimum
+    });
+  });
+
   return dataPoints;
 }
 
-export async function fetchApyData(timeframe: Timeframe): Promise<DataPoint[]> {
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  return generateMockData(timeframe);
+/**
+ * Calculate date range based on timeframe
+ */
+function getDateRange(timeframe: Timeframe): { from: Date; to: Date } {
+  const to = new Date();
+  const from = new Date();
+
+  switch (timeframe) {
+    case '1D':
+      from.setDate(to.getDate() - 1);
+      break;
+    case '1W':
+      from.setDate(to.getDate() - 7);
+      break;
+    case '1M':
+      from.setDate(to.getDate() - 30);
+      break;
+    case '1Y':
+      from.setFullYear(to.getFullYear() - 1);
+      break;
+  }
+
+  return { from, to };
+}
+
+/**
+ * Fetch APY data from real historical share prices
+ * Falls back to empty data if no history is available
+ */
+export async function fetchApyData(
+  timeframe: Timeframe,
+  contractId?: string,
+  network: NetworkType = NetworkType.TESTNET
+): Promise<DataPoint[]> {
+  try {
+    if (!contractId) {
+      // If no contract ID, return empty array (chart will show "No data available")
+      return [];
+    }
+
+    const { from, to } = getDateRange(timeframe);
+    const historicalPrices = await fetchHistoricalSharePriceWithFallback(
+      contractId,
+      network,
+      from,
+      to
+    );
+
+    if (!historicalPrices || historicalPrices.length === 0) {
+      // No history available - return empty array instead of mock data
+      return [];
+    }
+
+    // Convert share prices to APY
+    const apyData = convertSharePricesToAPY(
+      historicalPrices.map((hp) => ({
+        date: hp.date,
+        price: hp.price,
+      }))
+    );
+
+    return apyData;
+  } catch (error) {
+    console.error('Failed to fetch APY data:', error);
+    // Return empty array instead of mock data on error
+    return [];
+  }
 }

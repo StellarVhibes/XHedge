@@ -13,7 +13,7 @@ import { useNetwork } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase, estimateTransactionFee } from "@/lib/stellar";
 import VaultAPYChart from "@/components/VaultAPYChart";
 import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
-import { generateMockData, fetchApyData, DataPoint } from "@/lib/chart-data";
+import { fetchApyData, DataPoint } from "@/lib/chart-data";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
@@ -60,22 +60,30 @@ export default function VaultPage() {
     }
   }, []);
 
-  // Load initial chart data
+  // Load chart data when timeframe or network changes
   useEffect(() => {
-    setChartData(generateMockData(selectedTimeframe));
-  }, [selectedTimeframe]);
+    const loadChartData = async () => {
+      setChartLoading(true);
+      try {
+        const contractId = getVolatilityShieldAddress(network);
+        const data = await fetchApyData(selectedTimeframe, contractId, network);
+        setChartData(data);
+      } catch (error) {
+        console.error('Failed to load chart data:', error);
+        setChartData([]);
+      } finally {
+        setChartLoading(false);
+      }
+    };
+
+    if (network) {
+      loadChartData();
+    }
+  }, [selectedTimeframe, network]);
 
   // Handle timeframe changes with loading state
   const handleTimeframeChange = async (timeframe: Timeframe) => {
-    setChartLoading(true);
     setSelectedTimeframe(timeframe);
-
-    try {
-      const data = await fetchApyData(timeframe);
-      setChartData(data);
-    } finally {
-      setChartLoading(false);
-    }
   };
 
   // Load vault data
