@@ -34,6 +34,8 @@ pub enum Error {
     ZeroAddressStrategy = 21,
     HarvestTooEarly = 22,
     ReentrantCall = 23,
+    UserBlocked = 24,
+    CircuitBreakerActive = 25,
 }
 
 // ─────────────────────────────────────────────
@@ -74,6 +76,13 @@ pub enum DataKey {
     HarvestInterval,
     LastHarvestLedger,
     ReentrancyGuard,
+    StrategyYieldSnapshot(Address),
+    LastSafeAllocation,
+    OracleCircuitBreakerActive,
+    BlocklistMode,
+    AllowlistMode,
+    Blocklist,
+    Allowlist,
 }
 
 // ─────────────────────────────────────────────
@@ -213,6 +222,21 @@ pub struct StrategyEntry {
     pub strategy: Address,
     pub last_known_balance: i128,
     pub is_healthy: bool,
+}
+
+/// Snapshot of strategy yield at a specific ledger (harvest point).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct YieldSnapshot {
+    pub balance: i128,
+    pub ledger: u32,
+}
+
+/// Vector of yield snapshots for a strategy (chronological order).
+#[contracttype]
+#[derive(Clone)]
+pub struct YieldHistory {
+    pub snapshots: Vec<YieldSnapshot>,
 }
 
 #[contract]
@@ -565,6 +589,11 @@ impl VolatilityShield {
     /// Deposit assets into the vault.
     /// If asset is not the default/primary asset, it must be in the accepted assets list.
     /// The user will receive shares in return, proportional to the current share price.
+    /// 
+    /// Compliance checks:
+    /// - If blocklist mode is active, blocked users cannot deposit
+    /// - If allowlist mode is active, only allowlisted users can deposit
+    /// 
     /// @param from The address of the user depositing.
     /// @param asset The address of the asset being deposited.
     /// @param amount The amount of assets to deposit.
@@ -576,6 +605,11 @@ impl VolatilityShield {
             panic!("deposit amount must be positive");
         }
         from.require_auth();
+
+        // Compliance checks
+        if let Err(e) = Self::check_compliance(&env, &from) {
+            panic!("Compliance check failed: {:?}", e);
+        }
 
         // Verify asset is accepted
         if !Self::is_accepted_asset(env.clone(), asset.clone()) {
@@ -1275,6 +1309,7 @@ impl VolatilityShield {
     /// If target > current  → vault sends tokens to the strategy and calls deposit().
     /// If target < current  → strategy withdraws and sends tokens back to vault.
     ///
+    /// When circuit breaker is active, uses LastSafeAllocation instead of current oracle data.
     /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
         let _guard = Guard::new(env);
@@ -1285,25 +1320,40 @@ impl VolatilityShield {
         // OR-auth: require that either Admin or Oracle authorised this invocation.
         Self::require_admin_or_oracle(env, &admin, &oracle);
 
-        let now = env.ledger().timestamp();
-        let last_update = env
+        // Check if circuit breaker is active
+        let circuit_breaker_active: bool = env
             .storage()
             .instance()
-            .get(&DataKey::OracleLastUpdate)
-            .unwrap_or(0u64);
-        let max_staleness = Self::max_staleness(env);
+            .get(&DataKey::OracleCircuitBreakerActive)
+            .unwrap_or(false);
 
-        if now > last_update.saturating_add(max_staleness) {
-            env.events()
-                .publish((soroban_sdk::Symbol::new(env, "OracleStale"),), last_update);
-            return Err(Error::StaleOracleData);
-        }
+        let allocations: Map<Address, i128> = if circuit_breaker_active {
+            // Use last safe allocation when circuit breaker is active
+            env.storage()
+                .instance()
+                .get(&DataKey::LastSafeAllocation)
+                .ok_or(Error::NotInitialized)?
+        } else {
+            // Normal path: check oracle staleness
+            let now = env.ledger().timestamp();
+            let last_update = env
+                .storage()
+                .instance()
+                .get(&DataKey::OracleLastUpdate)
+                .unwrap_or(0u64);
+            let max_staleness = Self::max_staleness(env);
 
-        let allocations: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TargetAllocations)
-            .ok_or(Error::NotInitialized)?;
+            if now > last_update.saturating_add(max_staleness) {
+                env.events()
+                    .publish((soroban_sdk::Symbol::new(env, "OracleStale"),), last_update);
+                return Err(Error::StaleOracleData);
+            }
+
+            env.storage()
+                .instance()
+                .get(&DataKey::TargetAllocations)
+                .ok_or(Error::NotInitialized)?
+        };
 
         let asset_addr = Self::get_asset(&env);
         let token_client = token::Client::new(&env, &asset_addr);
@@ -1397,6 +1447,7 @@ impl VolatilityShield {
     }
 
     /// Stores new target allocations from the Oracle. Validates timestamp freshness.
+    /// When circuit breaker is not active, also stores to LastSafeAllocation.
     pub fn set_oracle_data(
         env: Env,
         allocations: Map<Address, i128>,
@@ -1428,6 +1479,18 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::TargetAllocations, &allocations);
+
+        // Store as last safe allocation if circuit breaker is not active
+        let circuit_breaker_active: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::OracleCircuitBreakerActive)
+            .unwrap_or(false);
+        if !circuit_breaker_active {
+            env.storage()
+                .instance()
+                .set(&DataKey::LastSafeAllocation, &allocations);
+        }
 
         Ok(())
     }
@@ -1566,6 +1629,7 @@ impl VolatilityShield {
 
     /// Harvest yields from all strategies and move them to the treasury.
     ///
+    /// Records yield snapshots before and after collection for APY calculation.
     /// @return The total amount of yield harvested.
     pub fn harvest(env: Env) -> Result<i128, Error> {
         Self::check_version(&env, 1);
@@ -1597,6 +1661,30 @@ impl VolatilityShield {
             return Err(Error::NoStrategies);
         }
 
+        let current_ledger = env.ledger().sequence();
+
+        // Record before-harvest snapshots
+        for strategy_addr in strategies.iter() {
+            let addr = strategy_addr.clone();
+            let strategy = StrategyClient::new(&env, addr.clone());
+            let before_balance = strategy.balance();
+            let snapshot = YieldSnapshot {
+                balance: before_balance,
+                ledger: current_ledger,
+            };
+            
+            let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
+            let mut history: YieldHistory = env
+                .storage()
+                .instance()
+                .get(&history_key)
+                .unwrap_or(YieldHistory {
+                    snapshots: Vec::new(&env),
+                });
+            history.snapshots.push_back(snapshot);
+            env.storage().instance().set(&history_key, &history);
+        }
+
         let mut total_yield: i128 = 0;
         for strategy_addr in strategies.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr);
@@ -1610,6 +1698,28 @@ impl VolatilityShield {
                 env.clone(),
                 current_assets.checked_add(total_yield).unwrap(),
             );
+        }
+
+        // Record after-harvest snapshots (balance should be 0 after harvest)
+        for strategy_addr in strategies.iter() {
+            let addr = strategy_addr.clone();
+            let strategy = StrategyClient::new(&env, addr.clone());
+            let after_balance = strategy.balance();
+            let snapshot = YieldSnapshot {
+                balance: after_balance,
+                ledger: current_ledger,
+            };
+            
+            let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
+            let mut history: YieldHistory = env
+                .storage()
+                .instance()
+                .get(&history_key)
+                .unwrap_or(YieldHistory {
+                    snapshots: Vec::new(&env),
+                });
+            history.snapshots.push_back(snapshot);
+            env.storage().instance().set(&history_key, &history);
         }
 
         let total_assets_after = Self::total_assets(&env);
@@ -1796,6 +1906,103 @@ impl VolatilityShield {
             .get(&DataKey::StrategyHealth(strategy))
     }
 
+    /// Calculate annualized percentage yield (APY) for a strategy.
+    ///
+    /// APY is calculated from yield snapshots over the specified number of periods.
+    /// Returns APY in basis points (1 bps = 0.01%).
+    /// Formula: APY = ((final_balance / initial_balance)^(365/days) - 1) * 10000
+    ///
+    /// @param strategy The strategy address to calculate APY for.
+    /// @param periods Number of harvest periods to include in calculation.
+    /// @return APY in basis points.
+    pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> i128 {
+        let history_key = DataKey::StrategyYieldSnapshot(strategy.clone());
+        let history: Option<YieldHistory> = env.storage().instance().get(&history_key);
+        
+        match history {
+            Some(h) if h.snapshots.len() >= 2 => {
+                let snapshots = h.snapshots;
+                let count = snapshots.len() as u32;
+                let periods_to_use = if periods == 0 || periods > count {
+                    count
+                } else {
+                    periods
+                };
+
+                // Use the earliest and latest snapshots within the specified periods
+                // Snapshots are stored in pairs (before, after) for each harvest
+                // We use the before-harvest snapshots to calculate growth
+                let start_idx = ((count - periods_to_use) * 2) as u32;
+                let end_idx = (count - 1) as u32;
+
+                if start_idx >= end_idx || end_idx >= snapshots.len() as u32 {
+                    return 0;
+                }
+
+                let start_snapshot = snapshots.get(start_idx).unwrap();
+                let end_snapshot = snapshots.get(end_idx).unwrap();
+
+                let start_balance = start_snapshot.balance;
+                let end_balance = end_snapshot.balance;
+
+                if start_balance <= 0 {
+                    return 0;
+                }
+
+                // Calculate ledger difference (proxy for time)
+                let ledger_diff = end_snapshot.ledger.saturating_sub(start_snapshot.ledger);
+                if ledger_diff == 0 {
+                    return 0;
+                }
+
+                // Calculate growth rate
+                let growth = end_balance.checked_mul(10_000).unwrap().checked_div(start_balance).unwrap();
+                let growth_bps = growth.saturating_sub(10_000);
+
+                // Annualize: assume ~10 ledgers per second on Stellar testnet
+                // This is a simplification; in production use actual timestamp
+                let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
+                let periods_per_year = ledgers_per_year / ledger_diff as i128;
+                
+                if periods_per_year <= 0 {
+                    return growth_bps;
+                }
+
+                // Compound annual growth: (1 + rate)^periods - 1
+                // Using simple multiplication for basis points approximation
+                let apy = growth_bps.checked_mul(periods_per_year).unwrap();
+                apy
+            }
+            _ => 0,
+        }
+    }
+
+    /// Get the best performing strategy based on recent APY.
+    ///
+    /// Returns the strategy address with the highest APY over the last 4 harvest periods.
+    /// Returns None if no strategies have sufficient history.
+    ///
+    /// @return The address of the best performing strategy, or None.
+    pub fn get_best_performing_strategy(env: Env) -> Option<Address> {
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return None;
+        }
+
+        let mut best_strategy: Option<Address> = None;
+        let mut best_apy: i128 = 0;
+
+        for strategy in strategies.iter() {
+            let apy = Self::get_strategy_apy(env.clone(), strategy.clone(), 4);
+            if apy > best_apy {
+                best_apy = apy;
+                best_strategy = Some(strategy.clone());
+            }
+        }
+
+        best_strategy
+    }
+
     // ── View helpers ──────────────────────────
     pub fn has_admin(env: &Env) -> bool {
         env.storage().instance().has(&DataKey::Admin)
@@ -1852,6 +2059,203 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::Strategies)
             .unwrap_or(Vec::new(env))
+    }
+
+    /// Activate the oracle circuit breaker.
+    ///
+    /// When activated, the vault will use the last validated allocation instead of
+    /// requiring fresh oracle data. Only the admin can call this.
+    pub fn activate_oracle_circuit_breaker(env: Env) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleCircuitBreakerActive, &true);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "OracleCircuitBreakerActivated"),),
+            env.ledger().timestamp(),
+        );
+    }
+
+    /// Reset the oracle circuit breaker.
+    ///
+    /// Deactivates the circuit breaker, returning to normal oracle staleness checks.
+    /// Only the admin can call this.
+    pub fn reset_oracle_circuit_breaker(env: Env) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleCircuitBreakerActive, &false);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "OracleCircuitBreakerReset"),),
+            env.ledger().timestamp(),
+        );
+    }
+
+    /// Check if the oracle circuit breaker is currently active.
+    pub fn is_circuit_breaker_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::OracleCircuitBreakerActive)
+            .unwrap_or(false)
+    }
+
+    // ── Compliance: Blocklist and Allowlist ──────────────────────────
+    /// Check if a user is allowed to deposit based on blocklist/allowlist rules.
+    fn check_compliance(env: &Env, user: &Address) -> Result<(), Error> {
+        let blocklist_mode: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::BlocklistMode)
+            .unwrap_or(false);
+        let allowlist_mode: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllowlistMode)
+            .unwrap_or(false);
+
+        // If neither mode is active, allow all deposits
+        if !blocklist_mode && !allowlist_mode {
+            return Ok(());
+        }
+
+        let blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(env));
+        let allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(env));
+
+        if blocklist_mode && blocklist.contains(user.clone()) {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
+            return Err(Error::UserBlocked);
+        }
+
+        if allowlist_mode && !allowlist.contains(user.clone()) {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
+            return Err(Error::UserBlocked);
+        }
+
+        Ok(())
+    }
+
+    /// Add a user to the blocklist.
+    /// Only the admin can call this.
+    pub fn add_to_blocklist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env));
+        if !blocklist.contains(user.clone()) {
+            blocklist.push_back(user.clone());
+            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+            env.events()
+                .publish((soroban_sdk::Symbol::new(&env, "UserBlocked"),), user);
+        }
+    }
+
+    /// Remove a user from the blocklist.
+    /// Only the admin can call this.
+    pub fn remove_from_blocklist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env));
+        if let Some(index) = blocklist.iter().position(|x| x == user) {
+            blocklist.remove(index as u32);
+            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+        }
+    }
+
+    /// Add a user to the allowlist.
+    /// Only the admin can call this.
+    pub fn add_to_allowlist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env));
+        if !allowlist.contains(user.clone()) {
+            allowlist.push_back(user.clone());
+            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+            env.events()
+                .publish((soroban_sdk::Symbol::new(&env, "UserAllowlisted"),), user);
+        }
+    }
+
+    /// Remove a user from the allowlist.
+    /// Only the admin can call this.
+    pub fn remove_from_allowlist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env));
+        if let Some(index) = allowlist.iter().position(|x| x == user) {
+            allowlist.remove(index as u32);
+            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+        }
+    }
+
+    /// Enable or disable blocklist mode.
+    /// When enabled, blocked users cannot deposit. Only the admin can call this.
+    pub fn set_blocklist_mode(env: Env, active: bool) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::BlocklistMode, &active);
+    }
+
+    /// Enable or disable allowlist mode.
+    /// When enabled, only allowlisted users can deposit. Only the admin can call this.
+    pub fn set_allowlist_mode(env: Env, active: bool) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistMode, &active);
+    }
+
+    /// Get the current blocklist.
+    pub fn get_blocklist(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get the current allowlist.
+    pub fn get_allowlist(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Check if blocklist mode is active.
+    pub fn is_blocklist_mode_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::BlocklistMode)
+            .unwrap_or(false)
+    }
+
+    /// Check if allowlist mode is active.
+    pub fn is_allowlist_mode_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::AllowlistMode)
+            .unwrap_or(false)
     }
 
     /// Get the address of the fee treasury.
