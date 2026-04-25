@@ -2056,6 +2056,9 @@ fn test_strategy_yield_snapshots_recorded_on_harvest() {
     stellar_asset_client.mint(&mock_strategy_id, &1000);
     mock_client.deposit(&1000);
 
+    // Advance ledger past harvest interval
+    env.ledger().set_sequence_number(110);
+
     // Harvest should record snapshots
     let yields = client.harvest();
     assert_eq!(yields, 1000);
@@ -2145,6 +2148,10 @@ fn test_get_best_performing_strategy() {
     strategy1_client.deposit(&1000);
     stellar_asset_client.mint(&strategy2_id, &1500);
     strategy2_client.deposit(&1500);
+
+    // Advance ledger past harvest interval
+    env.ledger().set_sequence_number(110);
+
     client.harvest();
 
     // Get best performing strategy
