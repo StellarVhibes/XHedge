@@ -1710,3 +1710,279 @@ fn test_multisig_proposal_not_found() {
     let result = client.try_approve_action(&admin, &999);
     assert!(result.is_err());
 }
+
+// ── Batch Deposit and Batch Withdraw Tests ─────────────────────────
+
+#[test]
+fn test_batch_deposit_all_success() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    stellar_asset_client.mint(&user1, &1000);
+    stellar_asset_client.mint(&user2, &1000);
+
+    let operations = soroban_sdk::vec![
+        &env,
+        (user1.clone(), token_id.clone(), 500i128),
+        (user2.clone(), token_id.clone(), 500i128),
+    ];
+
+    let results = client.batch_deposit(&operations);
+    assert_eq!(results.len(), 2);
+    assert!(results.get(0).unwrap());
+    assert!(results.get(1).unwrap());
+
+    assert_eq!(client.balance(&user1), 500);
+    assert_eq!(client.balance(&user2), 500);
+    assert_eq!(client.total_assets(), 1000);
+}
+
+#[test]
+fn test_batch_deposit_partial_failure() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+    stellar_asset_client.mint(&user1, &1000);
+    stellar_asset_client.mint(&user2, &1000);
+
+    let operations = soroban_sdk::vec![
+        &env,
+        (user1.clone(), token_id.clone(), 500i128), // success
+        (user2.clone(), token_id.clone(), -100i128), // fail: negative amount
+        (user3.clone(), Address::generate(&env), 100i128), // fail: unsupported asset
+    ];
+
+    let results = client.batch_deposit(&operations);
+    assert_eq!(results.len(), 3);
+    assert!(results.get(0).unwrap());
+    assert!(!results.get(1).unwrap());
+    assert!(!results.get(2).unwrap());
+
+    assert_eq!(client.balance(&user1), 500);
+    assert_eq!(client.balance(&user2), 0);
+    assert_eq!(client.balance(&user3), 0);
+    assert_eq!(client.total_assets(), 500);
+}
+
+#[test]
+fn test_batch_withdraw_partial_failure() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    
+    stellar_asset_client.mint(&contract_id, &5000);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    client.set_balance(&user1, &500);
+    client.set_balance(&user2, &100);
+
+    let operations = soroban_sdk::vec![
+        &env,
+        (user1.clone(), 200i128), // success
+        (user2.clone(), 150i128), // fail: not enough balance
+        (user1.clone(), -50i128), // fail: negative amount
+    ];
+
+    let results = client.batch_withdraw(&operations);
+    assert_eq!(results.len(), 3);
+    assert!(results.get(0).unwrap());
+    assert!(!results.get(1).unwrap());
+    assert!(!results.get(2).unwrap());
+
+    assert_eq!(client.balance(&user1), 300);
+    assert_eq!(client.balance(&user2), 100);
+    assert_eq!(client.total_shares(), 800);
+    assert_eq!(client.total_assets(), 4000);
+}
+
+#[test]
+fn test_batch_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let ops_dep = soroban_sdk::vec![&env];
+    let res_dep = client.batch_deposit(&ops_dep);
+    assert_eq!(res_dep.len(), 0);
+
+    let ops_wd = soroban_sdk::vec![&env];
+    let res_wd = client.batch_withdraw(&ops_wd);
+    assert_eq!(res_wd.len(), 0);
+}
+
+// ── Harvest Automation Tests ──────────────────────────────
+#[test]
+fn test_harvest_automation_success_and_early_rejection() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
+    let mock_client = mock_strategy::MockStrategyClient::new(&env, &mock_strategy_id);
+    mock_client.init(&contract_id, &token_id);
+    
+    client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+    env.ledger().set_sequence_number(100);
+    client.set_harvest_interval(&10);
+
+    assert_eq!(client.can_harvest(), false);
+
+    let res = client.try_harvest();
+    assert_eq!(res, Err(Ok(Error::HarvestTooEarly)));
+
+    env.ledger().set_sequence_number(109);
+    assert_eq!(client.can_harvest(), false);
+
+    env.ledger().set_sequence_number(110);
+    assert_eq!(client.can_harvest(), true);
+
+    stellar_asset_client.mint(&mock_strategy_id, &500);
+    mock_client.deposit(&500);
+
+    let yields = client.harvest();
+    assert_eq!(yields, 500);
+
+    assert_eq!(client.can_harvest(), false);
+    
+    env.ledger().set_sequence_number(120);
+    assert_eq!(client.can_harvest(), true);
+}
+
+// ── Reentrancy Tests ──────────────────────────────
+#[contract]
+pub struct MaliciousStrategy;
+
+#[contractimpl]
+impl MaliciousStrategy {
+    pub fn init(env: Env, vault: Address, token: Address) {
+        env.storage().instance().set(&soroban_sdk::Symbol::new(&env, "vault"), &vault);
+        env.storage().instance().set(&soroban_sdk::Symbol::new(&env, "token"), &token);
+    }
+
+    pub fn withdraw(env: Env, amount: i128) {
+        let vault: Address = env.storage().instance().get(&soroban_sdk::Symbol::new(&env, "vault")).unwrap();
+        let token: Address = env.storage().instance().get(&soroban_sdk::Symbol::new(&env, "token")).unwrap();
+        
+        // Attempt re-entrancy
+        let client = VolatilityShieldClient::new(&env, &vault);
+        client.deposit(&env.current_contract_address(), &token, &amount);
+    }
+
+    pub fn deposit(_env: Env, _amount: i128) {}
+    pub fn balance(_env: Env) -> i128 { 1000 }
+}
+
+#[test]
+#[should_panic(expected = "ReentrantCall")]
+fn test_reentrancy_guard() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let mal_strategy_id = env.register_contract(None, MaliciousStrategy);
+    let mal_client = MaliciousStrategyClient::new(&env, &mal_strategy_id);
+    mal_client.init(&contract_id, &token_id);
+
+    // Provide the malicious strategy with some tokens so transfer during deposit doesn't fail
+    stellar_asset_client.mint(&mal_strategy_id, &5000);
+
+    // Register strategy
+    client.propose_action(&admin, &ActionType::AddStrategy(mal_strategy_id.clone()));
+
+    // Total assets = 500, target 100%. Strategy has 1000. So delta is -500 (withdraw 500)
+    let mut allocs = Map::new(&env);
+    allocs.set(mal_strategy_id.clone(), 10_000i128);
+    
+    client.set_total_assets(&500);
+    client.set_total_shares(&500);
+    
+    env.ledger().set_timestamp(100);
+    client.set_oracle_data(&allocs, &50);
+
+    client.propose_action(&admin, &ActionType::Rebalance(100));
+}
