@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
-    Vec,
+    Symbol, Vec,
 };
 
 // ─────────────────────────────────────────────
@@ -11,32 +11,92 @@ use soroban_sdk::{
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    /// Operation requires initialized contract state but `init` has not been called yet.
     NotInitialized = 1,
+    /// Operation attempted to initialize state that was already initialized.
     AlreadyInitialized = 2,
+    /// Numeric argument must be non-negative, but a negative value was supplied.
     NegativeAmount = 3,
+    /// Caller lacks required authorization or role privileges.
     Unauthorized = 4,
+    /// Operation requires at least one registered strategy, but none are configured.
     NoStrategies = 5,
+    /// Operation is disabled while contract pause mode is enabled.
     ContractPaused = 6,
+    /// Deposit would exceed per-user or global configured deposit caps.
     DepositCapExceeded = 7,
+    /// Withdrawal would exceed configured withdrawal cap constraints.
     WithdrawalCapExceeded = 8,
+    /// Oracle data is older than the configured staleness window.
     StaleOracleData = 9,
+    /// Supplied timestamp is invalid (future or non-monotonic).
     InvalidTimestamp = 10,
+    /// Rebalance execution exceeded the allowed slippage threshold.
     SlippageExceeded = 11,
+    /// Governance proposal id does not exist in storage.
     ProposalNotFound = 12,
+    /// Guardian already approved this proposal.
     AlreadyApproved = 13,
+    /// Governance proposal has already been executed.
     ProposalExecuted = 14,
+    /// Governance proposal has not reached required approval threshold.
     InsufficientApprovals = 15,
+    /// Governance action timelock period has not elapsed yet.
     TimelockNotElapsed = 16,
+    /// Requested queued withdrawal entry was not found for the user.
     WithdrawalNotFound = 17,
+    /// Queue-dependent operation requires non-empty queue, but queue is empty.
     QueueEmpty = 18,
+    /// Strategy allocation sum must equal 10_000 bps (or be empty) but did not.
     InvalidAllocationSum = 19,
+    /// Individual strategy allocation must be non-negative.
     NegativeAllocation = 20,
+    /// Allocation references a strategy not registered in the vault.
     ZeroAddressStrategy = 21,
+    /// Harvest was attempted before the configured harvest interval elapsed.
     HarvestTooEarly = 22,
+    /// Reentrant invocation was detected while reentrancy guard is active.
     ReentrantCall = 23,
+    /// User is blocked by compliance policy (blocklist/allowlist checks).
     UserBlocked = 24,
+    /// Operation is blocked while the oracle circuit breaker is active.
     CircuitBreakerActive = 25,
+    /// Operation is blocked because emergency shutdown mode is active.
     EmergencyShutdownActive = 26,
+}
+
+impl Error {
+    /// Returns a short machine-readable symbol for this error.
+    pub fn to_symbol(&self, env: &Env) -> Symbol {
+        match self {
+            Error::NotInitialized => Symbol::new(env, "not_initialized"),
+            Error::AlreadyInitialized => Symbol::new(env, "already_initialized"),
+            Error::NegativeAmount => Symbol::new(env, "negative_amount"),
+            Error::Unauthorized => Symbol::new(env, "unauthorized"),
+            Error::NoStrategies => Symbol::new(env, "no_strategies"),
+            Error::ContractPaused => Symbol::new(env, "contract_paused"),
+            Error::DepositCapExceeded => Symbol::new(env, "deposit_cap_exceeded"),
+            Error::WithdrawalCapExceeded => Symbol::new(env, "withdrawal_cap_exceeded"),
+            Error::StaleOracleData => Symbol::new(env, "stale_oracle_data"),
+            Error::InvalidTimestamp => Symbol::new(env, "invalid_timestamp"),
+            Error::SlippageExceeded => Symbol::new(env, "slippage_exceeded"),
+            Error::ProposalNotFound => Symbol::new(env, "proposal_not_found"),
+            Error::AlreadyApproved => Symbol::new(env, "already_approved"),
+            Error::ProposalExecuted => Symbol::new(env, "proposal_executed"),
+            Error::InsufficientApprovals => Symbol::new(env, "insufficient_approvals"),
+            Error::TimelockNotElapsed => Symbol::new(env, "timelock_not_elapsed"),
+            Error::WithdrawalNotFound => Symbol::new(env, "withdrawal_not_found"),
+            Error::QueueEmpty => Symbol::new(env, "queue_empty"),
+            Error::InvalidAllocationSum => Symbol::new(env, "invalid_allocation_sum"),
+            Error::NegativeAllocation => Symbol::new(env, "negative_allocation"),
+            Error::ZeroAddressStrategy => Symbol::new(env, "zero_address_strategy"),
+            Error::HarvestTooEarly => Symbol::new(env, "harvest_too_early"),
+            Error::ReentrantCall => Symbol::new(env, "reentrant_call"),
+            Error::UserBlocked => Symbol::new(env, "user_blocked"),
+            Error::CircuitBreakerActive => Symbol::new(env, "circuit_breaker_active"),
+            Error::EmergencyShutdownActive => Symbol::new(env, "emergency_shutdown_active"),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -258,6 +318,16 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
+    fn emit_error(env: &Env, error: Error) {
+        env.events()
+            .publish((Symbol::new(env, "Error"), error.to_symbol(env)), ());
+    }
+
+    fn emit_and_err<T>(env: &Env, error: Error) -> Result<T, Error> {
+        Self::emit_error(env, error);
+        Err(error)
+    }
+
     pub fn enter_guard(env: &Env) {
         if env
             .storage()
@@ -282,14 +352,14 @@ impl VolatilityShield {
     /// Only guardians can propose actions.
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
         if Self::emergency_shutdown_active(&env) {
-            return Err(Error::EmergencyShutdownActive);
+            return Self::emit_and_err(&env, Error::EmergencyShutdownActive);
         }
         let _guard = Guard::new(&env);
         proposer.require_auth();
 
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
         if !guardians.contains(proposer.clone()) {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
 
         let id = env
@@ -359,7 +429,7 @@ impl VolatilityShield {
             .get(&DataKey::Guardians)
             .ok_or(Error::NotInitialized)?;
         if !guardians.contains(guardian.clone()) {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
 
         let mut proposals: Map<u64, Proposal> = env
@@ -370,11 +440,11 @@ impl VolatilityShield {
         let mut proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
 
         if proposal.executed {
-            return Err(Error::ProposalExecuted);
+            return Self::emit_and_err(&env, Error::ProposalExecuted);
         }
 
         if proposal.approvals.contains(guardian.clone()) {
-            return Err(Error::AlreadyApproved);
+            return Self::emit_and_err(&env, Error::AlreadyApproved);
         }
 
         proposal.approvals.push_back(guardian);
@@ -521,7 +591,7 @@ impl VolatilityShield {
             .get(&DataKey::Guardians)
             .unwrap_or(Vec::new(&env));
         if threshold == 0 || threshold > guardians.len() {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
         env.storage()
             .instance()
@@ -570,7 +640,7 @@ impl VolatilityShield {
         let elapsed = now.checked_sub(proposed_at).unwrap_or(0);
 
         if elapsed < timelock_duration {
-            return Err(Error::TimelockNotElapsed);
+            return Self::emit_and_err(env, Error::TimelockNotElapsed);
         }
 
         Ok(())
@@ -599,7 +669,7 @@ impl VolatilityShield {
         threshold: u32,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
-            return Err(Error::AlreadyInitialized);
+            return Self::emit_and_err(&env, Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Asset, &asset);
@@ -1387,7 +1457,7 @@ impl VolatilityShield {
         // Guard is held by the calling public entry point (approve_action / propose_action).
         Self::check_version(env, 1);
         if Self::emergency_shutdown_active(env) {
-            return Err(Error::EmergencyShutdownActive);
+            return Self::emit_and_err(env, Error::EmergencyShutdownActive);
         }
         let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
@@ -1421,7 +1491,7 @@ impl VolatilityShield {
             if now > last_update.saturating_add(max_staleness) {
                 env.events()
                     .publish((soroban_sdk::Symbol::new(env, "OracleStale"),), last_update);
-                return Err(Error::StaleOracleData);
+                return Self::emit_and_err(env, Error::StaleOracleData);
             }
 
             env.storage()
@@ -1505,7 +1575,7 @@ impl VolatilityShield {
                             slippage_bps,
                         ),
                     );
-                    return Err(Error::SlippageExceeded);
+                    return Self::emit_and_err(&env, Error::SlippageExceeded);
                 }
             }
         }
@@ -1533,7 +1603,7 @@ impl VolatilityShield {
 
         let now = env.ledger().timestamp();
         if timestamp > now {
-            return Err(Error::InvalidTimestamp);
+            return Self::emit_and_err(&env, Error::InvalidTimestamp);
         }
 
         let last_timestamp = env
@@ -1542,7 +1612,7 @@ impl VolatilityShield {
             .get(&DataKey::OracleLastUpdate)
             .unwrap_or(0u64);
         if timestamp <= last_timestamp {
-            return Err(Error::InvalidTimestamp);
+            return Self::emit_and_err(&env, Error::InvalidTimestamp);
         }
 
         // Validate allocations before storing
@@ -1593,12 +1663,12 @@ impl VolatilityShield {
         for (strategy_addr, allocation) in allocations.iter() {
             // Guard 1: strategy must be in the on-chain registry.
             if !registered.contains(strategy_addr.clone()) {
-                return Err(Error::ZeroAddressStrategy);
+                return Self::emit_and_err(env, Error::ZeroAddressStrategy);
             }
 
             // Guard 2: individual allocation must be non-negative.
             if allocation < 0 {
-                return Err(Error::NegativeAllocation);
+                return Self::emit_and_err(env, Error::NegativeAllocation);
             }
 
             // Accumulate; saturate at i128::MAX on overflow (caught by sum check below).
@@ -1608,7 +1678,7 @@ impl VolatilityShield {
         // Guard 3: non-empty allocations must sum exactly to 100% (10 000 bps).
         // An empty map (total_bps == 0) is allowed for initialization / reset.
         if total_bps != 0 && total_bps != 10_000 {
-            return Err(Error::InvalidAllocationSum);
+            return Self::emit_and_err(env, Error::InvalidAllocationSum);
         }
 
         Ok(())
@@ -1638,7 +1708,7 @@ impl VolatilityShield {
             .get(&DataKey::Strategies)
             .unwrap_or(Vec::new(&env));
         if strategies.contains(strategy.clone()) {
-            return Err(Error::AlreadyInitialized);
+            return Self::emit_and_err(env, Error::AlreadyInitialized);
         }
         strategies.push_back(strategy.clone());
         env.storage()
@@ -1722,7 +1792,7 @@ impl VolatilityShield {
             .unwrap_or(0);
         if interval > 0 {
             if !Self::can_harvest(env.clone()) {
-                return Err(Error::HarvestTooEarly);
+                return Self::emit_and_err(&env, Error::HarvestTooEarly);
             }
             let current = env.ledger().sequence();
             env.storage()
@@ -1739,7 +1809,7 @@ impl VolatilityShield {
 
         let strategies = Self::get_strategies(&env);
         if strategies.is_empty() {
-            return Err(Error::NoStrategies);
+            return Self::emit_and_err(&env, Error::NoStrategies);
         }
 
         let current_ledger = env.ledger().sequence();
@@ -1822,7 +1892,7 @@ impl VolatilityShield {
 
         let strategies = Self::get_strategies(&env);
         if strategies.is_empty() {
-            return Err(Error::NoStrategies);
+            return Self::emit_and_err(&env, Error::NoStrategies);
         }
 
         let mut unhealthy_strategies = Vec::new(&env);
@@ -1904,7 +1974,7 @@ impl VolatilityShield {
         // Verify strategy exists
         let strategies = Self::get_strategies(&env);
         if !strategies.contains(strategy.clone()) {
-            return Err(Error::NotInitialized);
+            return Self::emit_and_err(&env, Error::NotInitialized);
         }
 
         let health_key = DataKey::StrategyHealth(strategy.clone());
@@ -1938,7 +2008,7 @@ impl VolatilityShield {
         let strategy_index = strategies.iter().position(|s| s == strategy);
 
         if strategy_index.is_none() {
-            return Err(Error::NotInitialized);
+            return Self::emit_and_err(&env, Error::NotInitialized);
         }
 
         // Withdraw all funds from strategy first
@@ -2213,13 +2283,13 @@ impl VolatilityShield {
         if blocklist_mode && blocklist.contains(user.clone()) {
             env.events()
                 .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
-            return Err(Error::UserBlocked);
+            return Self::emit_and_err(env, Error::UserBlocked);
         }
 
         if allowlist_mode && !allowlist.contains(user.clone()) {
             env.events()
                 .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
-            return Err(Error::UserBlocked);
+            return Self::emit_and_err(env, Error::UserBlocked);
         }
 
         Ok(())
