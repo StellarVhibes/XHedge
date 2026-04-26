@@ -132,9 +132,15 @@ pub struct StrategyHealth {
     pub consecutive_failures: u32,
 }
 
-// ─────────────────────────────────────────────
-// Strategy cross-contract client
-// ─────────────────────────────────────────────
+/// Vote tally for a governance proposal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoteTally {
+    pub yes_votes: i128,
+    pub no_votes: i128,
+}
+
+
 pub struct StrategyClient<'a> {
     env: &'a Env,
     address: Address,
@@ -273,6 +279,7 @@ impl VolatilityShield {
     /// This is the first step in the multisig/timelock process.
     /// Only guardians can propose actions.
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
+        let _guard = Guard::new(&env);
         proposer.require_auth();
 
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
@@ -338,6 +345,7 @@ impl VolatilityShield {
     /// If the approval threshold is reached, the action is executed.
     /// Guardians cannot approve the same proposal twice.
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
+        let _guard = Guard::new(&env);
         guardian.require_auth();
 
         let guardians: Vec<Address> = env
@@ -406,9 +414,57 @@ impl VolatilityShield {
         }
     }
 
-    pub fn cast_vote(_env: Env, _proposal_id: u64, _support: bool) -> Result<(), Error> {
-        // TODO: Implement cast_vote
+    pub fn cast_vote(env: Env, voter: Address, proposal_id: u64, support: bool) -> Result<(), Error> {
+        voter.require_auth();
+
+        // Proposal must exist and not be executed
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .ok_or(Error::NotInitialized)?;
+        let proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
+        if proposal.executed {
+            return Err(Error::ProposalExecuted);
+        }
+
+        // Each address may only vote once per proposal
+        let vote_key = DataKey::VoteRecord(proposal_id, voter.clone());
+        if env.storage().instance().has(&vote_key) {
+            return Err(Error::AlreadyApproved);
+        }
+        env.storage().instance().set(&vote_key, &true);
+
+        // Tally the vote, weighted by voting power
+        let voting_power = Self::get_voting_power(env.clone(), voter.clone());
+        let tally_key = DataKey::VoteTally(proposal_id);
+        let mut tally: VoteTally = env
+            .storage()
+            .instance()
+            .get(&tally_key)
+            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 });
+
+        if support {
+            tally.yes_votes = tally.yes_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+        } else {
+            tally.no_votes = tally.no_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+        }
+        env.storage().instance().set(&tally_key, &tally);
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "VoteCast"), voter),
+            (proposal_id, support, voting_power),
+        );
+
         Ok(())
+    }
+
+    /// Get the current vote tally for a proposal.
+    pub fn get_vote_tally(env: Env, proposal_id: u64) -> VoteTally {
+        env.storage()
+            .instance()
+            .get(&DataKey::VoteTally(proposal_id))
+            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 })
     }
 
     /// Add a new guardian to the multisig.
@@ -1391,7 +1447,7 @@ impl VolatilityShield {
     /// When circuit breaker is active, uses LastSafeAllocation instead of current oracle data.
     /// **Access control**: must be called via the multi-sig governance system.
     fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
-        let _guard = Guard::new(env);
+        // Guard is held by the calling public entry point (approve_action / propose_action).
         Self::check_version(env, 1);
         let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
@@ -1626,9 +1682,15 @@ impl VolatilityShield {
     }
 
     // ── Strategy Management ───────────────────
+    /// Internal: add a strategy after it has passed the multi-sig proposal flow.
+    ///
+    /// This function is ONLY reachable via `execute_action(ActionType::AddStrategy(...))`,
+    /// which itself requires a guardian proposal + threshold approvals + timelock.
+    /// Direct admin calls are intentionally not possible — the two-step governance
+    /// approval is the sole entry point, satisfying the whitelist requirement.
     fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
         Self::check_version(env, 1);
-        Self::require_admin(env);
+        // No require_admin here — access is enforced by the proposal/approval flow above.
 
         let mut strategies: Vec<Address> = env
             .storage()
