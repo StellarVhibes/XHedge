@@ -36,6 +36,7 @@ pub enum Error {
     ReentrantCall = 23,
     UserBlocked = 24,
     CircuitBreakerActive = 25,
+    EmergencyShutdownActive = 26,
 }
 
 // ─────────────────────────────────────────────
@@ -55,6 +56,7 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    EmergencyShutdown,
     ContractVersion,
     MaxDepositPerUser,
     MaxTotalAssets,
@@ -267,6 +269,9 @@ impl VolatilityShield {
     /// This is the first step in the multisig/timelock process.
     /// Only guardians can propose actions.
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
+        if Self::emergency_shutdown_active(&env) {
+            return Err(Error::EmergencyShutdownActive);
+        }
         proposer.require_auth();
 
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
@@ -545,6 +550,9 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::FeePercentage, &fee_percentage);
         env.storage().instance().set(&DataKey::Token, &asset);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyShutdown, &false);
 
         // Initialize maps and durations
         env.storage()
@@ -600,6 +608,7 @@ impl VolatilityShield {
     pub fn deposit(env: Env, from: Address, asset: Address, amount: i128) {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
+        Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("deposit amount must be positive");
@@ -714,6 +723,7 @@ impl VolatilityShield {
     /// Validates each operation independently. Failed operations are skipped and do not revert the batch.
     pub fn batch_deposit(env: Env, operations: Vec<(Address, Address, i128)>) -> Vec<bool> {
         Self::check_version(&env, 1);
+        Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
         Self::require_admin(&env);
 
@@ -1314,6 +1324,9 @@ impl VolatilityShield {
     fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
         let _guard = Guard::new(env);
         Self::check_version(env, 1);
+        if Self::emergency_shutdown_active(env) {
+            return Err(Error::EmergencyShutdownActive);
+        }
         let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
 
@@ -2388,6 +2401,98 @@ impl VolatilityShield {
         env.events().publish((symbol_short!("paused"),), state);
     }
 
+    pub fn emergency_shutdown(env: Env, admin: Address) {
+        admin.require_auth();
+
+        if admin != Self::read_admin(&env) {
+            panic!("Unauthorized");
+        }
+
+        if Self::emergency_shutdown_active(&env) {
+            return;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyShutdown, &true);
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "EmergencyShutdownActivated"),),
+            (admin, env.ledger().timestamp()),
+        );
+    }
+
+    pub fn emergency_withdraw(env: Env, from: Address) {
+        let _guard = Guard::new(&env);
+        Self::check_version(&env, 1);
+
+        if !Self::emergency_shutdown_active(&env) {
+            panic!("EmergencyShutdownNotActive");
+        }
+
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        let mut queued_shares = 0_i128;
+        let mut queued_index: Option<u32> = None;
+        for i in 0..pending_withdrawals.len() {
+            let w = pending_withdrawals.get(i).unwrap();
+            if w.user == from {
+                queued_shares = w.shares;
+                queued_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(index) = queued_index {
+            pending_withdrawals.remove(index);
+            env.storage()
+                .instance()
+                .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+        }
+
+        let shares_to_withdraw = current_balance.checked_add(queued_shares).unwrap();
+        if shares_to_withdraw <= 0 {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares_to_withdraw);
+
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        let new_total_shares = total_shares.checked_sub(shares_to_withdraw).unwrap();
+        let new_total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
+
+        Self::set_total_shares(env.clone(), new_total_shares);
+        Self::set_total_assets(env.clone(), new_total_assets);
+        env.storage().persistent().set(&balance_key, &0_i128);
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &from,
+            &assets_to_withdraw,
+        );
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "EmergencyWithdraw"), from),
+            (shares_to_withdraw, assets_to_withdraw, env.ledger().timestamp()),
+        );
+    }
+
     // ── Deposit / Withdrawal Caps ──────────────────────────
     pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) {
         Self::check_version(&env, 1);
@@ -2496,6 +2601,10 @@ impl VolatilityShield {
             .unwrap_or(false)
     }
 
+    pub fn is_emergency_shutdown(env: Env) -> bool {
+        Self::emergency_shutdown_active(&env)
+    }
+
     fn assert_not_paused(env: &Env) {
         if env
             .storage()
@@ -2504,6 +2613,19 @@ impl VolatilityShield {
             .unwrap_or(false)
         {
             panic!("ContractPaused");
+        }
+    }
+
+    fn emergency_shutdown_active(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyShutdown)
+            .unwrap_or(false)
+    }
+
+    fn assert_not_emergency_shutdown(env: &Env) {
+        if Self::emergency_shutdown_active(env) {
+            panic!("EmergencyShutdownActive");
         }
     }
 

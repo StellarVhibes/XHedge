@@ -275,6 +275,116 @@ fn test_withdraw_success() {
 }
 
 #[test]
+fn test_emergency_shutdown_blocks_normal_operations() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let guardian_2 = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone(), guardian_2.clone()];
+
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &2u32,
+    );
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &500);
+
+    let proposal_id = client.propose_action(&admin, &ActionType::Rebalance(50u32));
+
+    client.emergency_shutdown(&admin);
+    assert!(client.is_emergency_shutdown());
+
+    // Deposit is blocked once emergency shutdown is active.
+    assert!(client.try_deposit(&user, &token_id, &100).is_err());
+
+    // New governance actions cannot be proposed during emergency shutdown.
+    let propose_res = client.try_propose_action(&admin, &ActionType::SetPaused(true));
+    assert_eq!(propose_res, Err(Ok(Error::EmergencyShutdownActive)));
+
+    // Rebalance execution via approval is also blocked during emergency shutdown.
+    let approve_res = client.try_approve_action(&guardian_2, &proposal_id);
+    assert_eq!(approve_res, Err(Ok(Error::EmergencyShutdownActive)));
+}
+
+#[test]
+fn test_emergency_withdraw_bypasses_queue_and_caps() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&1000);
+    client.set_balance(&user, &1000);
+
+    // Configure restrictive caps/queue so normal withdraw path would be blocked or queued.
+    client.set_withdraw_cap(&1);
+    client.set_withdraw_queue_threshold(&1);
+
+    // Queue part of the position before emergency shutdown.
+    client.queue_withdraw(&user, &400);
+    assert_eq!(client.balance(&user), 600);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+
+    stellar_asset_client.mint(&contract_id, &1000);
+
+    client.emergency_shutdown(&admin);
+    client.emergency_withdraw(&user);
+
+    assert_eq!(client.balance(&user), 0);
+    assert_eq!(client.total_shares(), 0);
+    assert_eq!(client.total_assets(), 0);
+    assert_eq!(client.get_pending_withdrawals().len(), 0);
+    assert_eq!(token_client.balance(&user), 1000);
+}
+
+#[test]
+fn test_double_emergency_shutdown_is_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.emergency_shutdown(&admin);
+    assert!(client.is_emergency_shutdown());
+
+    // Second shutdown call should be idempotent.
+    client.emergency_shutdown(&admin);
+    assert!(client.is_emergency_shutdown());
+}
+
+#[test]
 fn test_rebalance_admin_auth_accepted() {
     let env = Env::default();
     env.mock_all_auths();
