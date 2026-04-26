@@ -232,7 +232,7 @@ fn test_deposit_success() {
     let deposit_amount = 1000;
     stellar_asset_client.mint(&user, &deposit_amount);
 
-    client.deposit(&user, &token_id, &deposit_amount);
+    client.deposit(&user, &token_id, &deposit_amount, &None::<i128>);
 
     assert_eq!(client.balance(&user), 1000);
     assert_eq!(client.total_assets(), 1000);
@@ -266,12 +266,145 @@ fn test_withdraw_success() {
 
     stellar_asset_client.mint(&contract_id, &5000);
 
-    client.withdraw(&user, &50);
+    client.withdraw(&user, &50, &None::<i128>);
 
     assert_eq!(client.balance(&user), 50);
     assert_eq!(client.total_shares(), 950);
     assert_eq!(client.total_assets(), 4750);
     assert_eq!(token_client.balance(&user), 250);
+}
+
+#[test]
+fn test_deposit_slippage_exact_minimum_passes() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    client.set_total_assets(&2000);
+    client.set_total_shares(&1000);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &101);
+
+    client.deposit(&user, &token_id, &101, &Some(50));
+
+    assert_eq!(client.balance(&user), 50);
+    assert_eq!(client.total_assets(), 2101);
+    assert_eq!(client.total_shares(), 1050);
+}
+
+#[test]
+fn test_deposit_slippage_below_minimum_fails() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    client.set_total_assets(&2000);
+    client.set_total_shares(&1000);
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &101);
+
+    let res = client.try_deposit(&user, &token_id, &101, &Some(51));
+    assert_eq!(res, Err(Ok(Error::SlippageExceeded)));
+    assert_eq!(client.balance(&user), 0);
+    assert_eq!(client.total_assets(), 2000);
+    assert_eq!(client.total_shares(), 1000);
+    assert_eq!(token_client.balance(&user), 101);
+}
+
+#[test]
+fn test_withdraw_slippage_exact_minimum_passes() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &100);
+
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    client.withdraw(&user, &50, &Some(250));
+
+    assert_eq!(client.balance(&user), 50);
+    assert_eq!(client.total_shares(), 950);
+    assert_eq!(client.total_assets(), 4750);
+    assert_eq!(token_client.balance(&user), 250);
+}
+
+#[test]
+fn test_withdraw_slippage_below_minimum_fails() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+
+    let user = Address::generate(&env);
+    client.set_balance(&user, &100);
+
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    let res = client.try_withdraw(&user, &50, &Some(251));
+    assert_eq!(res, Err(Ok(Error::SlippageExceeded)));
+    assert_eq!(client.balance(&user), 100);
+    assert_eq!(client.total_shares(), 1000);
+    assert_eq!(client.total_assets(), 5000);
+    assert_eq!(token_client.balance(&user), 0);
 }
 
 #[test]
@@ -918,7 +1051,7 @@ fn test_withdraw_below_threshold_processes_immediately() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Withdraw 50 shares (converts to 250 assets, below threshold)
-    client.withdraw(&user, &50);
+    client.withdraw(&user, &50, &None::<i128>);
 
     // Should process immediately
     assert_eq!(client.balance(&user), 150);
@@ -1525,19 +1658,19 @@ fn test_queue_withdraw_prevents_double_spending() {
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
-    client.deposit(&user, &token_id, &1000);
+    client.deposit(&user, &token_id, &1000, &None::<i128>);
 
     // Set threshold so 600 triggers queue
     client.set_withdraw_queue_threshold(&500);
 
     // Queue 600
-    client.withdraw(&user, &600);
+    client.withdraw(&user, &600, &None::<i128>);
 
     // User balance should be 400 now (1000 - 600)
     assert_eq!(client.balance(&user), 400);
 
     // Try to withdraw another 500 - should fail as user only has 400 left
-    let res = client.try_withdraw(&user, &500);
+    let res = client.try_withdraw(&user, &500, &None::<i128>);
     assert!(res.is_err());
 }
 
@@ -1562,10 +1695,10 @@ fn test_cancel_queued_withdrawal_restores_balance() {
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
-    client.deposit(&user, &token_id, &1000);
+    client.deposit(&user, &token_id, &1000, &None::<i128>);
 
     client.set_withdraw_queue_threshold(&500);
-    client.withdraw(&user, &600);
+    client.withdraw(&user, &600, &None::<i128>);
     assert_eq!(client.balance(&user), 400);
 
     // Cancel
@@ -1614,7 +1747,7 @@ fn test_deposit_while_paused_fails() {
 
     client.set_paused(&true);
     let user = Address::generate(&env);
-    client.deposit(&user, &asset, &100);
+    client.deposit(&user, &asset, &100, &None::<i128>);
 }
 
 #[test]
@@ -1631,7 +1764,7 @@ fn test_deposit_zero_fails() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    client.deposit(&Address::generate(&env), &asset, &0);
+    client.deposit(&Address::generate(&env), &asset, &0, &None::<i128>);
 }
 
 #[test]
@@ -1655,7 +1788,7 @@ fn test_withdraw_cap_exceeded() {
     client.set_balance(&user, &200);
 
     // Attempt withdrawal of 150 which exceeds cap of 100
-    client.withdraw(&user, &150);
+    client.withdraw(&user, &150, &None::<i128>);
 }
 
 #[test]
@@ -1971,7 +2104,12 @@ impl MaliciousStrategy {
 
         // Attempt re-entrancy
         let client = VolatilityShieldClient::new(&env, &vault);
-        client.deposit(&env.current_contract_address(), &token, &amount);
+        client.deposit(
+            &env.current_contract_address(),
+            &token,
+            &amount,
+            &None::<i128>,
+        );
     }
 
     pub fn deposit(_env: Env, _amount: i128) {}
@@ -2041,7 +2179,9 @@ fn test_strategy_yield_snapshots_recorded_on_harvest() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
     let mock_client = mock_strategy::MockStrategyClient::new(&env, &mock_strategy_id);
@@ -2084,7 +2224,9 @@ fn test_get_strategy_apy_returns_basis_points() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let mock_strategy_id = env.register_contract(None, mock_strategy::MockStrategy);
     let mock_client = mock_strategy::MockStrategyClient::new(&env, &mock_strategy_id);
@@ -2127,7 +2269,9 @@ fn test_get_best_performing_strategy() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let strategy1_id = env.register_contract(None, mock_strategy::MockStrategy);
     let strategy1_client = mock_strategy::MockStrategyClient::new(&env, &strategy1_id);
@@ -2432,7 +2576,9 @@ fn test_blocked_user_cannot_deposit() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let blocked_user = Address::generate(&env);
     client.add_to_blocklist(&blocked_user);
@@ -2442,7 +2588,7 @@ fn test_blocked_user_cannot_deposit() {
     stellar_asset_client.mint(&blocked_user, &1000);
 
     // Attempt to deposit - should panic
-    client.deposit(&blocked_user, &token_id, &100);
+    client.deposit(&blocked_user, &token_id, &100, &None::<i128>);
 }
 
 #[test]
@@ -2462,11 +2608,13 @@ fn test_non_allowlisted_user_cannot_deposit() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let allowed_user = Address::generate(&env);
     let non_allowed_user = Address::generate(&env);
-    
+
     client.add_to_allowlist(&allowed_user);
     client.set_allowlist_mode(&true);
 
@@ -2474,7 +2622,7 @@ fn test_non_allowlisted_user_cannot_deposit() {
     stellar_asset_client.mint(&non_allowed_user, &1000);
 
     // Attempt to deposit - should panic
-    client.deposit(&non_allowed_user, &token_id, &100);
+    client.deposit(&non_allowed_user, &token_id, &100, &None::<i128>);
 }
 
 #[test]
@@ -2493,7 +2641,9 @@ fn test_allowlisted_user_can_deposit() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
 
     let allowed_user = Address::generate(&env);
     client.add_to_allowlist(&allowed_user);
@@ -2503,8 +2653,8 @@ fn test_allowlisted_user_can_deposit() {
     stellar_asset_client.mint(&allowed_user, &1000);
 
     // Deposit should succeed
-    client.deposit(&allowed_user, &token_id, &100);
-    
+    client.deposit(&allowed_user, &token_id, &100, &None::<i128>);
+
     // Verify deposit succeeded
     let balance = client.balance(&allowed_user);
     assert!(balance > 0);
