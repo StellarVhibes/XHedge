@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, IntoVal, Map,
     Symbol, Vec,
 };
 
@@ -1139,7 +1139,7 @@ impl VolatilityShield {
         if assets_to_withdraw_value > queue_threshold {
             // Queue the withdrawal instead of processing immediately
             Self::internal_queue_withdraw(env.clone(), from, asset, shares);
-            return;
+            return Ok(());
         }
 
         let total_shares = Self::total_shares(&env);
