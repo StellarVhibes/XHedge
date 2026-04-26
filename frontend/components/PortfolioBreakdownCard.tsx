@@ -7,6 +7,8 @@ import { useCurrency } from "@/app/context/CurrencyContext";
 import { Card } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Wallet, PieChart, Activity } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
+import { fetchUserBasis } from "@/lib/stellar";
+import { CONTRACTS } from "@/lib/contracts.config";
 
 /**
  * PortfolioBreakdownCard
@@ -15,27 +17,32 @@ import { formatNumber } from "@/lib/utils";
  * vault percentage ownership, unrealized P&L, and current value.
  */
 export function PortfolioBreakdownCard() {
-  const { address, connected } = useWallet();
+  const { address, connected, network } = useWallet();
   const { metrics } = useRealtimeVault(address);
   const { format } = useCurrency();
   const [entryPrice, setEntryPrice] = useState<number | null>(null);
+  const [loadingBasis, setLoadingBasis] = useState(false);
 
-  // Load and persist entry price per user address
+  // Calculate weighted entry basis from on-chain events
   useEffect(() => {
-    if (address && metrics) {
-      const storageKey = `xh_entry_price_${address}`;
-      const savedEntryPrice = localStorage.getItem(storageKey);
-      
-      if (savedEntryPrice) {
-        setEntryPrice(parseFloat(savedEntryPrice));
-      } else if (parseFloat(metrics.userShares) > 0) {
-        // First deposit detection: user has shares but no entry price stored
-        const currentPrice = parseFloat(metrics.sharePrice);
-        localStorage.setItem(storageKey, currentPrice.toString());
-        setEntryPrice(currentPrice);
+    async function loadBasis() {
+      if (address && connected) {
+        setLoadingBasis(true);
+        try {
+          const contractId = CONTRACTS.volatility_shield.id;
+          const basis = await fetchUserBasis(contractId, address, network as any);
+          if (basis.totalSharesMinted > 0) {
+            setEntryPrice(basis.averageEntryPrice);
+          }
+        } catch (err) {
+          console.error("Failed to load user basis:", err);
+        } finally {
+          setLoadingBasis(false);
+        }
       }
     }
-  }, [address, metrics]);
+    loadBasis();
+  }, [address, connected, network]);
 
   const stats = useMemo(() => {
     if (!metrics || !connected) return null;

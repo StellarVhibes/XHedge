@@ -104,8 +104,8 @@ export async function fetchVaultData(
       ? scValToNative(totalSharesSim.result.retval).toString()
       : "0";
     const sharePrice = (rpc.Api.isSimulationSuccess(sharePriceSim) && sharePriceSim.result)
-      ? (Number(scValToNative(sharePriceSim.result.retval)) / 1e7).toFixed(7)
-      : "1.0000000";
+      ? (Number(scValToNative(sharePriceSim.result.retval)) / 1e9).toFixed(9)
+      : "1.000000000";
 
     const vaultData: VaultMetrics = {
       totalAssets,
@@ -186,13 +186,13 @@ export function calculateSharePrice(totalAssets: string, totalShares: string): s
   const shares = BigInt(totalShares || "0");
 
   if (shares === BigInt(0)) {
-    return "1.0000000";
+    return "1.000000000";
   }
 
-  const pricePerShare = (assets * BigInt(1e7)) / shares;
-  const price = Number(pricePerShare) / 1e7;
+  const pricePerShare = (assets * BigInt(1e9)) / shares;
+  const price = Number(pricePerShare) / 1e9;
 
-  return price.toFixed(7);
+  return price.toFixed(9);
 }
 
 export function convertStroopsToDisplay(stroops: string): string {
@@ -212,40 +212,76 @@ export interface Transaction {
 }
 
 export async function fetchTransactionHistory(
-  userAddress: string | null
+  contractId: string,
+  userAddress: string | null,
+  network: NetworkType = NetworkType.TESTNET
 ): Promise<Transaction[]> {
   if (!userAddress) return [];
 
-  // Mock transaction history
-  return [
-    {
-      id: "1",
-      type: "deposit",
-      amount: "500.00",
-      asset: "USDC",
-      status: "success",
-      date: "2026-02-23 14:30",
-      hash: "abc...123",
-    },
-    {
-      id: "2",
-      type: "withdraw",
-      amount: "100.00",
-      asset: "XHS",
-      status: "success",
-      date: "2026-02-22 09:15",
-      hash: "def...456",
-    },
-    {
-      id: "3",
-      type: "deposit",
-      amount: "250.00",
-      asset: "USDC",
-      status: "success",
-      date: "2026-02-21 18:45",
-      hash: "ghi...789",
-    },
-  ];
+  try {
+    const rpcUrl = SOROBAN_RPC_URLS[network];
+    const server = new rpc.Server(rpcUrl);
+    const latestLedger = await server.getLatestLedger();
+    const startLedger = Math.max(1, latestLedger.sequence - 20000);
+
+    const resp = await server.getEvents({
+      startLedger,
+      filters: [
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [
+            [], // Topic 0 (event name) - empty to get all
+            [new Address(userAddress).toScVal().toXDR("base64")]
+          ],
+        },
+      ],
+    } as any);
+
+    const events = resp?.events || [];
+    const transactions: Transaction[] = [];
+
+    for (const e of events) {
+      try {
+        const topic0 = scValToNative(e.topic?.[0]);
+        if (topic0 !== "Deposit" && topic0 !== "Withdraw") continue;
+
+        const value = scValToNative(e.value);
+        if (!Array.isArray(value)) continue;
+
+        const date = e.ledgerClosedAt ? new Date(e.ledgerClosedAt).toISOString().replace("T", " ").split(".")[0] : "Recent";
+        
+        if (topic0 === "Deposit") {
+          transactions.push({
+            id: e.id,
+            type: "deposit",
+            amount: (Number(value[1]) / 1e7).toFixed(2),
+            asset: "USDC", // Should ideally be resolved from asset address
+            status: "success",
+            date,
+            hash: e.id.split("-")[0],
+          });
+        } else if (topic0 === "Withdraw") {
+          transactions.push({
+            id: e.id,
+            type: "withdraw",
+            amount: (Number(value[1]) / 1e7).toFixed(2), // shares in index 1 for Withdraw
+            asset: "XHS",
+            status: "success",
+            date,
+            hash: e.id.split("-")[0],
+          });
+        }
+      } catch (err) {
+        console.error("Error parsing event for history:", err);
+      }
+    }
+
+    return transactions.sort((a, b) => b.date.localeCompare(a.date));
+  } catch (error) {
+    console.error("Failed to fetch real transaction history:", error);
+    return [];
+  }
 }
 
 export async function buildDepositXdr(
@@ -756,6 +792,76 @@ export interface HistoricalSharePrice {
   timestamp: number;
   price: number;
   date: string;
+}
+
+export interface UserBasis {
+  averageEntryPrice: number;
+  totalSharesMinted: number;
+}
+
+/**
+ * Calculates the user's weighted average entry price by fetching Deposit events.
+ */
+export async function fetchUserBasis(
+  contractId: string,
+  userAddress: string,
+  network: NetworkType = NetworkType.TESTNET
+): Promise<UserBasis> {
+  try {
+    const rpcUrl = SOROBAN_RPC_URLS[network];
+    const server = new rpc.Server(rpcUrl);
+    
+    // Fetch last 10000 ledgers of events
+    const latestLedger = await server.getLatestLedger();
+    const startLedger = Math.max(1, latestLedger.sequence - 10000);
+
+    const resp = await server.getEvents({
+      startLedger,
+      filters: [
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [
+            [xdr.ScVal.scvSymbol("Deposit").toXDR("base64")],
+            [new Address(userAddress).toScVal().toXDR("base64")]
+          ],
+        },
+      ],
+    } as any);
+
+    const events = resp?.events || [];
+    let totalValueDeposited = 0;
+    let totalSharesMinted = 0;
+
+    for (const e of events) {
+      try {
+        const value = scValToNative(e.value);
+        if (Array.isArray(value)) {
+          // Updated Deposit event value: (asset, amount, shares_minted, share_price, total_assets, total_shares)
+          const sharesMinted = Number(value[2]) / 1e7;
+          const sharePrice = Number(value[3]) / 1e9;
+          
+          totalValueDeposited += sharesMinted * sharePrice;
+          totalSharesMinted += sharesMinted;
+        }
+      } catch (err) {
+        console.error("Error parsing deposit event:", err);
+      }
+    }
+
+    // Fallback if no events found or parsing failed
+    if (totalSharesMinted === 0) {
+      return { averageEntryPrice: 0, totalSharesMinted: 0 };
+    }
+
+    return {
+      averageEntryPrice: totalValueDeposited / totalSharesMinted,
+      totalSharesMinted,
+    };
+  } catch (error) {
+    console.error("Failed to fetch user basis:", error);
+    return { averageEntryPrice: 0, totalSharesMinted: 0 };
+  }
 }
 
 /**
