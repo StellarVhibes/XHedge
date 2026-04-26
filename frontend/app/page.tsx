@@ -8,6 +8,7 @@ import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
 import { RewardSummary } from "@/components/reward-summary";
 import { PerformanceAttribution } from "@/components/PerformanceAttribution";
+import { PortfolioBreakdownCard } from "@/components/PortfolioBreakdownCard";
 interface Slice {
   name: string;
   value: number;
@@ -66,6 +67,8 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        <PortfolioBreakdownCard />
 
         <div className="grid gap-4 md:grid-cols-2">
           <RewardSummary />
