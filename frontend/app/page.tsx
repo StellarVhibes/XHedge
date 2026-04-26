@@ -9,10 +9,6 @@ import { TransactionList } from "@/components/transaction-list";
 import { RewardSummary } from "@/components/reward-summary";
 import { PerformanceAttribution } from "@/components/PerformanceAttribution";
 import { PortfolioBreakdownCard } from "@/components/PortfolioBreakdownCard";
-interface Slice {
-  name: string;
-  value: number;
-}
 import AllocationChart, { Slice } from "@/components/AllocationChart";
 import StrategyDetailModal, { StrategyDetail } from "@/components/StrategyDetailModal";
 import { RiskChart } from "@/components/RiskChart";
