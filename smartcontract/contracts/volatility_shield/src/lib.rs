@@ -145,6 +145,7 @@ pub enum DataKey {
     AllowlistMode,
     Blocklist,
     Allowlist,
+    Delegate(Address),
     /// Tracks whether a user has voted on a specific proposal: (proposal_id, voter) -> bool
     VoteRecord(u64, Address),
     /// Tracks vote tallies for a proposal: proposal_id -> (yes_votes, no_votes)
@@ -326,6 +327,11 @@ impl VolatilityShield {
     fn emit_and_err<T>(env: &Env, error: Error) -> Result<T, Error> {
         Self::emit_error(env, error);
         Err(error)
+    fn emit_slippage_protection_triggered(env: &Env, expected_min: i128, actual: i128) {
+        env.events().publish(
+            (soroban_sdk::Symbol::new(env, "SlippageProtectionTriggered"),),
+            (expected_min, actual),
+        );
     }
 
     pub fn enter_guard(env: &Env) {
@@ -729,15 +735,22 @@ impl VolatilityShield {
     /// Deposit assets into the vault.
     /// If asset is not the default/primary asset, it must be in the accepted assets list.
     /// The user will receive shares in return, proportional to the current share price.
-    /// 
+    ///
     /// Compliance checks:
     /// - If blocklist mode is active, blocked users cannot deposit
     /// - If allowlist mode is active, only allowlisted users can deposit
-    /// 
+    ///
     /// @param from The address of the user depositing.
     /// @param asset The address of the asset being deposited.
     /// @param amount The amount of assets to deposit.
-    pub fn deposit(env: Env, from: Address, asset: Address, amount: i128) {
+    /// @param min_shares_out Optional minimum acceptable shares to mint.
+    pub fn deposit(
+        env: Env,
+        from: Address,
+        asset: Address,
+        amount: i128,
+        min_shares_out: Option<i128>,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
         Self::assert_not_emergency_shutdown(&env);
@@ -757,10 +770,16 @@ impl VolatilityShield {
             panic!("asset not accepted");
         }
 
+        let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
+        if let Some(expected_min) = min_shares_out {
+            if shares_to_mint < expected_min {
+                Self::emit_slippage_protection_triggered(&env, expected_min, shares_to_mint);
+                return Err(Error::SlippageExceeded);
+            }
+        }
+
         // Transfer the asset from user to contract
         token::Client::new(&env, &asset).transfer(&from, &env.current_contract_address(), &amount);
-
-        let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
 
         // Track per-asset user balance
         let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
@@ -847,6 +866,8 @@ impl VolatilityShield {
                 new_total_shares,
             ),
         );
+
+        Ok(())
     }
 
     // ── Batch Deposit ─────────────────────────
@@ -991,16 +1012,24 @@ impl VolatilityShield {
     ///
     /// The user burns shares and receives a proportional amount of assets.
     /// If the withdrawal amount exceeds the queue threshold, it is queued instead.
+    /// @param caller The owner or approved delegate authorizing the withdrawal.
     /// @param from The address of the user withdrawing.
     /// @param shares The amount of shares to burn.
-    pub fn withdraw(env: Env, from: Address, shares: i128) {
+    /// @param min_assets_out Optional minimum acceptable assets to receive.
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        from: Address,
+        shares: i128,
+        min_assets_out: Option<i128>,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
         }
-        from.require_auth();
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
 
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -1010,6 +1039,12 @@ impl VolatilityShield {
         }
 
         let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+        if let Some(expected_min) = min_assets_out {
+            if assets_to_withdraw < expected_min {
+                Self::emit_slippage_protection_triggered(&env, expected_min, assets_to_withdraw);
+                return Err(Error::SlippageExceeded);
+            }
+        }
 
         // --- Withdraw Caps Validation ---
         let max_withdraw_per_tx: i128 = env
@@ -1035,7 +1070,7 @@ impl VolatilityShield {
         if assets_to_withdraw > queue_threshold {
             // Queue the withdrawal instead of processing immediately
             Self::internal_queue_withdraw(env.clone(), from, shares);
-            return;
+            return Ok(());
         }
 
         let total_shares = Self::total_shares(&env);
@@ -1068,6 +1103,8 @@ impl VolatilityShield {
             (soroban_sdk::Symbol::new(&env, "Withdraw"), from),
             (shares, share_price, new_total_assets, new_total_shares),
         );
+
+        Ok(())
     }
 
     // ── Batch Withdraw ─────────────────────────
@@ -1219,16 +1256,23 @@ impl VolatilityShield {
     /// Queue a withdrawal request for processing later.
     ///
     /// This is called automatically by withdraw() when the amount exceeds the threshold.
+    /// @param caller The owner or approved delegate authorizing the queue request.
     /// @param from The address of the user withdrawing.
     /// @param shares The amount of shares to burn.
-    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+    pub fn queue_withdraw(
+        env: Env,
+        caller: Address,
+        from: Address,
+        shares: i128,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to queue must be positive");
         }
-        from.require_auth();
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
         Self::internal_queue_withdraw(env.clone(), from, shares);
+        Ok(())
     }
 
     fn internal_queue_withdraw(env: Env, from: Address, shares: i128) {
@@ -1442,6 +1486,35 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env))
+    }
+
+    /// Approve a delegate that may execute withdrawals on behalf of `owner`.
+    pub fn set_delegate(env: Env, owner: Address, delegate: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Delegate(owner.clone()), &delegate);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
+            (owner, delegate),
+        );
+    }
+
+    /// Remove the approved delegate for `owner`.
+    pub fn remove_delegate(env: Env, owner: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(owner.clone()));
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateRemoved"),),
+            (owner,),
+        );
+    }
+
+    /// Return the approved delegate for `owner`, if one is set.
+    pub fn get_delegate(env: Env, owner: Address) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Delegate(owner))
     }
 
     // ── Rebalance ─────────────────────────────
@@ -1823,15 +1896,15 @@ impl VolatilityShield {
                 balance: before_balance,
                 ledger: current_ledger,
             };
-            
+
             let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
-            let mut history: YieldHistory = env
-                .storage()
-                .instance()
-                .get(&history_key)
-                .unwrap_or(YieldHistory {
-                    snapshots: Vec::new(&env),
-                });
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
             history.snapshots.push_back(snapshot);
             env.storage().instance().set(&history_key, &history);
         }
@@ -1860,15 +1933,15 @@ impl VolatilityShield {
                 balance: after_balance,
                 ledger: current_ledger,
             };
-            
+
             let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
-            let mut history: YieldHistory = env
-                .storage()
-                .instance()
-                .get(&history_key)
-                .unwrap_or(YieldHistory {
-                    snapshots: Vec::new(&env),
-                });
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
             history.snapshots.push_back(snapshot);
             env.storage().instance().set(&history_key, &history);
         }
@@ -2069,7 +2142,7 @@ impl VolatilityShield {
     pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> i128 {
         let history_key = DataKey::StrategyYieldSnapshot(strategy.clone());
         let history: Option<YieldHistory> = env.storage().instance().get(&history_key);
-        
+
         match history {
             Some(h) if h.snapshots.len() >= 2 => {
                 let snapshots = h.snapshots;
@@ -2107,14 +2180,18 @@ impl VolatilityShield {
                 }
 
                 // Calculate growth rate
-                let growth = end_balance.checked_mul(10_000).unwrap().checked_div(start_balance).unwrap();
+                let growth = end_balance
+                    .checked_mul(10_000)
+                    .unwrap()
+                    .checked_div(start_balance)
+                    .unwrap();
                 let growth_bps = growth.saturating_sub(10_000);
 
                 // Annualize: assume ~10 ledgers per second on Stellar testnet
                 // This is a simplification; in production use actual timestamp
                 let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
                 let periods_per_year = ledgers_per_year / ledger_diff as i128;
-                
+
                 if periods_per_year <= 0 {
                     return growth_bps;
                 }
@@ -2222,7 +2299,10 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::OracleCircuitBreakerActive, &true);
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "OracleCircuitBreakerActivated"),),
+            (soroban_sdk::Symbol::new(
+                &env,
+                "OracleCircuitBreakerActivated",
+            ),),
             env.ledger().timestamp(),
         );
     }
@@ -2306,7 +2386,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if !blocklist.contains(user.clone()) {
             blocklist.push_back(user.clone());
-            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
             env.events()
                 .publish((soroban_sdk::Symbol::new(&env, "UserBlocked"),), user);
         }
@@ -2323,7 +2405,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if let Some(index) = blocklist.iter().position(|x| x == user) {
             blocklist.remove(index as u32);
-            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
         }
     }
 
@@ -2338,7 +2422,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if !allowlist.contains(user.clone()) {
             allowlist.push_back(user.clone());
-            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
             env.events()
                 .publish((soroban_sdk::Symbol::new(&env, "UserAllowlisted"),), user);
         }
@@ -2355,7 +2441,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if let Some(index) = allowlist.iter().position(|x| x == user) {
             allowlist.remove(index as u32);
-            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
         }
     }
 
@@ -2795,6 +2883,27 @@ impl VolatilityShield {
             // Both are required to be checked; the signed party will pass.
             // In Soroban the host simply verifies whichever has an auth entry.
             admin.require_auth();
+        }
+    }
+
+    fn require_owner_or_delegate(
+        env: &Env,
+        owner: &Address,
+        caller: &Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+
+        if caller == owner {
+            return Ok(());
+        }
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
+        {
+            Some(delegate) if delegate == *caller => Ok(()),
+            _ => Err(Error::Unauthorized),
         }
     }
 

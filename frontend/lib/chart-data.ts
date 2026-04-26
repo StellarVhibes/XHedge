@@ -54,6 +54,9 @@ function getDateRange(timeframe: Timeframe): { from: Date; to: Date } {
     case '1M':
       from.setDate(to.getDate() - 30);
       break;
+    case '3M':
+      from.setDate(to.getDate() - 90);
+      break;
     case '1Y':
       from.setFullYear(to.getFullYear() - 1);
       break;
