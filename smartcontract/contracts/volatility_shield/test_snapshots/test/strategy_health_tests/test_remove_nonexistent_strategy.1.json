@@ -157,6 +157,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ProposalIds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Proposals"
                             }
                           ]
@@ -175,6 +187,22 @@
                         },
                         "val": {
                           "vec": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "SupportedAssets"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          ]
                         }
                       },
                       {
@@ -288,5 +316,27 @@
       ]
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "Error"
+              },
+              {
+                "symbol": "not_initialized"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": true
+    }
+  ]
 }

@@ -717,7 +717,7 @@ impl VolatilityShield {
                 Self::internal_add_strategy(env, strategy.clone())?;
             }
             ActionType::Rebalance(max_slippage) => {
-                Self::internal_rebalance(env, *max_slippage)?;
+                Self::internal_rebalance(env, _caller, *max_slippage)?;
             }
             ActionType::SetThreshold(threshold) => {
                 env.storage().instance().set(&DataKey::Threshold, threshold);
@@ -909,9 +909,9 @@ impl VolatilityShield {
         let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
 
         // Slippage check
-        if let Some(min_shares) = min_shares_out {
+        if let Some(min_shares) = _min_shares_out {
             if shares_to_mint < min_shares {
-                panic!("SlippageExceeded: expected min {}, actual {}", min_shares, shares_to_mint);
+                return Self::emit_and_err(&env, Error::SlippageExceeded);
             }
         }
 
@@ -991,11 +991,12 @@ impl VolatilityShield {
 
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "Deposited"), from.clone()),
-            Deposited {
-                depositor: from.clone(),
-                amount,
-                shares_minted: shares_to_mint,
-            },
+            (
+                Deposited {
+                    depositor: from.clone(),
+                    amount,
+                    shares_minted: shares_to_mint,
+                },
                 share_price,
                 new_total_assets_value,
                 new_total_shares,
@@ -1129,11 +1130,12 @@ impl VolatilityShield {
 
             env.events().publish(
                 (soroban_sdk::Symbol::new(&env, "Deposited"), from.clone()),
-                Deposited {
-                    depositor: from.clone(),
-                    amount,
-                    shares_minted: shares_to_mint,
-                },
+                (
+                    Deposited {
+                        depositor: from.clone(),
+                        amount,
+                        shares_minted: shares_to_mint,
+                    },
                     share_price,
                     new_total_assets_value,
                     new_total_shares,
@@ -1247,7 +1249,7 @@ impl VolatilityShield {
             Withdrawn {
                 withdrawer: from,
                 shares_burned: shares,
-                amount_out: assets_to_withdraw,
+                amount_out: assets_to_withdraw_value,
             },
         );
 
@@ -1428,7 +1430,7 @@ impl VolatilityShield {
                 Withdrawn {
                     withdrawer: from.clone(),
                     shares_burned: shares,
-                    amount_out: assets_to_withdraw,
+                    amount_out: assets_to_withdraw_value,
                 },
             );
 
@@ -1707,8 +1709,7 @@ impl VolatilityShield {
     ///
     /// When circuit breaker is active, uses LastSafeAllocation instead of current oracle data.
     /// **Access control**: must be called via the multi-sig governance system.
-    fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<u32, Error> {
-        let _guard = Guard::new(env);
+    fn internal_rebalance(env: &Env, caller: &Address, max_slippage_bps: u32) -> Result<u32, Error> {
         Self::check_version(env, 1);
         if Self::emergency_shutdown_active(env) {
             return Self::emit_and_err(env, Error::EmergencyShutdownActive);
@@ -1717,7 +1718,7 @@ impl VolatilityShield {
         let oracle = Self::get_oracle(env);
 
         // OR-auth: require that either Admin or Oracle authorised this invocation.
-        Self::require_admin_or_oracle(env, &admin, &oracle);
+        Self::require_admin_or_oracle(env, caller, &admin, &oracle);
 
         // Check if circuit breaker is active
         let circuit_breaker_active: bool = env
@@ -1725,6 +1726,10 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::OracleCircuitBreakerActive)
             .unwrap_or(false);
+
+        if circuit_breaker_active {
+            return Self::emit_and_err(env, Error::CircuitBreakerActive);
+        }
 
         let allocations: Map<Address, i128> = if circuit_breaker_active {
             // Use last safe allocation when circuit breaker is active
@@ -3369,16 +3374,12 @@ impl VolatilityShield {
     /// Oracle-initiated calls should be routed through a thin oracle contract
     /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
     /// contract as the top-level caller).  In tests, use mock_all_auths().
-    fn require_admin_or_oracle(_env: &Env, admin: &Address, oracle: &Address) {
-        // Try admin first. If the transaction was signed by the oracle, the
-        // oracle is expected to call this contract directly, and the oracle's
-        // address is checked here as a fallback.
-        if *admin == *oracle {
-            admin.require_auth();
+    fn require_admin_or_oracle(_env: &Env, caller: &Address, admin: &Address, oracle: &Address) {
+        if *caller == *admin || *caller == *oracle {
+            caller.require_auth();
         } else {
-            // Both are required to be checked; the signed party will pass.
-            // In Soroban the host simply verifies whichever has an auth entry.
-            admin.require_auth();
+            // Neither admin nor oracle is the caller.
+            panic!("Unauthorized: expected admin or oracle");
         }
     }
 
