@@ -97,12 +97,12 @@ proptest! {
         let user = Address::generate(&env);
         stellar_asset_client.mint(&user, &amount);
 
-        client.deposit(&user, &_asset, &amount, &None::<i128>);
+        client.deposit(&user, &token_id, &amount, &None::<i128>);
         let shares = client.balance(&user);
 
         assert_eq!(client.total_shares(), shares);
 
-        client.withdraw(&user, &user, &_asset, &shares);
+        client.withdraw(&user, &user, &token_id, &shares);
         assert_eq!(client.balance(&user), 0);
         assert_eq!(client.total_shares(), 0);
         }

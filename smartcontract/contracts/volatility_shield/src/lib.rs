@@ -155,6 +155,9 @@ pub enum DataKey {
     SharePriceHistory,
     PauseHistory,
     SupportedAssets,
+    Delegate(Address),
+    VoteRecord(u64, Address),
+    VoteTally(u64),
 }
 
 // ─────────────────────────────────────────────
@@ -484,7 +487,7 @@ impl VolatilityShield {
         proposal.approvals.push_back(guardian.clone());
 
         // Emit ProposalApproved event
-        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalApproved"), proposal_id), guardian);
+        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalApproved"), proposal_id), guardian.clone());
 
         let threshold: u32 = env
             .storage()
@@ -1084,7 +1087,7 @@ impl VolatilityShield {
     /// @param from The address of the user withdrawing.
     /// @param asset The address of the asset to withdraw.
     /// @param shares The amount of shares to burn.
-    pub fn withdraw(env: Env, caller: Address, from: Address, asset: Address, shares: i128) {
+    pub fn withdraw(env: Env, caller: Address, from: Address, asset: Address, shares: i128) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
@@ -1374,7 +1377,7 @@ impl VolatilityShield {
             panic!("shares to queue must be positive");
         }
         Self::require_owner_or_delegate(&env, &from, &caller);
-        Self::internal_queue_withdraw(env, from, asset, shares);
+        Self::internal_queue_withdraw(env.clone(), from, asset, shares);
     }
 
     fn internal_queue_withdraw(env: Env, from: Address, asset: Address, shares: i128) {
@@ -2179,16 +2182,6 @@ impl VolatilityShield {
         Ok(unhealthy_strategies)
     }
 
-    /// Set the maximum number of consecutive failures before auto-flagging a strategy.
-    pub fn set_max_consecutive_failures(env: Env, threshold: u32) {
-        Self::require_admin(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxConsecutiveFailures, &threshold);
-        env.events()
-            .publish((symbol_short!("MaxFail"),), threshold);
-    }
-
     /// Manually flag a strategy as unhealthy.
     ///
     /// Only the admin can call this.
@@ -2481,7 +2474,7 @@ impl VolatilityShield {
         env.invoke_contract::<i128>(
             &oracle,
             &soroban_sdk::Symbol::new(&env, "price"),
-            soroban_sdk::vec![&env, asset],
+            soroban_sdk::vec![&env, asset.into_val(&env)],
         )
     }
 

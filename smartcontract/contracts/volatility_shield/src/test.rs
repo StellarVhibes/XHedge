@@ -404,7 +404,7 @@ fn test_non_delegate_withdraw_rejected() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     let res = client.try_withdraw(&stranger, &owner, &token_id, &50);
-    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+    assert_eq!(res, Ok(Err(Error::Unauthorized)));
     assert_eq!(client.balance(&owner), 100);
     assert_eq!(client.total_shares(), 1000);
     assert_eq!(client.total_assets(), 5000);
@@ -1350,7 +1350,7 @@ fn test_share_price_history_grows_on_harvest() {
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
-    assert_eq!(client.get_share_price_history(&10u32).len(), 0);
+    assert_eq!(client.get_share_price_history().len(), 0);
 
     client.set_total_assets(&200);
     client.set_total_shares(&100);
@@ -1361,7 +1361,7 @@ fn test_share_price_history_grows_on_harvest() {
     env.ledger().set_timestamp(200);
     assert_eq!(client.harvest(), 0);
 
-    let history = client.get_share_price_history(&10u32);
+    let history = client.get_share_price_history();
     assert_eq!(history.len(), 1);
     let entry = history.get(0).unwrap();
     assert_eq!(entry.0, 200);
@@ -1391,9 +1391,9 @@ fn test_share_price_history_cap_evicts_oldest() {
         client.harvest();
     }
 
-    let history = client.get_share_price_history(&400u32);
-    assert_eq!(history.len(), 365);
-    assert_eq!(history.get(0).unwrap().0, 1_001);
+    let history = client.get_share_price_history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history.get(1).unwrap().0, 400);
     assert_eq!(history.get(364).unwrap().0, 1_365);
 }
 
@@ -2098,7 +2098,7 @@ fn test_queue_withdraw_prevents_double_spending() {
     client.set_withdraw_queue_threshold(&500);
 
     // Queue 600
-    client.withdraw(&user, &user, &600, &None::<i128>);
+    client.withdraw(&user, &user, &token_id, &600);
 
     // User balance should be 400 now (1000 - 600)
     assert_eq!(client.balance(&user), 400);
@@ -2132,7 +2132,7 @@ fn test_cancel_queued_withdrawal_restores_balance() {
     client.deposit(&user, &token_id, &1000, &None::<i128>);
 
     client.set_withdraw_queue_threshold(&500);
-    client.withdraw(&user, &user, &600, &None::<i128>);
+    client.withdraw(&user, &user, &token_id, &600);
     assert_eq!(client.balance(&user), 400);
 
     // Cancel
@@ -2222,7 +2222,7 @@ fn test_withdraw_cap_exceeded() {
     client.set_balance(&user, &200);
 
     // Attempt withdrawal of 150 which exceeds cap of 100
-    client.withdraw(&user, &user, &150, &None::<i128>);
+    client.withdraw(&user, &user, &asset, &150);
 }
 
 #[test]
