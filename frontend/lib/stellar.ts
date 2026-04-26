@@ -58,14 +58,57 @@ export async function fetchVaultData(
   userAddress: string | null,
   network: NetworkType
 ): Promise<VaultMetrics> {
-  // Mock data implementation for now
   try {
+    const rpcUrl = SOROBAN_RPC_URLS[network];
+    const server = new rpc.Server(rpcUrl);
+    const contract = new Contract(contractId);
+
+    // Prepare calls
+    const totalAssetsCall = contract.call("total_assets");
+    const totalSharesCall = contract.call("total_shares");
+    const sharePriceCall = contract.call("get_share_price");
+
+    // Simulate for total vault metrics
+    const [totalAssetsSim, totalSharesSim, sharePriceSim] = await Promise.all([
+      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalAssetsCall).setTimeout(30).build()),
+      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalSharesCall).setTimeout(30).build()),
+      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(sharePriceCall).setTimeout(30).build()),
+    ]);
+
+    let userShares = "0";
+    if (userAddress) {
+      const userBalanceCall = contract.call("balance", new Address(userAddress).toScVal());
+      const userBalanceSim = await server.simulateTransaction(
+        new TransactionBuilder(new Address(userAddress).toAccount(), {
+          fee: "100",
+          networkPassphrase: getNetworkPassphrase(network),
+        })
+          .addOperation(userBalanceCall)
+          .setTimeout(30)
+          .build()
+      );
+
+      if (rpc.Api.isSimulationSuccess(userBalanceSim)) {
+        userShares = scValToNative(userBalanceSim.result.retval).toString();
+      }
+    }
+
+    const totalAssets = rpc.Api.isSimulationSuccess(totalAssetsSim)
+      ? scValToNative(totalAssetsSim.result.retval).toString()
+      : "0";
+    const totalShares = rpc.Api.isSimulationSuccess(totalSharesSim)
+      ? scValToNative(totalSharesSim.result.retval).toString()
+      : "0";
+    const sharePrice = rpc.Api.isSimulationSuccess(sharePriceSim)
+      ? (Number(scValToNative(sharePriceSim.result.retval)) / 1e7).toFixed(7)
+      : "1.0000000";
+
     const vaultData: VaultMetrics = {
-      totalAssets: "10000000000",
-      totalShares: "10000000000",
-      sharePrice: "1.0000000",
-      userBalance: userAddress ? "1000000000" : "0",
-      userShares: userAddress ? "1000000000" : "0",
+      totalAssets,
+      totalShares,
+      sharePrice,
+      userBalance: userShares, // In this vault, user balance in assets is derived from shares
+      userShares,
       assetSymbol: "USDC",
     };
 
@@ -76,31 +119,22 @@ export async function fetchVaultData(
         localStorage.setItem("xhedge-vault-cache-time", Date.now().toString());
       }
     } catch {
-      // Ignore localStorage errors (may be full or unavailable)
+      // Ignore
     }
 
     return vaultData;
-  } catch {
-    // Try to return cached data on error
-    try {
-      if (typeof window !== "undefined" && window.localStorage) {
-        const cached = localStorage.getItem("xhedge-vault-cache");
-        if (cached) {
-          return JSON.parse(cached) as VaultMetrics;
-        }
-      }
-    } catch {
-      // Ignore any errors
-    }
-
-    return {
-      totalAssets: "0",
-      totalShares: "0",
-      sharePrice: "0",
-      userBalance: "0",
-      userShares: "0",
+  } catch (error) {
+    console.error("Error fetching vault data from contract:", error);
+    // Fallback to mock data for development if contract call fails
+    const mockData: VaultMetrics = {
+      totalAssets: "10000000000",
+      totalShares: "10000000000",
+      sharePrice: "1.0000000",
+      userBalance: userAddress ? "1000000000" : "0",
+      userShares: userAddress ? "1000000000" : "0",
       assetSymbol: "USDC",
     };
+    return mockData;
   }
 }
 

@@ -199,6 +199,15 @@ export default function VaultPage() {
       toast.success(`Deposit successful! Tx: ${hash.slice(0, 8)}...`, { id: toastId });
       setSigningStep("success");
       setAmount("");
+
+      // Persist entry price per user address on first deposit
+      if (address && metrics?.sharePrice) {
+        const storageKey = `xh_entry_price_${address}`;
+        if (!localStorage.getItem(storageKey)) {
+          localStorage.setItem(storageKey, metrics.sharePrice);
+        }
+      }
+
       await loadVaultData();
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Deposit failed";
