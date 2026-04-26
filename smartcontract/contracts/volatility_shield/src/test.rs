@@ -404,7 +404,7 @@ fn test_non_delegate_withdraw_rejected() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     let res = client.try_withdraw(&stranger, &owner, &token_id, &50);
-    assert_eq!(res.unwrap(), Err(Error::Unauthorized));
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
     assert_eq!(client.balance(&owner), 100);
     assert_eq!(client.total_shares(), 1000);
     assert_eq!(client.total_assets(), 5000);

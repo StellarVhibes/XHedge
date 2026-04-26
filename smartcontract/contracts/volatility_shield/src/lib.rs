@@ -339,13 +339,6 @@ impl VolatilityShield {
         Err(error)
     }
 
-    fn emit_slippage_protection_triggered(env: &Env, expected_min: i128, actual: i128) {
-        env.events().publish(
-            (soroban_sdk::Symbol::new(env, "SlippageProtectionTriggered"),),
-            (expected_min, actual),
-        );
-    }
-
     pub fn enter_guard(env: &Env) {
         if env
             .storage()
@@ -644,7 +637,7 @@ impl VolatilityShield {
 
     fn execute_action(
         env: &Env,
-        caller: &Address,
+        _caller: &Address,
         action: &ActionType,
         proposed_at: u64,
     ) -> Result<(), Error> {
@@ -652,8 +645,7 @@ impl VolatilityShield {
         Self::assert_timelock_elapsed(env, proposed_at)?;
         match action {
             ActionType::SetPaused(state) => {
-                env.storage().instance().set(&DataKey::Paused, state);
-                env.events().publish((symbol_short!("Paused"),), state);
+                Self::record_pause_change(env, env.current_contract_address(), *state);
             }
             ActionType::AddStrategy(strategy) => {
                 Self::internal_add_strategy(env, strategy.clone())?;
@@ -821,7 +813,7 @@ impl VolatilityShield {
         from: Address,
         asset: Address,
         amount: i128,
-        min_shares_out: Option<i128>,
+        _min_shares_out: Option<i128>,
     ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
@@ -849,6 +841,13 @@ impl VolatilityShield {
         token::Client::new(&env, &asset).transfer(&from, &env.current_contract_address(), &amount);
 
         let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
+
+        // Slippage check
+        if let Some(min_shares) = min_shares_out {
+            if shares_to_mint < min_shares {
+                panic!("SlippageExceeded: expected min {}, actual {}", min_shares, shares_to_mint);
+            }
+        }
 
         // Track per-asset user balance
         let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
@@ -2075,7 +2074,7 @@ impl VolatilityShield {
             return Self::emit_and_err(&env, Error::NoStrategies);
         }
 
-        let max_failures: u32 = env
+        let _max_failures: u32 = env
             .storage()
             .instance()
             .get(&DataKey::MaxConsecutiveFailures)
@@ -2998,9 +2997,9 @@ impl VolatilityShield {
 
     // ── Emergency Pause ──────────────────────────
     pub fn set_paused(env: Env, state: bool) {
-        Self::require_admin(&env);
-        env.storage().instance().set(&DataKey::Paused, &state);
-        env.events().publish((symbol_short!("Paused"),), state);
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+        Self::record_pause_change(&env, admin, state);
     }
 
     pub fn emergency_shutdown(env: Env, admin: Address) {
@@ -3017,11 +3016,8 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::EmergencyShutdown, &true);
-
-        env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "EmergencyShutdownActivated"),),
-            (admin, env.ledger().timestamp()),
-        );
+        
+        Self::record_pause_change(&env, admin, true);
     }
 
     pub fn emergency_withdraw(env: Env, from: Address) {
