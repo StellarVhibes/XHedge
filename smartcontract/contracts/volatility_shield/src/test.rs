@@ -2509,3 +2509,64 @@ fn test_allowlisted_user_can_deposit() {
     let balance = client.balance(&allowed_user);
     assert!(balance > 0);
 }
+
+#[test]
+fn test_get_vault_summary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    // zero state
+    let summary = client.get_vault_summary();
+    assert_eq!(summary.total_assets, 0);
+    assert_eq!(summary.total_shares, 0);
+    assert_eq!(summary.share_price, 10000); // 1.0 depending on implementation
+    assert_eq!(summary.paused, false);
+
+    // After init and deposit, total_assets and total_shares should reflect changes
+}
+
+#[test]
+fn test_get_user_summary() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    // zero state
+    let summary = client.get_user_summary(&user);
+    assert_eq!(summary.balance, 0);
+    assert_eq!(summary.queued_shares, 0);
+    assert_eq!(summary.voting_power, 0);
+}
+
+#[test]
+fn test_get_governance_summary() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    // After init
+    let admin = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &Address::generate(&env), &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
+    
+    let summary = client.get_governance_summary();
+    assert_eq!(summary.guardians.len(), 1);
+    assert_eq!(summary.threshold, 1);
+    assert_eq!(summary.active_proposal_count, 0);
+}
+
+#[test]
+fn test_get_strategy_summary() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    // zero state
+    let summary = client.get_strategy_summary();
+    assert_eq!(summary.len(), 0);
+}
+
+// Additional tests for partial failure and APY can be added here

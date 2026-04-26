@@ -85,6 +85,36 @@ pub enum DataKey {
     Allowlist,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Deposited {
+    pub depositor: Address,
+    pub amount: i128,
+    pub shares_minted: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Withdrawn {
+    pub withdrawer: Address,
+    pub shares_burned: i128,
+    pub amount_out: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rebalanced {
+    pub total_assets_before: i128,
+    pub total_assets_after: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RebalancePartialFailure {
+    pub failed_strategy: Address,
+    pub reason: soroban_sdk::String,
+}
+
 // ─────────────────────────────────────────────
 // Queued withdrawal struct
 // ─────────────────────────────────────────────
@@ -147,6 +177,18 @@ impl<'a> StrategyClient<'a> {
         );
     }
 
+    pub fn try_deposit(&self, amount: i128) -> Result<(), soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "deposit"),
+            soroban_sdk::vec![self.env, soroban_sdk::IntoVal::into_val(&amount, self.env)],
+        );
+        match res {
+            Ok(Ok(())) => Ok(()),
+            _ => Err(soroban_sdk::String::from_str(self.env, "deposit failed")),
+        }
+    }
+
     pub fn withdraw(&self, amount: i128) {
         self.env.invoke_contract::<()>(
             &self.address,
@@ -155,12 +197,36 @@ impl<'a> StrategyClient<'a> {
         );
     }
 
+    pub fn try_withdraw(&self, amount: i128) -> Result<(), soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "withdraw"),
+            soroban_sdk::vec![self.env, soroban_sdk::IntoVal::into_val(&amount, self.env)],
+        );
+        match res {
+            Ok(Ok(())) => Ok(()),
+            _ => Err(soroban_sdk::String::from_str(self.env, "withdraw failed")),
+        }
+    }
+
     pub fn balance(&self) -> i128 {
         self.env.invoke_contract::<i128>(
             &self.address,
             &soroban_sdk::Symbol::new(self.env, "balance"),
             soroban_sdk::vec![self.env],
         )
+    }
+
+    pub fn try_balance(&self) -> Result<i128, soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<i128, soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "balance"),
+            soroban_sdk::vec![self.env],
+        );
+        match res {
+            Ok(Ok(val)) => Ok(val),
+            _ => Err(soroban_sdk::String::from_str(self.env, "balance failed")),
+        }
     }
 }
 
@@ -697,14 +763,12 @@ impl VolatilityShield {
         let share_price = Self::get_share_price(&env);
 
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "Deposit"), from.clone()),
-            (
-                asset.clone(),
+            (soroban_sdk::Symbol::new(&env, "Deposited"), from.clone()),
+            Deposited {
+                depositor: from.clone(),
                 amount,
-                share_price,
-                new_total_assets,
-                new_total_shares,
-            ),
+                shares_minted: shares_to_mint,
+            },
         );
     }
 
@@ -829,14 +893,12 @@ impl VolatilityShield {
             let share_price = Self::get_share_price(&env);
 
             env.events().publish(
-                (soroban_sdk::Symbol::new(&env, "Deposit"), from.clone()),
-                (
-                    asset.clone(),
+                (soroban_sdk::Symbol::new(&env, "Deposited"), from.clone()),
+                Deposited {
+                    depositor: from.clone(),
                     amount,
-                    share_price,
-                    new_total_assets,
-                    new_total_shares,
-                ),
+                    shares_minted: shares_to_mint,
+                },
             );
 
             results.push_back(true);
@@ -923,8 +985,12 @@ impl VolatilityShield {
         );
 
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "Withdraw"), from),
-            (shares, share_price, new_total_assets, new_total_shares),
+            (soroban_sdk::Symbol::new(&env, "Withdrawn"), from.clone()),
+            Withdrawn {
+                withdrawer: from,
+                shares_burned: shares,
+                amount_out: assets_to_withdraw,
+            },
         );
     }
 
@@ -1064,8 +1130,12 @@ impl VolatilityShield {
             );
 
             env.events().publish(
-                (soroban_sdk::Symbol::new(&env, "Withdraw"), from.clone()),
-                (shares, share_price, new_total_assets, new_total_shares),
+                (soroban_sdk::Symbol::new(&env, "Withdrawn"), from.clone()),
+                Withdrawn {
+                    withdrawer: from.clone(),
+                    shares_burned: shares,
+                    amount_out: assets_to_withdraw,
+                },
             );
 
             results.push_back(true);
@@ -1311,7 +1381,7 @@ impl VolatilityShield {
     ///
     /// When circuit breaker is active, uses LastSafeAllocation instead of current oracle data.
     /// **Access control**: must be called via the multi-sig governance system.
-    fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<(), Error> {
+    fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<u32, Error> {
         let _guard = Guard::new(env);
         Self::check_version(env, 1);
         let admin = Self::read_admin(env);
@@ -1359,19 +1429,30 @@ impl VolatilityShield {
         let token_client = token::Client::new(&env, &asset_addr);
         let vault = env.current_contract_address();
 
-        // Store initial balances for slippage verification
         let mut initial_balances: Map<Address, i128> = Map::new(&env);
-        for (strategy_addr, _) in allocations.iter() {
-            let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            initial_balances.set(strategy_addr.clone(), strategy.balance());
-        }
-
         let total_assets = Self::total_assets(env);
+        let mut successful_strategies: u32 = 0;
 
         // Execute rebalance operations
         for (strategy_addr, bps_allocation) in allocations.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            let current_balance = strategy.balance();
+            
+            let current_balance = match strategy.try_balance() {
+                Ok(bal) => bal,
+                Err(reason) => {
+                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                    env.events().publish(
+                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                        RebalancePartialFailure {
+                            failed_strategy: strategy_addr.clone(),
+                            reason,
+                        },
+                    );
+                    continue;
+                }
+            };
+            
+            initial_balances.set(strategy_addr.clone(), current_balance);
 
             // Convert BPS to absolute target allocation
             let target_allocation = total_assets
@@ -1380,24 +1461,56 @@ impl VolatilityShield {
                 .checked_div(10_000)
                 .unwrap_or(0);
 
+            let mut op_success = true;
+
             if target_allocation > current_balance {
                 // Vault → Strategy
                 let diff = target_allocation - current_balance;
                 token_client.transfer(&vault, &strategy_addr, &diff);
-                strategy.deposit(diff);
+                if let Err(reason) = strategy.try_deposit(diff) {
+                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                    env.events().publish(
+                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                        RebalancePartialFailure {
+                            failed_strategy: strategy_addr.clone(),
+                            reason,
+                        },
+                    );
+                    op_success = false;
+                }
             } else if target_allocation < current_balance {
                 // Strategy → Vault
                 let diff = current_balance - target_allocation;
-                strategy.withdraw(diff);
-                token_client.transfer(&strategy_addr, &vault, &diff);
+                if let Err(reason) = strategy.try_withdraw(diff) {
+                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                    env.events().publish(
+                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                        RebalancePartialFailure {
+                            failed_strategy: strategy_addr.clone(),
+                            reason,
+                        },
+                    );
+                    op_success = false;
+                } else {
+                    token_client.transfer(&strategy_addr, &vault, &diff);
+                }
             }
-            // If equal, do nothing.
+            
+            if op_success {
+                successful_strategies += 1;
+            }
         }
 
         // Verify slippage after all operations
         for (strategy_addr, target_allocation) in allocations.iter() {
+            if !initial_balances.contains_key(strategy_addr.clone()) {
+                continue;
+            }
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            let final_balance = strategy.balance();
+            let final_balance = match strategy.try_balance() {
+                Ok(bal) => bal,
+                Err(_) => continue,
+            };
             let _initial_balance = initial_balances.get(strategy_addr.clone()).unwrap_or(0);
 
             // Calculate expected balance based on target allocation (BPS -> Absolute)
@@ -1435,15 +1548,18 @@ impl VolatilityShield {
             }
         }
 
-        // Emit VaultSnapshot event
+        let total_assets_before = total_assets;
         let final_total_assets = Self::total_assets(env);
-        let final_total_shares = Self::total_shares(env);
+        
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "VaultSnapshot"),),
-            (final_total_assets, final_total_shares, allocations),
+            (soroban_sdk::Symbol::new(&env, "Rebalanced"),),
+            Rebalanced {
+                total_assets_before,
+                total_assets_after: final_total_assets,
+            },
         );
 
-        Ok(())
+        Ok(successful_strategies)
     }
 
     /// Stores new target allocations from the Oracle. Validates timestamp freshness.
