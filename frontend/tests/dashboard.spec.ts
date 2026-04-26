@@ -64,4 +64,20 @@ test.describe('Dashboard', () => {
         await usdBtn.click();
         await expect(usdBtn).toHaveClass(/bg-primary/);
     });
+
+    test('strategy detail modal opens from allocation chart and closes with Escape', async ({ page }) => {
+        await page.goto('/');
+
+        const firstSlice = page.locator('[data-testid^="allocation-slice-"]').first();
+        await expect(firstSlice).toBeVisible({ timeout: 10000 });
+        await firstSlice.click();
+
+        const modal = page.locator('[data-testid="strategy-detail-modal"]');
+        await expect(modal).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('text=Strategy Address')).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('text=Last Harvest Ledger')).toBeVisible({ timeout: 10000 });
+
+        await page.keyboard.press('Escape');
+        await expect(modal).toBeHidden({ timeout: 10000 });
+    });
 });
