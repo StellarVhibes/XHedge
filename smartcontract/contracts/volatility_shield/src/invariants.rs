@@ -97,12 +97,12 @@ proptest! {
         let user = Address::generate(&env);
         stellar_asset_client.mint(&user, &amount);
 
-        client.deposit(&user, &token_id, &amount);
+        client.deposit(&user, &token_id, &amount, &None::<i128>);
         let shares = client.balance(&user);
 
         assert_eq!(client.total_shares(), shares);
 
-        client.withdraw(&user, &shares);
+        client.withdraw(&user, &user, &shares, &None::<i128>);
         assert_eq!(client.balance(&user), 0);
         assert_eq!(client.total_shares(), 0);
     }
@@ -147,7 +147,7 @@ proptest! {
         for &s in deposit_shares.iter() {
             let u = Address::generate(&env);
             client.set_balance(&u, &s);
-            let _ = client.try_queue_withdraw(&u, &s);
+            let _ = client.try_queue_withdraw(&u, &u, &s);
         }
 
         let mut queued = 0;
@@ -253,7 +253,7 @@ proptest! {
         client.set_balance(&user, &0);
         stellar_asset_client.mint(&user, &deposit_amount);
 
-        let res = client.try_deposit(&user, &token_id, &deposit_amount);
+        let res = client.try_deposit(&user, &token_id, &deposit_amount, &None::<i128>);
         if deposit_amount > cap {
             assert!(res.is_err());
         } else {

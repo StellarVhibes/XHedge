@@ -15,7 +15,7 @@ export function NotificationDrawer() {
     setIsOpen,
     markAsRead,
     markAllAsRead,
-    clearNotifications,
+    clearAll,
     addNotification,
   } = useNotifications();
 
@@ -92,7 +92,7 @@ export function NotificationDrawer() {
               variant="ghost"
               size="sm"
               className="text-xs h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={clearNotifications}
+              onClick={clearAll}
             >
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               Clear all

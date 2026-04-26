@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Shield, TrendingUp, RefreshCw, Wallet } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Shield, TrendingUp, TrendingDown, RefreshCw, Wallet, Clock } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { formatNumber } from "@/lib/utils";
+import { useVault } from "@/app/context/VaultContext";
 import { useStaleData } from "@/hooks/use-stale-data";
 import { StaleBadge } from "@/components/StaleBadge";
 import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
@@ -18,8 +19,25 @@ export function VaultOverviewCard() {
   const { state, setData, setLoading } = useStaleData<VaultMetrics>(5 * 60 * 1000);
   const [refreshing, setRefreshing] = useState(false);
 
+  const { 
+    optimisticBalance, 
+    optimisticShares, 
+    hasPending,
+    updateMetrics 
+  } = useVault();
+
   // Real-time vault connection
   const { status, reconnectAttempts, refresh: realtimeRefresh } = useRealtimeVault(address);
+
+  // Sync state data with optimistic metrics provider
+  useEffect(() => {
+    if (state.data) {
+      updateMetrics(
+        state.data.userBalance || "0",
+        state.data.userShares || "0"
+      );
+    }
+  }, [state.data, updateMetrics]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -35,7 +53,8 @@ export function VaultOverviewCard() {
   const totalAssets = parseFloat(metrics?.totalAssets || "0") / 1e7;
   const totalShares = parseFloat(metrics?.totalShares || "0") / 1e7;
   const sharePrice = parseFloat(metrics?.sharePrice || "1.0000000");
-  const userBalance = parseFloat(metrics?.userBalance || "0") / 1e7;
+  const userBalance = optimisticBalance;
+  const displayedShares = optimisticShares;
 
   return (
     <div className="rounded-lg border bg-card p-6 shadow-sm">
@@ -82,6 +101,7 @@ export function VaultOverviewCard() {
           value={formatNumber(totalShares)}
           subtitle="XHS"
           icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
+          pending={hasPending}
         />
 
         <MetricCard
@@ -97,6 +117,7 @@ export function VaultOverviewCard() {
           value={connected ? format(userBalance) : "—"}
           subtitle={connected ? `${metrics?.assetSymbol || "USDC"}` : "Connect wallet"}
           icon={<Wallet className="w-4 h-4 text-muted-foreground" />}
+          pending={hasPending}
         />
       </div>
 
@@ -133,17 +154,23 @@ interface MetricCardProps {
   subtitle: string;
   icon: React.ReactNode;
   highlight?: boolean;
+  pending?: boolean;
 }
 
-function MetricCard({ title, value, subtitle, icon, highlight }: MetricCardProps) {
+function MetricCard({ title, value, subtitle, icon, highlight, pending }: MetricCardProps) {
   return (
-    <div className="flex flex-col gap-2 p-4 rounded-lg bg-muted/50">
+    <div className="flex flex-col gap-2 p-4 rounded-lg bg-muted/50 relative overflow-hidden">
+      {pending && (
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-yellow-500/30 animate-pulse" />
+      )}
       <div className="flex items-center gap-2 text-muted-foreground">
         {icon}
         <span className="text-sm">{title}</span>
+        {pending && <Clock className="w-3 h-3 text-yellow-600 animate-pulse" />}
       </div>
       <div className={`text-2xl font-bold ${highlight ? "text-primary" : "text-foreground"}`}>
         {value}
+        {pending && <span className="text-xs text-yellow-600 ml-1 font-normal">*</span>}
       </div>
       <span className="text-xs text-muted-foreground">{subtitle}</span>
     </div>

@@ -91,4 +91,10 @@ test.describe('Vault Page', () => {
         // Input should be disabled without wallet connection
         await expect(input).toBeDisabled({ timeout: 5000 });
     });
+
+    test('preview section should render and show zero output by default', async ({ page }) => {
+        await page.goto('/vault');
+        await expect(page.getByTestId('vault-preview-section')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByTestId('vault-preview-output')).toContainText('0.0000 shares', { timeout: 10000 });
+    });
 });

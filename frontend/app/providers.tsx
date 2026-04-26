@@ -3,6 +3,7 @@
 import { ThemeProvider } from "next-themes";
 import { NetworkProvider } from "./context/NetworkContext";
 import { FreighterProvider } from "./context/FreighterContext";
+import { VaultProvider } from "./context/VaultContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { PriceProvider } from "./context/PriceContext";
 import { PartnerAuthProvider } from "./context/PartnerAuthContext";
@@ -30,7 +31,9 @@ export function Providers({ children, nonce }: ProvidersProps) {
                 <PriceProvider>
                   <PartnerAuthProvider>
                     <NotificationProvider>
-                      {children}
+                      <VaultProvider>
+                        {children}
+                      </VaultProvider>
                       <NotificationDrawer />
                     </NotificationProvider>
                   </PartnerAuthProvider>

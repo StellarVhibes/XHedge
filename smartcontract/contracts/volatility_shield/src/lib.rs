@@ -1,8 +1,11 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
-    Vec,
+    Symbol, Vec,
 };
+
+const DEFAULT_PROPOSAL_TTL_LEDGERS: u32 = 518_400;
+const SHARE_PRICE_HISTORY_CAP: u32 = 365;
 
 // ─────────────────────────────────────────────
 // Error types
@@ -11,31 +14,92 @@ use soroban_sdk::{
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    /// Operation requires initialized contract state but `init` has not been called yet.
     NotInitialized = 1,
+    /// Operation attempted to initialize state that was already initialized.
     AlreadyInitialized = 2,
+    /// Numeric argument must be non-negative, but a negative value was supplied.
     NegativeAmount = 3,
+    /// Caller lacks required authorization or role privileges.
     Unauthorized = 4,
+    /// Operation requires at least one registered strategy, but none are configured.
     NoStrategies = 5,
+    /// Operation is disabled while contract pause mode is enabled.
     ContractPaused = 6,
+    /// Deposit would exceed per-user or global configured deposit caps.
     DepositCapExceeded = 7,
+    /// Withdrawal would exceed configured withdrawal cap constraints.
     WithdrawalCapExceeded = 8,
+    /// Oracle data is older than the configured staleness window.
     StaleOracleData = 9,
+    /// Supplied timestamp is invalid (future or non-monotonic).
     InvalidTimestamp = 10,
+    /// Rebalance execution exceeded the allowed slippage threshold.
     SlippageExceeded = 11,
+    /// Governance proposal id does not exist in storage.
     ProposalNotFound = 12,
+    /// Guardian already approved this proposal.
     AlreadyApproved = 13,
+    /// Governance proposal has already been executed.
     ProposalExecuted = 14,
+    /// Governance proposal has not reached required approval threshold.
     InsufficientApprovals = 15,
+    /// Governance action timelock period has not elapsed yet.
     TimelockNotElapsed = 16,
+    /// Requested queued withdrawal entry was not found for the user.
     WithdrawalNotFound = 17,
+    /// Queue-dependent operation requires non-empty queue, but queue is empty.
     QueueEmpty = 18,
+    /// Strategy allocation sum must equal 10_000 bps (or be empty) but did not.
     InvalidAllocationSum = 19,
+    /// Individual strategy allocation must be non-negative.
     NegativeAllocation = 20,
+    /// Allocation references a strategy not registered in the vault.
     ZeroAddressStrategy = 21,
+    /// Harvest was attempted before the configured harvest interval elapsed.
     HarvestTooEarly = 22,
+    /// Reentrant invocation was detected while reentrancy guard is active.
     ReentrantCall = 23,
+    /// User is blocked by compliance policy (blocklist/allowlist checks).
     UserBlocked = 24,
+    /// Operation is blocked while the oracle circuit breaker is active.
     CircuitBreakerActive = 25,
+    /// Operation is blocked because emergency shutdown mode is active.
+    EmergencyShutdownActive = 26,
+}
+
+impl Error {
+    /// Returns a short machine-readable symbol for this error.
+    pub fn to_symbol(&self, env: &Env) -> Symbol {
+        match self {
+            Error::NotInitialized => Symbol::new(env, "not_initialized"),
+            Error::AlreadyInitialized => Symbol::new(env, "already_initialized"),
+            Error::NegativeAmount => Symbol::new(env, "negative_amount"),
+            Error::Unauthorized => Symbol::new(env, "unauthorized"),
+            Error::NoStrategies => Symbol::new(env, "no_strategies"),
+            Error::ContractPaused => Symbol::new(env, "contract_paused"),
+            Error::DepositCapExceeded => Symbol::new(env, "deposit_cap_exceeded"),
+            Error::WithdrawalCapExceeded => Symbol::new(env, "withdrawal_cap_exceeded"),
+            Error::StaleOracleData => Symbol::new(env, "stale_oracle_data"),
+            Error::InvalidTimestamp => Symbol::new(env, "invalid_timestamp"),
+            Error::SlippageExceeded => Symbol::new(env, "slippage_exceeded"),
+            Error::ProposalNotFound => Symbol::new(env, "proposal_not_found"),
+            Error::AlreadyApproved => Symbol::new(env, "already_approved"),
+            Error::ProposalExecuted => Symbol::new(env, "proposal_executed"),
+            Error::InsufficientApprovals => Symbol::new(env, "insufficient_approvals"),
+            Error::TimelockNotElapsed => Symbol::new(env, "timelock_not_elapsed"),
+            Error::WithdrawalNotFound => Symbol::new(env, "withdrawal_not_found"),
+            Error::QueueEmpty => Symbol::new(env, "queue_empty"),
+            Error::InvalidAllocationSum => Symbol::new(env, "invalid_allocation_sum"),
+            Error::NegativeAllocation => Symbol::new(env, "negative_allocation"),
+            Error::ZeroAddressStrategy => Symbol::new(env, "zero_address_strategy"),
+            Error::HarvestTooEarly => Symbol::new(env, "harvest_too_early"),
+            Error::ReentrantCall => Symbol::new(env, "reentrant_call"),
+            Error::UserBlocked => Symbol::new(env, "user_blocked"),
+            Error::CircuitBreakerActive => Symbol::new(env, "circuit_breaker_active"),
+            Error::EmergencyShutdownActive => Symbol::new(env, "emergency_shutdown_active"),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -55,6 +119,7 @@ pub enum DataKey {
     Token,
     Balance(Address),
     Paused,
+    EmergencyShutdown,
     ContractVersion,
     MaxDepositPerUser,
     MaxTotalAssets,
@@ -65,10 +130,14 @@ pub enum DataKey {
     Guardians,
     Threshold,
     Proposals,
+    ProposalIds,
     NextProposalId,
+    ProposalTtlLedgers,
     WithdrawQueueThreshold,
     PendingWithdrawals,
     StrategyHealth(Address),
+    /// Admin-configurable consecutive-failure threshold (default: 3).
+    MaxConsecutiveFailures,
     TimelockDuration,
     GovernanceToken,
     AssetBalance(Address, Address),
@@ -83,6 +152,8 @@ pub enum DataKey {
     AllowlistMode,
     Blocklist,
     Allowlist,
+    MaxConsecutiveFailures,
+    SupportedAssets,
 }
 
 #[contracttype]
@@ -122,6 +193,7 @@ pub struct RebalancePartialFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueuedWithdrawal {
     pub user: Address,
+    pub asset: Address,
     pub shares: i128,
     pub timestamp: u64,
 }
@@ -132,6 +204,8 @@ pub enum ActionType {
     SetPaused(bool),
     AddStrategy(Address),
     Rebalance(u32),
+    SetThreshold(u32),
+    AddSupportedAsset(Address),
 }
 
 #[contracttype]
@@ -142,6 +216,7 @@ pub struct Proposal {
     pub action: ActionType,
     pub approvals: Vec<Address>,
     pub executed: bool,
+    pub executed_ledger: u32,
     pub proposed_at: u64,
 }
 
@@ -154,11 +229,18 @@ pub struct StrategyHealth {
     pub last_known_balance: i128,
     pub last_check_timestamp: u64,
     pub is_healthy: bool,
+    pub consecutive_failures: u32,
 }
 
-// ─────────────────────────────────────────────
-// Strategy cross-contract client
-// ─────────────────────────────────────────────
+/// Vote tally for a governance proposal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoteTally {
+    pub yes_votes: i128,
+    pub no_votes: i128,
+}
+
+
 pub struct StrategyClient<'a> {
     env: &'a Env,
     address: Address,
@@ -310,6 +392,21 @@ pub struct VolatilityShield;
 
 #[contractimpl]
 impl VolatilityShield {
+    fn emit_error(env: &Env, error: Error) {
+        env.events()
+            .publish((Symbol::new(env, "Error"), error.to_symbol(env)), ());
+    }
+
+    fn emit_and_err<T>(env: &Env, error: Error) -> Result<T, Error> {
+        Self::emit_error(env, error);
+        Err(error)
+    fn emit_slippage_protection_triggered(env: &Env, expected_min: i128, actual: i128) {
+        env.events().publish(
+            (soroban_sdk::Symbol::new(env, "SlippageProtectionTriggered"),),
+            (expected_min, actual),
+        );
+    }
+
     pub fn enter_guard(env: &Env) {
         if env
             .storage()
@@ -333,12 +430,18 @@ impl VolatilityShield {
     /// This is the first step in the multisig/timelock process.
     /// Only guardians can propose actions.
     pub fn propose_action(env: Env, proposer: Address, action: ActionType) -> Result<u64, Error> {
+        if Self::emergency_shutdown_active(&env) {
+            return Self::emit_and_err(&env, Error::EmergencyShutdownActive);
+        }
+        let _guard = Guard::new(&env);
         proposer.require_auth();
 
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
         if !guardians.contains(proposer.clone()) {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
+
+        Self::prune_old_proposals_internal(&env);
 
         let id = env
             .storage()
@@ -354,14 +457,15 @@ impl VolatilityShield {
             id,
             proposer: proposer.clone(),
             action: action.clone(),
-            approvals: soroban_sdk::vec![&env, proposer],
+            approvals: soroban_sdk::vec![&env, proposer.clone()],
             executed: false,
+            executed_ledger: 0,
             proposed_at,
         };
 
-        // Emit TimelockStarted event
-        env.events()
-            .publish((symbol_short!("Timelock"),), (id, proposed_at));
+        // Emit Governance events
+        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalCreated"),), id);
+        env.events().publish((soroban_sdk::Symbol::new(&env, "TimelockStarted"),), (id, proposed_at));
 
         let threshold: u32 = env
             .storage()
@@ -370,13 +474,14 @@ impl VolatilityShield {
             .unwrap_or(1);
         if threshold <= 1 {
             // Try to execute, but if timelock hasn't elapsed, the proposal will remain unexecuted
-            let res = Self::execute_action(&env, &action, proposed_at);
+            let res = Self::execute_action(&env, &proposer, &action, proposed_at);
             if let Err(e) = res {
                 if e != Error::TimelockNotElapsed {
                     return Err(e);
                 }
             } else {
                 proposal.executed = true;
+                proposal.executed_ledger = env.ledger().sequence();
             }
         }
 
@@ -389,6 +494,15 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::Proposals, &proposals);
+        let mut proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(&env));
+        proposal_ids.push_back(id);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalIds, &proposal_ids);
 
         Ok(id)
     }
@@ -398,6 +512,7 @@ impl VolatilityShield {
     /// If the approval threshold is reached, the action is executed.
     /// Guardians cannot approve the same proposal twice.
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
+        let _guard = Guard::new(&env);
         guardian.require_auth();
 
         let guardians: Vec<Address> = env
@@ -406,8 +521,10 @@ impl VolatilityShield {
             .get(&DataKey::Guardians)
             .ok_or(Error::NotInitialized)?;
         if !guardians.contains(guardian.clone()) {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
+
+        Self::prune_old_proposals_internal(&env);
 
         let mut proposals: Map<u64, Proposal> = env
             .storage()
@@ -417,14 +534,17 @@ impl VolatilityShield {
         let mut proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
 
         if proposal.executed {
-            return Err(Error::ProposalExecuted);
+            return Self::emit_and_err(&env, Error::ProposalExecuted);
         }
 
         if proposal.approvals.contains(guardian.clone()) {
-            return Err(Error::AlreadyApproved);
+            return Self::emit_and_err(&env, Error::AlreadyApproved);
         }
 
-        proposal.approvals.push_back(guardian);
+        proposal.approvals.push_back(guardian.clone());
+
+        // Emit ProposalApproved event
+        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalApproved"), proposal_id), guardian);
 
         let threshold: u32 = env
             .storage()
@@ -432,8 +552,9 @@ impl VolatilityShield {
             .get(&DataKey::Threshold)
             .unwrap_or(1);
         if proposal.approvals.len() >= threshold {
-            Self::execute_action(&env, &proposal.action, proposal.proposed_at)?;
+            Self::execute_action(&env, &guardian, &proposal.action, proposal.proposed_at)?;
             proposal.executed = true;
+            proposal.executed_ledger = env.ledger().sequence();
         }
 
         proposals.set(proposal_id, proposal);
@@ -463,9 +584,57 @@ impl VolatilityShield {
         }
     }
 
-    pub fn cast_vote(_env: Env, _proposal_id: u64, _support: bool) -> Result<(), Error> {
-        // TODO: Implement cast_vote
+    pub fn cast_vote(env: Env, voter: Address, proposal_id: u64, support: bool) -> Result<(), Error> {
+        voter.require_auth();
+
+        // Proposal must exist and not be executed
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .ok_or(Error::NotInitialized)?;
+        let proposal = proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
+        if proposal.executed {
+            return Err(Error::ProposalExecuted);
+        }
+
+        // Each address may only vote once per proposal
+        let vote_key = DataKey::VoteRecord(proposal_id, voter.clone());
+        if env.storage().instance().has(&vote_key) {
+            return Err(Error::AlreadyApproved);
+        }
+        env.storage().instance().set(&vote_key, &true);
+
+        // Tally the vote, weighted by voting power
+        let voting_power = Self::get_voting_power(env.clone(), voter.clone());
+        let tally_key = DataKey::VoteTally(proposal_id);
+        let mut tally: VoteTally = env
+            .storage()
+            .instance()
+            .get(&tally_key)
+            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 });
+
+        if support {
+            tally.yes_votes = tally.yes_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+        } else {
+            tally.no_votes = tally.no_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+        }
+        env.storage().instance().set(&tally_key, &tally);
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "VoteCast"), voter),
+            (proposal_id, support, voting_power),
+        );
+
         Ok(())
+    }
+
+    /// Get the current vote tally for a proposal.
+    pub fn get_vote_tally(env: Env, proposal_id: u64) -> VoteTally {
+        env.storage()
+            .instance()
+            .get(&DataKey::VoteTally(proposal_id))
+            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 })
     }
 
     /// Add a new guardian to the multisig.
@@ -520,7 +689,7 @@ impl VolatilityShield {
             .get(&DataKey::Guardians)
             .unwrap_or(Vec::new(&env));
         if threshold == 0 || threshold > guardians.len() {
-            return Err(Error::Unauthorized);
+            return Self::emit_and_err(&env, Error::Unauthorized);
         }
         env.storage()
             .instance()
@@ -530,14 +699,18 @@ impl VolatilityShield {
         Ok(())
     }
 
-    fn execute_action(env: &Env, action: &ActionType, proposed_at: u64) -> Result<(), Error> {
+    fn execute_action(
+        env: &Env,
+        caller: &Address,
+        action: &ActionType,
+        proposed_at: u64,
+    ) -> Result<(), Error> {
         // Check if timelock has elapsed
         Self::assert_timelock_elapsed(env, proposed_at)?;
         match action {
             ActionType::SetPaused(state) => {
                 env.storage().instance().set(&DataKey::Paused, state);
-                env.events()
-                    .publish((soroban_sdk::Symbol::new(env, "Paused"),), state);
+                env.events().publish((symbol_short!("Paused"),), state);
             }
             ActionType::AddStrategy(strategy) => {
                 Self::internal_add_strategy(env, strategy.clone())?;
@@ -545,10 +718,17 @@ impl VolatilityShield {
             ActionType::Rebalance(max_slippage) => {
                 Self::internal_rebalance(env, *max_slippage)?;
             }
+            ActionType::SetThreshold(threshold) => {
+                env.storage().instance().set(&DataKey::Threshold, threshold);
+            }
+            ActionType::AddSupportedAsset(asset) => {
+                Self::add_supported_asset(env.clone(), asset.clone());
+            }
         }
 
         // Emit TimelockExecuted event
-        env.events().publish((symbol_short!("TlockExec"),), ());
+        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalExecuted"),), ());
+        env.events().publish((soroban_sdk::Symbol::new(&env, "TimelockExecuted"),), ());
 
         Ok(())
     }
@@ -569,7 +749,7 @@ impl VolatilityShield {
         let elapsed = now.checked_sub(proposed_at).unwrap_or(0);
 
         if elapsed < timelock_duration {
-            return Err(Error::TimelockNotElapsed);
+            return Self::emit_and_err(env, Error::TimelockNotElapsed);
         }
 
         Ok(())
@@ -598,7 +778,7 @@ impl VolatilityShield {
         threshold: u32,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
-            return Err(Error::AlreadyInitialized);
+            return Self::emit_and_err(&env, Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Asset, &asset);
@@ -611,6 +791,9 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::FeePercentage, &fee_percentage);
         env.storage().instance().set(&DataKey::Token, &asset);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyShutdown, &false);
 
         // Initialize maps and durations
         env.storage()
@@ -618,10 +801,20 @@ impl VolatilityShield {
             .set(&DataKey::Proposals, &Map::<u64, Proposal>::new(&env));
         env.storage()
             .instance()
+            .set(&DataKey::ProposalIds, &Vec::<u64>::new(&env));
+        env.storage()
+            .instance()
             .set(&DataKey::TimelockDuration, &0_u64);
         env.storage()
             .instance()
             .set(&DataKey::NextProposalId, &1_u64);
+            
+        // Multi-asset initialization
+        let mut supported = Vec::new(&env);
+        supported.push_back(asset.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::SupportedAssets, &supported);
 
         // Initialize vault state to zero
         env.storage().instance().set(&DataKey::TotalAssets, &0_i128);
@@ -655,17 +848,25 @@ impl VolatilityShield {
     /// Deposit assets into the vault.
     /// If asset is not the default/primary asset, it must be in the accepted assets list.
     /// The user will receive shares in return, proportional to the current share price.
-    /// 
+    ///
     /// Compliance checks:
     /// - If blocklist mode is active, blocked users cannot deposit
     /// - If allowlist mode is active, only allowlisted users can deposit
-    /// 
+    ///
     /// @param from The address of the user depositing.
     /// @param asset The address of the asset being deposited.
     /// @param amount The amount of assets to deposit.
-    pub fn deposit(env: Env, from: Address, asset: Address, amount: i128) {
+    /// @param min_shares_out Optional minimum acceptable shares to mint.
+    pub fn deposit(
+        env: Env,
+        from: Address,
+        asset: Address,
+        amount: i128,
+        min_shares_out: Option<i128>,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
+        Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("deposit amount must be positive");
@@ -678,14 +879,17 @@ impl VolatilityShield {
         }
 
         // Verify asset is accepted
-        if !Self::is_accepted_asset(env.clone(), asset.clone()) {
+        if !Self::is_supported_asset(&env, &asset) {
             panic!("asset not accepted");
         }
+
+        let price = Self::get_asset_price(&env, &asset);
+        let value_deposited = amount.checked_mul(price).unwrap().checked_div(1_000_000_000).unwrap();
 
         // Transfer the asset from user to contract
         token::Client::new(&env, &asset).transfer(&from, &env.current_contract_address(), &amount);
 
-        let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
+        let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
 
         // Track per-asset user balance
         let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
@@ -715,15 +919,15 @@ impl VolatilityShield {
             panic!("DepositCapExceeded: per-user deposit cap exceeded");
         }
 
-        let total_assets = Self::total_assets(&env);
-        let new_total_assets = total_assets.checked_add(amount).unwrap();
+        let total_assets_value = Self::total_assets(&env);
+        let new_total_assets_value = total_assets_value.checked_add(value_deposited).unwrap();
 
         let max_total_assets: i128 = env
             .storage()
             .instance()
             .get(&DataKey::MaxTotalAssets)
             .unwrap_or(i128::MAX);
-        if new_total_assets > max_total_assets {
+        if new_total_assets_value > max_total_assets {
             env.events().publish(
                 (soroban_sdk::Symbol::new(&env, "DepositCapExceeded"),),
                 amount,
@@ -755,10 +959,9 @@ impl VolatilityShield {
 
         let total_shares = Self::total_shares(&env);
         let new_total_shares = total_shares.checked_add(shares_to_mint).unwrap();
-        let new_total_assets = total_assets.checked_add(amount).unwrap();
 
         Self::set_total_shares(env.clone(), new_total_shares);
-        Self::set_total_assets(env.clone(), new_total_assets);
+        env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
 
         let share_price = Self::get_share_price(&env);
 
@@ -769,7 +972,13 @@ impl VolatilityShield {
                 amount,
                 shares_minted: shares_to_mint,
             },
+                share_price,
+                new_total_assets_value,
+                new_total_shares,
+            ),
         );
+
+        Ok(())
     }
 
     // ── Batch Deposit ─────────────────────────
@@ -778,6 +987,7 @@ impl VolatilityShield {
     /// Validates each operation independently. Failed operations are skipped and do not revert the batch.
     pub fn batch_deposit(env: Env, operations: Vec<(Address, Address, i128)>) -> Vec<bool> {
         Self::check_version(&env, 1);
+        Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
         Self::require_admin(&env);
 
@@ -800,7 +1010,7 @@ impl VolatilityShield {
                 continue;
             }
 
-            if !Self::is_accepted_asset(env.clone(), asset.clone()) {
+            if !Self::is_supported_asset(&env, asset) {
                 env.events().publish(
                     (symbol_short!("BatchDep"), symbol_short!("Fail")),
                     (
@@ -814,7 +1024,9 @@ impl VolatilityShield {
                 continue;
             }
 
-            let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
+            let price = Self::get_asset_price(&env, asset);
+            let value_deposited = amount.checked_mul(price).unwrap().checked_div(1_000_000_000).unwrap();
+            let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
 
             let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
             let current_asset_balance: i128 = env
@@ -822,7 +1034,6 @@ impl VolatilityShield {
                 .persistent()
                 .get(&asset_balance_key)
                 .unwrap_or(0);
-            let new_asset_balance = current_asset_balance.checked_add(shares_to_mint).unwrap();
 
             let balance_key = DataKey::Balance(from.clone());
             let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -842,15 +1053,15 @@ impl VolatilityShield {
                 continue;
             }
 
-            let total_assets = Self::total_assets(&env);
-            let new_total_assets = total_assets.checked_add(amount).unwrap();
+            let total_assets_value = Self::total_assets(&env);
+            let new_total_assets_value = total_assets_value.checked_add(value_deposited).unwrap();
 
             let max_total_assets: i128 = env
                 .storage()
                 .instance()
                 .get(&DataKey::MaxTotalAssets)
                 .unwrap_or(i128::MAX);
-            if new_total_assets > max_total_assets {
+            if new_total_assets_value > max_total_assets {
                 env.events().publish(
                     (symbol_short!("BatchDep"), symbol_short!("Fail")),
                     (from.clone(), asset.clone(), amount, symbol_short!("GlbCap")),
@@ -869,7 +1080,7 @@ impl VolatilityShield {
             // Update state
             env.storage()
                 .persistent()
-                .set(&asset_balance_key, &new_asset_balance);
+                .set(&asset_balance_key, &(current_asset_balance + shares_to_mint));
             env.storage()
                 .persistent()
                 .set(&balance_key, &new_user_balance);
@@ -888,7 +1099,7 @@ impl VolatilityShield {
             let new_total_shares = total_shares.checked_add(shares_to_mint).unwrap();
 
             Self::set_total_shares(env.clone(), new_total_shares);
-            Self::set_total_assets(env.clone(), new_total_assets);
+            env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
 
             let share_price = Self::get_share_price(&env);
 
@@ -899,6 +1110,10 @@ impl VolatilityShield {
                     amount,
                     shares_minted: shares_to_mint,
                 },
+                    share_price,
+                    new_total_assets_value,
+                    new_total_shares,
+                ),
             );
 
             results.push_back(true);
@@ -911,16 +1126,18 @@ impl VolatilityShield {
     ///
     /// The user burns shares and receives a proportional amount of assets.
     /// If the withdrawal amount exceeds the queue threshold, it is queued instead.
+    /// @param caller The owner or approved delegate authorizing the withdrawal.
     /// @param from The address of the user withdrawing.
+    /// @param asset The address of the asset to withdraw.
     /// @param shares The amount of shares to burn.
-    pub fn withdraw(env: Env, from: Address, shares: i128) {
+    pub fn withdraw(env: Env, from: Address, asset: Address, shares: i128) {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
         }
-        from.require_auth();
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
 
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -929,7 +1146,17 @@ impl VolatilityShield {
             panic!("insufficient shares for withdrawal");
         }
 
-        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+        if !Self::is_supported_asset(&env, &asset) {
+            panic!("unsupported asset");
+        }
+
+        let assets_to_withdraw_value = Self::convert_to_assets(env.clone(), shares);
+        let asset_price = Self::get_asset_price(&env, &asset);
+        let token_units_to_withdraw = assets_to_withdraw_value
+            .checked_mul(1_000_000_000)
+            .unwrap()
+            .checked_div(asset_price)
+            .unwrap();
 
         // --- Withdraw Caps Validation ---
         let max_withdraw_per_tx: i128 = env
@@ -937,10 +1164,10 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::MaxWithdrawPerTx)
             .unwrap_or(i128::MAX);
-        if assets_to_withdraw > max_withdraw_per_tx {
+        if assets_to_withdraw_value > max_withdraw_per_tx {
             env.events().publish(
                 (soroban_sdk::Symbol::new(&env, "WithdrawCapExceeded"),),
-                assets_to_withdraw,
+                assets_to_withdraw_value,
             );
             panic!("WithdrawalCapExceeded: per-tx withdrawal cap exceeded");
         }
@@ -952,36 +1179,43 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::WithdrawQueueThreshold)
             .unwrap_or(i128::MAX);
-        if assets_to_withdraw > queue_threshold {
+        if assets_to_withdraw_value > queue_threshold {
             // Queue the withdrawal instead of processing immediately
-            Self::internal_queue_withdraw(env.clone(), from, shares);
+            Self::internal_queue_withdraw(env.clone(), from, asset, shares);
             return;
         }
 
         let total_shares = Self::total_shares(&env);
-        let total_assets = Self::total_assets(&env);
+        let total_assets_value = Self::total_assets(&env);
 
         let new_total_shares = total_shares.checked_sub(shares).unwrap();
-        let new_total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
+        let new_total_assets_value = total_assets_value.checked_sub(assets_to_withdraw_value).unwrap();
         let new_user_balance = current_balance.checked_sub(shares).unwrap();
 
         Self::set_total_shares(env.clone(), new_total_shares);
-        Self::set_total_assets(env.clone(), new_total_assets);
+        
+        // Update per-asset accounting
+        let asset_total: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
+        env.storage().instance().set(&DataKey::AssetTotalAssets(asset.clone()), &(asset_total - token_units_to_withdraw));
+        env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+
         env.storage()
             .persistent()
             .set(&balance_key, &new_user_balance);
+            
+        // Update per-asset user balance
+        let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
+        let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
 
         let share_price = Self::get_share_price(&env);
 
-        let token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .expect("Token not initialized");
-        token::Client::new(&env, &token).transfer(
+        token::Client::new(&env, &asset).transfer(
             &env.current_contract_address(),
             &from,
-            &assets_to_withdraw,
+            &token_units_to_withdraw,
         );
 
         env.events().publish(
@@ -992,13 +1226,15 @@ impl VolatilityShield {
                 amount_out: assets_to_withdraw,
             },
         );
+
+        Ok(())
     }
 
     // ── Batch Withdraw ─────────────────────────
     /// Process multiple withdraw operations in a single transaction.
     ///
     /// Validates each operation independently. Failed operations are skipped and do not revert the batch.
-    pub fn batch_withdraw(env: Env, operations: Vec<(Address, i128)>) -> Vec<bool> {
+    pub fn batch_withdraw(env: Env, operations: Vec<(Address, Address, i128)>) -> Vec<bool> {
         Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
         Self::require_admin(&env);
@@ -1006,12 +1242,21 @@ impl VolatilityShield {
         let mut results = Vec::new(&env);
 
         for op in operations.iter() {
-            let (from, shares) = op;
+            let (from, asset, shares) = op;
 
             if shares <= 0 {
                 env.events().publish(
                     (symbol_short!("BatchWd"), symbol_short!("Fail")),
                     (from.clone(), shares, symbol_short!("Zero")),
+                );
+                results.push_back(false);
+                continue;
+            }
+
+            if !Self::is_supported_asset(&env, asset) {
+                env.events().publish(
+                    (symbol_short!("BatchWd"), symbol_short!("Fail")),
+                    (from.clone(), shares, symbol_short!("BadAsset")),
                 );
                 results.push_back(false);
                 continue;
@@ -1029,14 +1274,20 @@ impl VolatilityShield {
                 continue;
             }
 
-            let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+            let assets_to_withdraw_value = Self::convert_to_assets(env.clone(), shares);
+            let asset_price = Self::get_asset_price(&env, asset);
+            let token_units_to_withdraw = assets_to_withdraw_value
+                .checked_mul(1_000_000_000)
+                .unwrap()
+                .checked_div(asset_price)
+                .unwrap();
 
             let max_withdraw_per_tx: i128 = env
                 .storage()
                 .instance()
                 .get(&DataKey::MaxWithdrawPerTx)
                 .unwrap_or(i128::MAX);
-            if assets_to_withdraw > max_withdraw_per_tx {
+            if assets_to_withdraw_value > max_withdraw_per_tx {
                 env.events().publish(
                     (symbol_short!("BatchWd"), symbol_short!("Fail")),
                     (from.clone(), shares, symbol_short!("CapExcd")),
@@ -1050,7 +1301,7 @@ impl VolatilityShield {
                 .instance()
                 .get(&DataKey::WithdrawQueueThreshold)
                 .unwrap_or(i128::MAX);
-            if assets_to_withdraw > queue_threshold {
+            if assets_to_withdraw_value > queue_threshold {
                 let existing: Vec<QueuedWithdrawal> = env
                     .storage()
                     .instance()
@@ -1068,6 +1319,7 @@ impl VolatilityShield {
 
                 let queued_withdrawal = QueuedWithdrawal {
                     user: from.clone(),
+                    asset: asset.clone(),
                     shares,
                     timestamp: env.ledger().timestamp(),
                 };
@@ -1076,6 +1328,13 @@ impl VolatilityShield {
                 env.storage()
                     .persistent()
                     .set(&balance_key, &new_user_balance);
+                    
+                // Update per-asset user balance
+                let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
+                let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
+                env.storage()
+                    .persistent()
+                    .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
 
                 let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
                     .storage()
@@ -1096,7 +1355,7 @@ impl VolatilityShield {
                         soroban_sdk::Symbol::new(&env, "WithdrawQueued"),
                         from.clone(),
                     ),
-                    (shares, share_price, total_assets, total_shares),
+                    (asset.clone(), shares, share_price, total_assets, total_shares),
                 );
 
                 results.push_back(true);
@@ -1104,29 +1363,40 @@ impl VolatilityShield {
             }
 
             let total_shares = Self::total_shares(&env);
-            let total_assets = Self::total_assets(&env);
+            let total_assets_value = Self::total_assets(&env);
 
             let new_total_shares = total_shares.checked_sub(shares).unwrap();
-            let new_total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
+            let new_total_assets_value = total_assets_value.checked_sub(assets_to_withdraw_value).unwrap();
             let new_user_balance = current_balance.checked_sub(shares).unwrap();
 
             Self::set_total_shares(env.clone(), new_total_shares);
-            Self::set_total_assets(env.clone(), new_total_assets);
+            
+            let asset_total: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(
+                    &DataKey::AssetTotalAssets(asset.clone()),
+                    &(asset_total - token_units_to_withdraw),
+                );
+            env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+
             env.storage()
                 .persistent()
                 .set(&balance_key, &new_user_balance);
+                
+            // Update per-asset user balance
+            let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
+            let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
 
             let share_price = Self::get_share_price(&env);
 
-            let token: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::Token)
-                .expect("Token not initialized");
-            token::Client::new(&env, &token).transfer(
+            token::Client::new(&env, &asset).transfer(
                 &env.current_contract_address(),
                 &from,
-                &assets_to_withdraw,
+                &token_units_to_withdraw,
             );
 
             env.events().publish(
@@ -1147,19 +1417,21 @@ impl VolatilityShield {
     /// Queue a withdrawal request for processing later.
     ///
     /// This is called automatically by withdraw() when the amount exceeds the threshold.
+    /// @param caller The owner or approved delegate authorizing the queue request.
     /// @param from The address of the user withdrawing.
+    /// @param asset The address of the asset being withdrawn.
     /// @param shares The amount of shares to burn.
-    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+    pub fn queue_withdraw(env: Env, from: Address, asset: Address, shares: i128) {
         let _guard = Guard::new(&env);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to queue must be positive");
         }
         from.require_auth();
-        Self::internal_queue_withdraw(env.clone(), from, shares);
+        Self::internal_queue_withdraw(env.clone(), from, asset, shares);
     }
 
-    fn internal_queue_withdraw(env: Env, from: Address, shares: i128) {
+    fn internal_queue_withdraw(env: Env, from: Address, asset: Address, shares: i128) {
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
@@ -1194,6 +1466,7 @@ impl VolatilityShield {
         // Create queued withdrawal entry
         let queued_withdrawal = QueuedWithdrawal {
             user: from.clone(),
+            asset: asset.clone(),
             shares,
             timestamp: env.ledger().timestamp(),
         };
@@ -1225,7 +1498,7 @@ impl VolatilityShield {
                 soroban_sdk::Symbol::new(&env, "WithdrawQueued"),
                 from.clone(),
             ),
-            (shares, share_price, total_assets, total_shares),
+            (asset.clone(), shares, share_price, total_assets, total_shares),
         );
     }
 
@@ -1372,6 +1645,35 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Approve a delegate that may execute withdrawals on behalf of `owner`.
+    pub fn set_delegate(env: Env, owner: Address, delegate: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Delegate(owner.clone()), &delegate);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
+            (owner, delegate),
+        );
+    }
+
+    /// Remove the approved delegate for `owner`.
+    pub fn remove_delegate(env: Env, owner: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(owner.clone()));
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateRemoved"),),
+            (owner,),
+        );
+    }
+
+    /// Return the approved delegate for `owner`, if one is set.
+    pub fn get_delegate(env: Env, owner: Address) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Delegate(owner))
+    }
+
     // ── Rebalance ─────────────────────────────
     /// Move funds between strategies according to `allocations`.
     ///
@@ -1384,6 +1686,9 @@ impl VolatilityShield {
     fn internal_rebalance(env: &Env, max_slippage_bps: u32) -> Result<u32, Error> {
         let _guard = Guard::new(env);
         Self::check_version(env, 1);
+        if Self::emergency_shutdown_active(env) {
+            return Self::emit_and_err(env, Error::EmergencyShutdownActive);
+        }
         let admin = Self::read_admin(env);
         let oracle = Self::get_oracle(env);
 
@@ -1416,7 +1721,7 @@ impl VolatilityShield {
             if now > last_update.saturating_add(max_staleness) {
                 env.events()
                     .publish((soroban_sdk::Symbol::new(env, "OracleStale"),), last_update);
-                return Err(Error::StaleOracleData);
+                return Self::emit_and_err(env, Error::StaleOracleData);
             }
 
             env.storage()
@@ -1543,7 +1848,7 @@ impl VolatilityShield {
                             slippage_bps,
                         ),
                     );
-                    return Err(Error::SlippageExceeded);
+                    return Self::emit_and_err(&env, Error::SlippageExceeded);
                 }
             }
         }
@@ -1558,6 +1863,7 @@ impl VolatilityShield {
                 total_assets_after: final_total_assets,
             },
         );
+        Self::record_share_price_snapshot(env);
 
         Ok(successful_strategies)
     }
@@ -1574,7 +1880,7 @@ impl VolatilityShield {
 
         let now = env.ledger().timestamp();
         if timestamp > now {
-            return Err(Error::InvalidTimestamp);
+            return Self::emit_and_err(&env, Error::InvalidTimestamp);
         }
 
         let last_timestamp = env
@@ -1583,7 +1889,7 @@ impl VolatilityShield {
             .get(&DataKey::OracleLastUpdate)
             .unwrap_or(0u64);
         if timestamp <= last_timestamp {
-            return Err(Error::InvalidTimestamp);
+            return Self::emit_and_err(&env, Error::InvalidTimestamp);
         }
 
         // Validate allocations before storing
@@ -1634,12 +1940,12 @@ impl VolatilityShield {
         for (strategy_addr, allocation) in allocations.iter() {
             // Guard 1: strategy must be in the on-chain registry.
             if !registered.contains(strategy_addr.clone()) {
-                return Err(Error::ZeroAddressStrategy);
+                return Self::emit_and_err(env, Error::ZeroAddressStrategy);
             }
 
             // Guard 2: individual allocation must be non-negative.
             if allocation < 0 {
-                return Err(Error::NegativeAllocation);
+                return Self::emit_and_err(env, Error::NegativeAllocation);
             }
 
             // Accumulate; saturate at i128::MAX on overflow (caught by sum check below).
@@ -1649,7 +1955,7 @@ impl VolatilityShield {
         // Guard 3: non-empty allocations must sum exactly to 100% (10 000 bps).
         // An empty map (total_bps == 0) is allowed for initialization / reset.
         if total_bps != 0 && total_bps != 10_000 {
-            return Err(Error::InvalidAllocationSum);
+            return Self::emit_and_err(env, Error::InvalidAllocationSum);
         }
 
         Ok(())
@@ -1663,9 +1969,15 @@ impl VolatilityShield {
     }
 
     // ── Strategy Management ───────────────────
+    /// Internal: add a strategy after it has passed the multi-sig proposal flow.
+    ///
+    /// This function is ONLY reachable via `execute_action(ActionType::AddStrategy(...))`,
+    /// which itself requires a guardian proposal + threshold approvals + timelock.
+    /// Direct admin calls are intentionally not possible — the two-step governance
+    /// approval is the sole entry point, satisfying the whitelist requirement.
     fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
         Self::check_version(env, 1);
-        Self::require_admin(env);
+        // No require_admin here — access is enforced by the proposal/approval flow above.
 
         let mut strategies: Vec<Address> = env
             .storage()
@@ -1673,7 +1985,7 @@ impl VolatilityShield {
             .get(&DataKey::Strategies)
             .unwrap_or(Vec::new(&env));
         if strategies.contains(strategy.clone()) {
-            return Err(Error::AlreadyInitialized);
+            return Self::emit_and_err(env, Error::AlreadyInitialized);
         }
         strategies.push_back(strategy.clone());
         env.storage()
@@ -1686,6 +1998,7 @@ impl VolatilityShield {
             last_known_balance: 0,
             last_check_timestamp: env.ledger().timestamp(),
             is_healthy: true,
+            consecutive_failures: 0,
         };
         env.storage().instance().set(&health_key, &default_health);
 
@@ -1757,7 +2070,7 @@ impl VolatilityShield {
             .unwrap_or(0);
         if interval > 0 {
             if !Self::can_harvest(env.clone()) {
-                return Err(Error::HarvestTooEarly);
+                return Self::emit_and_err(&env, Error::HarvestTooEarly);
             }
             let current = env.ledger().sequence();
             env.storage()
@@ -1774,7 +2087,7 @@ impl VolatilityShield {
 
         let strategies = Self::get_strategies(&env);
         if strategies.is_empty() {
-            return Err(Error::NoStrategies);
+            return Self::emit_and_err(&env, Error::NoStrategies);
         }
 
         let current_ledger = env.ledger().sequence();
@@ -1788,15 +2101,15 @@ impl VolatilityShield {
                 balance: before_balance,
                 ledger: current_ledger,
             };
-            
+
             let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
-            let mut history: YieldHistory = env
-                .storage()
-                .instance()
-                .get(&history_key)
-                .unwrap_or(YieldHistory {
-                    snapshots: Vec::new(&env),
-                });
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
             history.snapshots.push_back(snapshot);
             env.storage().instance().set(&history_key, &history);
         }
@@ -1825,21 +2138,22 @@ impl VolatilityShield {
                 balance: after_balance,
                 ledger: current_ledger,
             };
-            
+
             let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
-            let mut history: YieldHistory = env
-                .storage()
-                .instance()
-                .get(&history_key)
-                .unwrap_or(YieldHistory {
-                    snapshots: Vec::new(&env),
-                });
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
             history.snapshots.push_back(snapshot);
             env.storage().instance().set(&history_key, &history);
         }
 
         let total_assets_after = Self::total_assets(&env);
         let total_shares_after = Self::total_shares(&env);
+        Self::record_share_price_snapshot(&env);
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "Harvest"),),
             (total_yield, total_assets_after, total_shares_after),
@@ -1857,8 +2171,14 @@ impl VolatilityShield {
 
         let strategies = Self::get_strategies(&env);
         if strategies.is_empty() {
-            return Err(Error::NoStrategies);
+            return Self::emit_and_err(&env, Error::NoStrategies);
         }
+
+        let max_failures: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3);
 
         let mut unhealthy_strategies = Vec::new(&env);
         let current_time = env.ledger().timestamp();
@@ -1886,7 +2206,7 @@ impl VolatilityShield {
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let current_health =
+            let mut current_health: StrategyHealth =
                 env.storage()
                     .instance()
                     .get(&health_key)
@@ -1894,7 +2214,15 @@ impl VolatilityShield {
                         last_known_balance: expected_balance,
                         last_check_timestamp: current_time,
                         is_healthy: true,
+                        consecutive_failures: 0,
                     });
+
+            // Get max consecutive failures threshold
+            let max_failures: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::MaxConsecutiveFailures)
+                .unwrap_or(3);
 
             // Check if strategy is unhealthy (significant deviation from expected)
             let balance_deviation = if expected_balance > 0 {
@@ -1906,27 +2234,67 @@ impl VolatilityShield {
                 false
             };
 
-            let is_healthy = !balance_deviation;
+            let currently_failed = balance_deviation;
+            let mut consecutive_failures = current_health.consecutive_failures;
+            let mut is_healthy = current_health.is_healthy;
+
+            if currently_failed {
+                consecutive_failures += 1;
+                if consecutive_failures >= max_failures {
+                    is_healthy = false;
+                    // Auto-flag event
+                    env.events().publish(
+                        (symbol_short!("StrategyF"), strategy_addr.clone()),
+                        current_time,
+                    );
+                }
+            } else {
+                consecutive_failures = 0;
+                // Note: We don't automatically set is_healthy = true here if it was false.
+                // Re-enabling a strategy usually requires manual administrative review
+                // or a specific recovery process. But as per requirements:
+                // "Reset counter to 0 on a successful balance check"
+                // "A single recovery resets the counter"
+            }
 
             // Update health data if changed
             if is_healthy != current_health.is_healthy
+                || consecutive_failures != current_health.consecutive_failures
                 || actual_balance != current_health.last_known_balance
             {
                 let new_health = StrategyHealth {
                     last_known_balance: actual_balance,
                     last_check_timestamp: current_time,
                     is_healthy,
+                    consecutive_failures,
                 };
                 env.storage().instance().set(&health_key, &new_health);
             }
 
-            // If unhealthy, add to list for flagging
-            if !is_healthy {
                 unhealthy_strategies.push_back(strategy_addr.clone());
+            } else {
+                // ── Successful check: reset strike counter ───────────────
+                current_health.consecutive_failures = 0;
             }
+
+            // Always refresh balance and timestamp
+            current_health.last_known_balance = actual_balance;
+            current_health.last_check_timestamp = current_time;
+
+            env.storage().instance().set(&health_key, &current_health);
         }
 
         Ok(unhealthy_strategies)
+    }
+
+    /// Set the maximum number of consecutive failures before auto-flagging a strategy.
+    pub fn set_max_consecutive_failures(env: Env, threshold: u32) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxConsecutiveFailures, &threshold);
+        env.events()
+            .publish((symbol_short!("MaxFail"),), threshold);
     }
 
     /// Manually flag a strategy as unhealthy.
@@ -1939,17 +2307,28 @@ impl VolatilityShield {
         // Verify strategy exists
         let strategies = Self::get_strategies(&env);
         if !strategies.contains(strategy.clone()) {
-            return Err(Error::NotInitialized);
+            return Self::emit_and_err(&env, Error::NotInitialized);
         }
 
         let health_key = DataKey::StrategyHealth(strategy.clone());
         let current_time = env.ledger().timestamp();
 
-        // Update health to unhealthy
+        // Update health to unhealthy, preserving the existing counter
+        let existing: StrategyHealth = env
+            .storage()
+            .instance()
+            .get(&health_key)
+            .unwrap_or(StrategyHealth {
+                last_known_balance: 0,
+                last_check_timestamp: current_time,
+                is_healthy: true,
+                consecutive_failures: 0,
+            });
         let updated_health = StrategyHealth {
-            last_known_balance: 0, // Will be updated on next health check
+            last_known_balance: existing.last_known_balance,
             last_check_timestamp: current_time,
             is_healthy: false,
+            consecutive_failures: 0,
         };
 
         env.storage().instance().set(&health_key, &updated_health);
@@ -1973,7 +2352,7 @@ impl VolatilityShield {
         let strategy_index = strategies.iter().position(|s| s == strategy);
 
         if strategy_index.is_none() {
-            return Err(Error::NotInitialized);
+            return Self::emit_and_err(&env, Error::NotInitialized);
         }
 
         // Withdraw all funds from strategy first
@@ -2022,6 +2401,30 @@ impl VolatilityShield {
             .get(&DataKey::StrategyHealth(strategy))
     }
 
+    /// Set the number of consecutive failed balance checks before a strategy is
+    /// auto-flagged as unhealthy.  Defaults to 3 when not configured.
+    /// Only the admin can call this.
+    pub fn set_max_consecutive_failures(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        if threshold == 0 {
+            return Err(Error::NegativeAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxConsecutiveFailures, &threshold);
+        env.events()
+            .publish((symbol_short!("MaxFail"),), threshold);
+        Ok(())
+    }
+
+    /// Return the currently configured consecutive-failure threshold (default: 3).
+    pub fn get_max_consecutive_failures(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3)
+    }
+
     /// Calculate annualized percentage yield (APY) for a strategy.
     ///
     /// APY is calculated from yield snapshots over the specified number of periods.
@@ -2034,7 +2437,7 @@ impl VolatilityShield {
     pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> i128 {
         let history_key = DataKey::StrategyYieldSnapshot(strategy.clone());
         let history: Option<YieldHistory> = env.storage().instance().get(&history_key);
-        
+
         match history {
             Some(h) if h.snapshots.len() >= 2 => {
                 let snapshots = h.snapshots;
@@ -2072,14 +2475,18 @@ impl VolatilityShield {
                 }
 
                 // Calculate growth rate
-                let growth = end_balance.checked_mul(10_000).unwrap().checked_div(start_balance).unwrap();
+                let growth = end_balance
+                    .checked_mul(10_000)
+                    .unwrap()
+                    .checked_div(start_balance)
+                    .unwrap();
                 let growth_bps = growth.saturating_sub(10_000);
 
                 // Annualize: assume ~10 ledgers per second on Stellar testnet
                 // This is a simplification; in production use actual timestamp
                 let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
                 let periods_per_year = ledgers_per_year / ledger_diff as i128;
-                
+
                 if periods_per_year <= 0 {
                     return growth_bps;
                 }
@@ -2134,10 +2541,15 @@ impl VolatilityShield {
     /// Total assets managed by the vault: vault token balance + sum of strategy balances.
     /// Get the total assets managed by the vault (cash + strategy balances).
     pub fn total_assets(env: &Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TotalAssets)
-            .unwrap_or(0)
+        let supported: Vec<Address> = env.storage().instance().get(&DataKey::SupportedAssets).unwrap_or(Vec::new(env));
+        let mut total_value: i128 = 0;
+        for asset in supported.iter() {
+            let asset_quantity: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
+            let price = Self::get_asset_price(env, &asset);
+            let value = asset_quantity.checked_mul(price).unwrap_or(0).checked_div(1_000_000_000).unwrap_or(0);
+            total_value = total_value.checked_add(value).unwrap_or(total_value);
+        }
+        total_value
     }
 
     /// Get the total number of vault shares in circulation.
@@ -2169,6 +2581,42 @@ impl VolatilityShield {
         asset == Self::get_asset(&env)
     }
 
+    fn get_asset_price(env: &Env, asset: &Address) -> i128 {
+        let oracle = Self::get_oracle(env);
+        env.invoke_contract::<i128>(
+            &oracle,
+            &soroban_sdk::Symbol::new(env, "price"),
+            soroban_sdk::vec![env, asset.clone()],
+        )
+    }
+
+    /// Add an asset to the supported/whitelisted list for deposits.
+    pub fn add_supported_asset(env: Env, asset: Address) {
+        Self::require_admin(&env);
+        let mut supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(&env));
+        if !supported.contains(asset.clone()) {
+            supported.push_back(asset.clone());
+            env.storage()
+                .instance()
+                .set(&DataKey::SupportedAssets, &supported);
+            env.events()
+                .publish((symbol_short!("AssetAdd"),), asset);
+        }
+    }
+
+    pub fn is_supported_asset(env: &Env, asset: &Address) -> bool {
+        let supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(env));
+        supported.contains(asset.clone())
+    }
+
     /// Get the list of all registered strategy addresses.
     pub fn get_strategies(env: &Env) -> Vec<Address> {
         env.storage()
@@ -2187,7 +2635,10 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::OracleCircuitBreakerActive, &true);
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "OracleCircuitBreakerActivated"),),
+            (soroban_sdk::Symbol::new(
+                &env,
+                "OracleCircuitBreakerActivated",
+            ),),
             env.ledger().timestamp(),
         );
     }
@@ -2248,13 +2699,13 @@ impl VolatilityShield {
         if blocklist_mode && blocklist.contains(user.clone()) {
             env.events()
                 .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
-            return Err(Error::UserBlocked);
+            return Self::emit_and_err(env, Error::UserBlocked);
         }
 
         if allowlist_mode && !allowlist.contains(user.clone()) {
             env.events()
                 .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
-            return Err(Error::UserBlocked);
+            return Self::emit_and_err(env, Error::UserBlocked);
         }
 
         Ok(())
@@ -2271,7 +2722,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if !blocklist.contains(user.clone()) {
             blocklist.push_back(user.clone());
-            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
             env.events()
                 .publish((soroban_sdk::Symbol::new(&env, "UserBlocked"),), user);
         }
@@ -2288,7 +2741,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if let Some(index) = blocklist.iter().position(|x| x == user) {
             blocklist.remove(index as u32);
-            env.storage().instance().set(&DataKey::Blocklist, &blocklist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
         }
     }
 
@@ -2303,7 +2758,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if !allowlist.contains(user.clone()) {
             allowlist.push_back(user.clone());
-            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
             env.events()
                 .publish((soroban_sdk::Symbol::new(&env, "UserAllowlisted"),), user);
         }
@@ -2320,7 +2777,9 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env));
         if let Some(index) = allowlist.iter().position(|x| x == user) {
             allowlist.remove(index as u32);
-            env.storage().instance().set(&DataKey::Allowlist, &allowlist);
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
         }
     }
 
@@ -2414,6 +2873,67 @@ impl VolatilityShield {
             .unwrap_or(1)
     }
 
+    pub fn set_proposal_ttl_ledgers(env: Env, ledgers: u32) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalTtlLedgers, &ledgers);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "ProposalTtlLedgers"),),
+            ledgers,
+        );
+    }
+
+    pub fn get_proposal_ttl_ledgers(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProposalTtlLedgers)
+            .unwrap_or(DEFAULT_PROPOSAL_TTL_LEDGERS)
+    }
+
+    pub fn prune_old_proposals(env: Env) -> u32 {
+        Self::require_admin(&env);
+        Self::prune_old_proposals_internal(&env)
+    }
+
+    pub fn list_proposals(env: Env, offset: u32, limit: u32) -> Vec<Proposal> {
+        if limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(&env));
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(&env));
+
+        let mut listed = Vec::new(&env);
+        let end = offset.saturating_add(limit);
+        let mut index = offset;
+        while index < proposal_ids.len() && index < end {
+            let proposal_id = proposal_ids.get(index).unwrap();
+            if let Some(proposal) = proposals.get(proposal_id) {
+                listed.push_back(proposal);
+            }
+            index += 1;
+        }
+        listed
+    }
+
+    pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(&env));
+        proposals.get(proposal_id)
+    }
+
     // ── Internal Helpers ──────────────────────
     pub fn take_fees(env: &Env, amount: i128) -> i128 {
         let fee_pct = Self::fee_percentage(&env);
@@ -2475,6 +2995,8 @@ impl VolatilityShield {
 
     pub fn set_total_assets(env: Env, amount: i128) {
         env.storage().instance().set(&DataKey::TotalAssets, &amount);
+        let asset = Self::get_asset(&env);
+        env.storage().instance().set(&DataKey::AssetTotalAssets(asset), &amount);
     }
 
     pub fn set_total_shares(env: Env, amount: i128) {
@@ -2497,11 +3019,194 @@ impl VolatilityShield {
         admin
     }
 
+    fn proposal_ttl_ledgers(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProposalTtlLedgers)
+            .unwrap_or(DEFAULT_PROPOSAL_TTL_LEDGERS)
+    }
+
+    fn prune_old_proposals_internal(env: &Env) -> u32 {
+        let mut proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(env));
+        let proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(env));
+        let ttl = Self::proposal_ttl_ledgers(env);
+        let current_ledger = env.ledger().sequence();
+        let mut retained_ids = Vec::new(env);
+        let mut pruned = 0_u32;
+
+        for proposal_id in proposal_ids.iter() {
+            if let Some(proposal) = proposals.get(proposal_id) {
+                let expired = proposal.executed
+                    && proposal.executed_ledger > 0
+                    && current_ledger.saturating_sub(proposal.executed_ledger) >= ttl;
+                if expired {
+                    proposals.remove(proposal_id);
+                    pruned = pruned.saturating_add(1);
+                } else {
+                    retained_ids.push_back(proposal_id);
+                }
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposals, &proposals);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalIds, &retained_ids);
+
+        if pruned > 0 {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "ProposalsPruned"),), pruned);
+        }
+
+        pruned
+    }
+
+    fn record_pause_change(env: &Env, caller: Address, state: bool) {
+        env.storage().instance().set(&DataKey::Paused, &state);
+        let timestamp = env.ledger().timestamp();
+        let mut history: Vec<(u64, Address, bool)> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PauseHistory)
+            .unwrap_or(Vec::new(env));
+        history.push_back((timestamp, caller.clone(), state));
+        env.storage()
+            .instance()
+            .set(&DataKey::PauseHistory, &history);
+
+        let event_name = if state {
+            "VaultPaused"
+        } else {
+            "VaultUnpaused"
+        };
+        env.events().publish(
+            (soroban_sdk::Symbol::new(env, event_name),),
+            (caller, timestamp),
+        );
+    }
+
+    fn record_share_price_snapshot(env: &Env) {
+        let mut history: Vec<(u64, i128)> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SharePriceHistory)
+            .unwrap_or(Vec::new(env));
+        if history.len() >= SHARE_PRICE_HISTORY_CAP {
+            history.remove(0);
+        }
+        history.push_back((env.ledger().timestamp(), Self::get_share_price(env)));
+        env.storage()
+            .instance()
+            .set(&DataKey::SharePriceHistory, &history);
+    }
+
     // ── Emergency Pause ──────────────────────────
     pub fn set_paused(env: Env, state: bool) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &state);
-        env.events().publish((symbol_short!("paused"),), state);
+        env.events().publish((symbol_short!("Paused"),), state);
+    }
+
+    pub fn emergency_shutdown(env: Env, admin: Address) {
+        admin.require_auth();
+
+        if admin != Self::read_admin(&env) {
+            panic!("Unauthorized");
+        }
+
+        if Self::emergency_shutdown_active(&env) {
+            return;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyShutdown, &true);
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "EmergencyShutdownActivated"),),
+            (admin, env.ledger().timestamp()),
+        );
+    }
+
+    pub fn emergency_withdraw(env: Env, from: Address) {
+        let _guard = Guard::new(&env);
+        Self::check_version(&env, 1);
+
+        if !Self::emergency_shutdown_active(&env) {
+            panic!("EmergencyShutdownNotActive");
+        }
+
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        let mut queued_shares = 0_i128;
+        let mut queued_index: Option<u32> = None;
+        for i in 0..pending_withdrawals.len() {
+            let w = pending_withdrawals.get(i).unwrap();
+            if w.user == from {
+                queued_shares = w.shares;
+                queued_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(index) = queued_index {
+            pending_withdrawals.remove(index);
+            env.storage()
+                .instance()
+                .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+        }
+
+        let shares_to_withdraw = current_balance.checked_add(queued_shares).unwrap();
+        if shares_to_withdraw <= 0 {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares_to_withdraw);
+
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        let new_total_shares = total_shares.checked_sub(shares_to_withdraw).unwrap();
+        let new_total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
+
+        Self::set_total_shares(env.clone(), new_total_shares);
+        Self::set_total_assets(env.clone(), new_total_assets);
+        env.storage().persistent().set(&balance_key, &0_i128);
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &from,
+            &assets_to_withdraw,
+        );
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "EmergencyWithdraw"), from),
+            (shares_to_withdraw, assets_to_withdraw, env.ledger().timestamp()),
+        );
     }
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
@@ -2612,6 +3317,10 @@ impl VolatilityShield {
             .unwrap_or(false)
     }
 
+    pub fn is_emergency_shutdown(env: Env) -> bool {
+        Self::emergency_shutdown_active(&env)
+    }
+
     fn assert_not_paused(env: &Env) {
         if env
             .storage()
@@ -2620,6 +3329,19 @@ impl VolatilityShield {
             .unwrap_or(false)
         {
             panic!("ContractPaused");
+        }
+    }
+
+    fn emergency_shutdown_active(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyShutdown)
+            .unwrap_or(false)
+    }
+
+    fn assert_not_emergency_shutdown(env: &Env) {
+        if Self::emergency_shutdown_active(env) {
+            panic!("EmergencyShutdownActive");
         }
     }
 
@@ -2651,6 +3373,27 @@ impl VolatilityShield {
             // Both are required to be checked; the signed party will pass.
             // In Soroban the host simply verifies whichever has an auth entry.
             admin.require_auth();
+        }
+    }
+
+    fn require_owner_or_delegate(
+        env: &Env,
+        owner: &Address,
+        caller: &Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+
+        if caller == owner {
+            return Ok(());
+        }
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
+        {
+            Some(delegate) if delegate == *caller => Ok(()),
+            _ => Err(Error::Unauthorized),
         }
     }
 
@@ -2728,12 +3471,24 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::Threshold)
             .unwrap_or(0);
-        let proposals: Vec<Proposal> = env
+        let proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(&env));
+        let proposals: Map<u64, Proposal> = env
             .storage()
             .instance()
             .get(&DataKey::Proposals)
-            .unwrap_or(Vec::new(&env));
-        let active_proposal_count = proposals.iter().filter(|p| !p.executed).count() as u32;
+            .unwrap_or(Map::new(&env));
+        let mut active_proposal_count = 0_u32;
+        for proposal_id in proposal_ids.iter() {
+            if let Some(proposal) = proposals.get(proposal_id) {
+                if !proposal.executed {
+                    active_proposal_count = active_proposal_count.saturating_add(1);
+                }
+            }
+        }
         GovernanceSummary {
             guardians,
             threshold,
