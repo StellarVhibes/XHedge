@@ -1,5 +1,39 @@
 "use client";
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef, useState } from 'react';
+
+export function AllocationChartEmptyState() {
+  const size = 220;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 4;
+
+  return (
+    <div className="flex flex-col items-center relative py-4" style={{ userSelect: 'none' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+          className="text-muted/40"
+        />
+        <text
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="text-[13px] font-medium fill-muted-foreground"
+        >
+          No allocations yet
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 
 export type Slice = {
   name: string;
@@ -44,7 +78,13 @@ const AllocationChart = memo(function AllocationChart({
   slices: Slice[];
   onSliceClick?: (slice: Slice) => void;
 }) {
+  if (!slices || slices.length === 0) {
+    return <AllocationChartEmptyState />;
+  }
+
   const total = slices.reduce((s, c) => s + c.value, 0) || 1;
+
+
   const size = 220;
   const cx = size / 2;
   const cy = size / 2;
