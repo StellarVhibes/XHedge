@@ -4,7 +4,9 @@ import {
   TransactionBuilder,
   Operation,
   Address,
+  Account,
   nativeToScVal,
+  scValToNative,
   xdr,
   Contract,
   rpc,
@@ -68,17 +70,19 @@ export async function fetchVaultData(
     const sharePriceCall = contract.call("get_share_price");
 
     // Simulate for total vault metrics
+    const sourceAccount = new Account("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "0");
     const [totalAssetsSim, totalSharesSim, sharePriceSim] = await Promise.all([
-      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalAssetsCall).setTimeout(30).build()),
-      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalSharesCall).setTimeout(30).build()),
-      server.simulateTransaction(new TransactionBuilder(new Address("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF").toAccount(), { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(sharePriceCall).setTimeout(30).build()),
+      server.simulateTransaction(new TransactionBuilder(sourceAccount, { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalAssetsCall).setTimeout(30).build()),
+      server.simulateTransaction(new TransactionBuilder(sourceAccount, { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(totalSharesCall).setTimeout(30).build()),
+      server.simulateTransaction(new TransactionBuilder(sourceAccount, { fee: "100", networkPassphrase: getNetworkPassphrase(network) }).addOperation(sharePriceCall).setTimeout(30).build()),
     ]);
 
     let userShares = "0";
     if (userAddress) {
       const userBalanceCall = contract.call("balance", new Address(userAddress).toScVal());
+      const userSourceAccount = new Account(userAddress, "0");
       const userBalanceSim = await server.simulateTransaction(
-        new TransactionBuilder(new Address(userAddress).toAccount(), {
+        new TransactionBuilder(userSourceAccount, {
           fee: "100",
           networkPassphrase: getNetworkPassphrase(network),
         })
