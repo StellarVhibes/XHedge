@@ -1,18 +1,44 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { ArrowUpFromLine, ArrowDownToLine, Loader2, Clock } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { ArrowUpFromLine, ArrowDownToLine, Loader2, FileText, Shield, Clock } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData } from "@/lib/stellar";
-import { getNetworkPassphrase, NetworkType } from "@/lib/network";
+import { useNetwork } from "@/app/context/NetworkContext";
+import { 
+  buildDepositXdr, 
+  buildWithdrawXdr, 
+  simulateAndAssembleTransaction, 
+  submitTransaction, 
+  fetchVaultData, 
+  VaultMetrics, 
+  getNetworkPassphrase, 
+  estimateTransactionFee 
+} from "@/lib/stellar";
+import VaultAPYChart from "@/components/VaultAPYChart";
+import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
+import { fetchApyData, DataPoint } from "@/lib/chart-data";
+import TermsModal from "@/components/TermsModal";
+import PrivacyModal from "@/components/PrivacyModal";
+import { Modal } from "@/components/ui/modal";
+import { getVolatilityShieldAddress } from "@/lib/contracts.config";
+import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
+import { useTranslations } from "@/lib/i18n-context";
 import { useVault } from "@/app/context/VaultContext";
-
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 type TabType = "deposit" | "withdraw";
 
 export default function VaultPage() {
-  const { connected, address, network, signTransaction } = useWallet();
+  const t = useTranslations("Vault");
+  const commonT = useTranslations("Common");
+  const { connected, address, signTransaction } = useWallet();
+  const { network } = useNetwork();
+  
   const {
     optimisticBalance,
     optimisticShares,
@@ -28,30 +54,129 @@ export default function VaultPage() {
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<{ type: "success" | "error" | null; message: string }>({
-    type: null,
-    message: "",
-  });
+  const [signingStep, setSigningStep] = useState<SigningStep>("idle");
+  const [signingErrorMessage, setSigningErrorMessage] = useState("");
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+  const [estimatingFee, setEstimatingFee] = useState(false);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1M');
+  const [chartData, setChartData] = useState<DataPoint[]>([]);
 
-  const networkType = (network as NetworkType) || "testnet";
+  // Legal acceptance state
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [showLegalWarning, setShowLegalWarning] = useState(false);
 
-  const loadMetrics = useCallback(async () => {
-    if (!connected || !address) return;
+  // Check for existing legal acceptance on mount
+  useEffect(() => {
+    const savedTerms = localStorage.getItem('terms_accepted');
+    const savedPrivacy = localStorage.getItem('privacy_accepted');
+
+    if (savedTerms === 'true') {
+      setTermsAccepted(true);
+    }
+    if (savedPrivacy === 'true') {
+      setPrivacyAccepted(true);
+    }
+  }, []);
+
+  // Load chart data when timeframe or network changes
+  useEffect(() => {
+    const loadChartData = async () => {
+      setChartLoading(true);
+      setChartError(null);
+      try {
+        const contractId = getVolatilityShieldAddress(network);
+        const data = await fetchApyData(selectedTimeframe, contractId, network);
+        setChartData(data);
+      } catch (error) {
+        console.error('Failed to load chart data:', error);
+        setChartData([]);
+        setChartError('Failed to load APY history');
+      } finally {
+        setChartLoading(false);
+      }
+    };
+
+    if (network) {
+      loadChartData();
+    }
+  }, [selectedTimeframe, network]);
+
+  const handleTimeframeChange = async (timeframe: Timeframe) => {
+    setSelectedTimeframe(timeframe);
+  };
+
+  // Load vault data
+  const loadVaultData = useCallback(async () => {
+    if (!connected || !address || !network) return;
     try {
-      const data = await fetchVaultData(CONTRACT_ID, address, networkType === "PUBLIC" ? "PUBLIC" : "TESTNET");
+      setLoading(true);
+      const data = await fetchVaultData(
+        getVolatilityShieldAddress(network),
+        address,
+        network
+      );
+      setMetrics(data);
       updateMetrics(data.userBalance, data.userShares);
     } catch (error) {
-      console.error("Failed to load metrics:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to load vault data");
+    } finally {
+      setLoading(false);
     }
-  }, [connected, address, networkType, updateMetrics]);
+  }, [connected, address, network, updateMetrics]);
 
   useEffect(() => {
-    loadMetrics();
-  }, [loadMetrics]);
+    loadVaultData();
+  }, [loadVaultData]);
+
+  useEffect(() => {
+    const fetchFee = async () => {
+      if (!connected || !address || !amount || parseFloat(amount) <= 0) {
+        setEstimatedFee(null);
+        return;
+      }
+
+      setEstimatingFee(true);
+      try {
+        let xdr;
+        if (activeTab === "deposit") {
+          xdr = await buildDepositXdr(getVolatilityShieldAddress(network), address, amount, network);
+        } else {
+          xdr = await buildWithdrawXdr(getVolatilityShieldAddress(network), address, amount, network);
+        }
+
+        const { fee, error } = await estimateTransactionFee(xdr, network);
+        if (!error && fee) {
+          const feeXlm = (Number(fee) / 1e7).toFixed(5);
+          setEstimatedFee(feeXlm);
+        } else {
+          setEstimatedFee(null);
+        }
+      } catch (e) {
+        setEstimatedFee(null);
+      } finally {
+        setEstimatingFee(false);
+      }
+    };
+
+    const timeoutId = setTimeout(fetchFee, 500);
+    return () => clearTimeout(timeoutId);
+  }, [amount, activeTab, connected, address, network]);
 
   const handleDeposit = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
-      setStatus({ type: "error", message: "Please enter a valid amount" });
+      toast.error("Please enter a valid amount");
+      return;
+    }
+
+    // Check legal acceptance for first-time users
+    if (!termsAccepted || !privacyAccepted) {
+      setShowLegalWarning(true);
       return;
     }
 
@@ -59,33 +184,35 @@ export default function VaultPage() {
     const pendingId = addPendingDeposit(amount);
 
     setLoading(true);
-    setStatus({ type: null, message: "" });
-
+    const toastId = toast.loading("Processing deposit...");
     try {
-      const passphrase = getNetworkPassphrase(networkType);
+      const passphrase = getNetworkPassphrase(network);
 
-      const xdr = await buildDepositXdr(CONTRACT_ID, address, amount, networkType);
+      const xdr = await buildDepositXdr(
+        getVolatilityShieldAddress(network),
+        address,
+        amount,
+        network
+      );
 
-      const { result: assembledXdr, error: assembleError } =
-        await simulateAndAssembleTransaction(xdr, networkType);
+      const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
+        xdr,
+        network
+      );
 
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
 
-      const { signedTxXdr, error: signError } = await signTransaction(
-        assembledXdr,
-        passphrase
-      );
+      setSigningStep("signing");
+      const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
 
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
 
-      const { hash, error: submitError } = await submitTransaction(
-        signedTxXdr,
-        networkType
-      );
+      setSigningStep("submitting");
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
 
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
@@ -93,46 +220,31 @@ export default function VaultPage() {
 
       // Confirm the pending transaction
       confirmTx(pendingId, hash);
-      setStatus({
-        type: "success",
-        message: `Deposit confirmed! Tx: ${hash.slice(0, 8)}...`,
-      });
+      toast.success(`Deposit successful! Tx: ${hash.slice(0, 8)}...`, { id: toastId });
+      setSigningStep("success");
       setAmount("");
-      await loadMetrics();
+      await loadVaultData();
     } catch (error) {
       // Rollback optimistic update
       failTx(pendingId);
-      setStatus({
-        type: "error",
-        message: error instanceof Error ? error.message : "Deposit failed",
-      });
+      const msg = error instanceof Error ? error.message : "Deposit failed";
+      toast.error(msg, { id: toastId });
+      setSigningErrorMessage(msg);
+      setSigningStep("error");
     } finally {
       setLoading(false);
     }
-  }, [
-    connected,
-    address,
-    amount,
-    networkType,
-    signTransaction,
-    addPendingDeposit,
-    confirmTx,
-    failTx,
-    loadMetrics,
-  ]);
+  }, [connected, address, amount, network, signTransaction, loadVaultData, termsAccepted, privacyAccepted, addPendingDeposit, confirmTx, failTx]);
 
   const handleWithdraw = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
-      setStatus({ type: "error", message: "Please enter a valid amount" });
+      toast.error("Please enter a valid amount");
       return;
     }
 
     const withdrawAmount = parseFloat(amount);
     if (withdrawAmount > optimisticShares) {
-      setStatus({
-        type: "error",
-        message: `Insufficient balance. You have ${optimisticShares.toFixed(2)} shares.`,
-      });
+      toast.error(`Insufficient balance. You have ${optimisticShares.toFixed(2)} shares.`);
       return;
     }
 
@@ -140,72 +252,82 @@ export default function VaultPage() {
     const pendingId = addPendingWithdraw(amount);
 
     setLoading(true);
-    setStatus({ type: null, message: "" });
-
+    const toastId = toast.loading("Processing withdrawal...");
     try {
-      const passphrase = getNetworkPassphrase(networkType);
+      const passphrase = getNetworkPassphrase(network);
 
-      const xdr = await buildWithdrawXdr(CONTRACT_ID, address, amount, networkType);
+      const xdr = await buildWithdrawXdr(
+        getVolatilityShieldAddress(network),
+        address,
+        amount,
+        network
+      );
 
-      const { result: assembledXdr, error: assembleError } =
-        await simulateAndAssembleTransaction(xdr, networkType);
+      const { result: assembledXdr, error: assembleError } = await simulateAndAssembleTransaction(
+        xdr,
+        network
+      );
 
       if (assembleError || !assembledXdr) {
         throw new Error(assembleError || "Failed to assemble transaction");
       }
 
-      const { signedTxXdr, error: signError } = await signTransaction(
-        assembledXdr,
-        passphrase
-      );
+      setSigningStep("signing");
+      const { signedTxXdr, error: signError } = await signTransaction(assembledXdr, passphrase);
 
       if (signError || !signedTxXdr) {
         throw new Error(signError || "Failed to sign transaction");
       }
 
-      const { hash, error: submitError } = await submitTransaction(
-        signedTxXdr,
-        networkType
-      );
+      setSigningStep("submitting");
+      const { hash, error: submitError } = await submitTransaction(signedTxXdr, network);
 
       if (submitError || !hash) {
         throw new Error(submitError || "Failed to submit transaction");
       }
 
       confirmTx(pendingId, hash);
-      setStatus({
-        type: "success",
-        message: `Withdraw confirmed! Tx: ${hash.slice(0, 8)}...`,
-      });
+      toast.success(`Withdrawal successful! Tx: ${hash.slice(0, 8)}...`, { id: toastId });
+      setSigningStep("success");
       setAmount("");
-      await loadMetrics();
+      await loadVaultData();
     } catch (error) {
       failTx(pendingId);
-      setStatus({
-        type: "error",
-        message: error instanceof Error ? error.message : "Withdraw failed",
-      });
+      const msg = error instanceof Error ? error.message : "Withdraw failed";
+      toast.error(msg, { id: toastId });
+      setSigningErrorMessage(msg);
+      setSigningStep("error");
     } finally {
       setLoading(false);
     }
-  }, [
-    connected,
-    address,
-    amount,
-    optimisticShares,
-    networkType,
-    signTransaction,
-    addPendingWithdraw,
-    confirmTx,
-    failTx,
-    loadMetrics,
-  ]);
+  }, [connected, address, amount, optimisticShares, network, signTransaction, loadVaultData, addPendingWithdraw, confirmTx, failTx]);
+
+  const handleTermsAccept = () => {
+    setTermsAccepted(true);
+    localStorage.setItem('terms_accepted', 'true');
+    setShowTermsModal(false);
+  };
+
+  const handlePrivacyAccept = () => {
+    setPrivacyAccepted(true);
+    localStorage.setItem('privacy_accepted', 'true');
+    setShowPrivacyModal(false);
+  };
+
+  const handleLegalAgreement = () => {
+    setShowLegalWarning(false);
+    if (!termsAccepted) {
+      setShowTermsModal(true);
+    } else if (!privacyAccepted) {
+      setShowPrivacyModal(true);
+    }
+  };
 
   const activePending = pendingTxs.filter((tx) => tx.status === "pending");
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Vault</h1>
+      <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
 
       {/* Pending transactions indicator */}
       {hasPending && (
@@ -220,145 +342,304 @@ export default function VaultPage() {
         <div className="flex border-b">
           <button
             onClick={() => setActiveTab("deposit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "deposit"
-                ? "bg-primary/10 text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+              }`}
           >
-            <ArrowUpFromLine className="w-4 h-4" />
-            Deposit
+            <ArrowUpFromLine className="h-4 w-4" />
+            {t('deposit')}
           </button>
           <button
             onClick={() => setActiveTab("withdraw")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${
-              activeTab === "withdraw"
-                ? "bg-primary/10 text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+              }`}
           >
-            <ArrowDownToLine className="w-4 h-4" />
-            Withdraw
+            <ArrowDownToLine className="h-4 w-4" />
+            {t('withdraw')}
           </button>
         </div>
 
         <div className="p-6">
-          {!connected ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Connect your wallet to deposit or withdraw funds
+          {connected && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{t('yourBalance')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {optimisticBalance.toFixed(2)} XLM
+                    {hasPending && <span className="text-xs text-yellow-600 ml-1">*</span>}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{t('yourShares')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {optimisticShares.toFixed(2)}
+                    {hasPending && <span className="text-xs text-yellow-600 ml-1">*</span>}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{t('currentAPY')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {metrics ? (parseFloat(metrics.sharePrice) * 100).toFixed(2) : "0.00"}%
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          ) : (
+          )}
+
+          {activeTab === "deposit" && (
             <div className="space-y-4">
-              {/* Optimistic balance display */}
-              <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-muted/50">
-                <div>
-                  <div className="text-xs text-muted-foreground">USDC Balance</div>
-                  <div className="text-lg font-semibold">
-                    {optimisticBalance.toFixed(2)}
-                    {hasPending && (
-                      <span className="text-xs text-yellow-600 ml-1">*</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Shares (XHS)</div>
-                  <div className="text-lg font-semibold">
-                    {optimisticShares.toFixed(4)}
-                    {hasPending && (
-                      <span className="text-xs text-yellow-600 ml-1">*</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {activeTab === "withdraw" && (
-                <div className="text-sm text-muted-foreground">
-                  Available: {optimisticShares.toFixed(2)} XHS
-                </div>
-              )}
-
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  {activeTab === "deposit" ? "Amount (USDC)" : "Amount (XHS)"}
+                <label htmlFor="deposit-amount" className="block text-sm font-medium mb-2">
+                  {t('depositAmount')}
                 </label>
-                <input
+                <Input
+                  id="deposit-amount"
                   type="number"
+                  placeholder={t('enterAmountToDeposit')}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-4 py-3 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                  min="0"
-                  step="0.01"
+                  disabled={!connected || loading}
                 />
+                {(estimatingFee || estimatedFee) && amount && parseFloat(amount) > 0 && (
+                  <div className="mt-2 text-sm text-muted-foreground flex items-center justify-between">
+                    <span>Estimated Network Fee:</span>
+                    <span>
+                      {estimatingFee ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Calculating...
+                        </span>
+                      ) : (
+                        `~${estimatedFee} XLM`
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {activeTab === "deposit" && (
-                <button
-                  onClick={handleDeposit}
-                  disabled={loading || !amount}
-                  className="w-full py-3 px-4 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {loading ? "Processing..." : "Deposit"}
-                </button>
-              )}
-
-              {activeTab === "withdraw" && (
-                <button
-                  onClick={handleWithdraw}
-                  disabled={loading || !amount || optimisticShares <= 0}
-                  className="w-full py-3 px-4 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {loading ? "Processing..." : "Withdraw"}
-                </button>
-              )}
-
-              {status.type && (
-                <div
-                  className={`p-4 rounded-lg ${
-                    status.type === "success"
-                      ? "bg-green-500/10 text-green-500"
-                      : "bg-red-500/10 text-red-500"
-                  }`}
-                >
-                  {status.message}
-                </div>
-              )}
-
-              {/* Detailed Pending List */}
-              {hasPending && (
-                <div className="mt-6 space-y-3">
-                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Clock className="w-3 h-3" />
-                    Pending Transactions
-                  </h3>
-                  <div className="space-y-2">
-                    {pendingTxs.filter(tx => tx.status === 'pending').map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30 border-dashed">
-                        <div className="flex items-center gap-3">
-                          {tx.type === 'deposit' ? (
-                            <ArrowUpFromLine className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <ArrowDownToLine className="w-4 h-4 text-blue-500" />
-                          )}
-                          <span className="text-sm">
-                            {tx.type === 'deposit' ? 'Deposit' : 'Withdraw'} {tx.amount} {tx.type === 'deposit' ? 'USDC' : 'XHS'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-yellow-600">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Processing
-                        </div>
-                      </div>
-                    ))}
+              {/* Legal Acceptance Status */}
+              <div className="space-y-2">
+                <div className="flex sm:items-center max-sm:flex-col gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    <span>{t('termsOfService')}:</span>
+                    <Badge variant={termsAccepted ? "default" : "secondary"}>
+                      {termsAccepted ? t('accepted') : t('notAccepted')}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    <span>{t('privacyPolicy')}:</span>
+                    <Badge variant={privacyAccepted ? "default" : "secondary"}>
+                      {privacyAccepted ? t('accepted') : t('notAccepted')}
+                    </Badge>
                   </div>
                 </div>
-              )}
+                {(!termsAccepted || !privacyAccepted) && (
+                  <p className="text-xs text-muted-foreground">
+                    You must accept both the Terms of Service and Privacy Policy before making your first deposit.
+                  </p>
+                )}
+              </div>
+
+              <Button
+                onClick={handleDeposit}
+                disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
+                className="w-full"
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('processing')}
+                  </div>
+                ) : (
+                  t('deposit')
+                )}
+              </Button>
+            </div>
+          )}
+
+          {activeTab === "withdraw" && (
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="withdraw-amount" className="block text-sm font-medium mb-2">
+                  {t('withdrawAmount')}
+                </label>
+                <Input
+                  id="withdraw-amount"
+                  type="number"
+                  placeholder={t('enterAmountToWithdraw')}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  disabled={!connected || loading}
+                />
+              </div>
+              <Button
+                onClick={handleWithdraw}
+                disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
+                className="w-full"
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('processing')}
+                  </div>
+                ) : (
+                  t('withdraw')
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Detailed Pending List */}
+          {hasPending && (
+            <div className="mt-6 space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Clock className="w-3 h-3" />
+                Pending Transactions
+              </h3>
+              <div className="space-y-2">
+                {pendingTxs.filter(tx => tx.status === 'pending').map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30 border-dashed">
+                    <div className="flex items-center gap-3">
+                      {tx.type === 'deposit' ? (
+                        <ArrowUpFromLine className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <ArrowDownToLine className="w-4 h-4 text-blue-500" />
+                      )}
+                      <span className="text-sm">
+                        {tx.type === 'deposit' ? 'Deposit' : 'Withdraw'} {tx.amount} {tx.type === 'deposit' ? 'USDC' : 'XHS'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-yellow-600">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Processing
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {signingStep === "error" && signingErrorMessage && (
+            <div className="p-4 rounded-lg bg-red-500/10 text-red-500">
+              {signingErrorMessage}
             </div>
           )}
         </div>
       </div>
+
+      {connected && (
+        <div className="mt-8 rounded-lg border bg-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold">APY History</h2>
+            <TimeframeFilter
+              selectedTimeframe={selectedTimeframe}
+              onTimeframeChange={handleTimeframeChange}
+              loading={chartLoading}
+            />
+          </div>
+          <VaultAPYChart data={chartData} loading={chartLoading} error={chartError} />
+        </div>
+      )}
+
+      {/* Legal Modals */}
+      <TermsModal
+        isOpen={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        onAccept={handleTermsAccept}
+        showAcceptCheckbox={true}
+      />
+
+      <PrivacyModal
+        isOpen={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        onAccept={handlePrivacyAccept}
+        showAcceptCheckbox={true}
+      />
+
+      <SigningOverlay
+        step={signingStep}
+        errorMessage={signingErrorMessage}
+        onDismiss={() => setSigningStep("idle")}
+      />
+
+      {/* Legal Warning Modal */}
+      {showLegalWarning && (
+        <Modal
+          isOpen={showLegalWarning}
+          onClose={() => setShowLegalWarning(false)}
+          title={t('legalAgreementRequired')}
+          size="md"
+        >
+          <div className="space-y-6">
+            <Alert>
+              <Shield className="h-4 w-4" />
+              <AlertDescription>
+                Before making your first deposit, you must accept our Terms of Service and Privacy Policy.
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  <span className="font-medium">{t('termsOfService')}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowLegalWarning(false);
+                    setShowTermsModal(true);
+                  }}
+                >
+                  {termsAccepted ? "View" : "Accept"}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  <span className="font-medium">{t('privacyPolicy')}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowLegalWarning(false);
+                    setShowPrivacyModal(true);
+                  }}
+                >
+                  {privacyAccepted ? "View" : "Accept"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleLegalAgreement}
+                disabled={!termsAccepted || !privacyAccepted}
+              >
+                {t('continueToDeposit')}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

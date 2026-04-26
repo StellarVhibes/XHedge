@@ -1,74 +1,45 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Shield, TrendingUp, TrendingDown, RefreshCw, Wallet, Clock } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Shield, TrendingUp, RefreshCw, Wallet, Clock } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
-import { fetchVaultData, VaultMetrics } from "@/lib/stellar";
+import { useCurrency } from "@/app/context/CurrencyContext";
 import { formatNumber } from "@/lib/utils";
+import { useStaleData } from "@/hooks/use-stale-data";
+import { StaleBadge } from "@/components/StaleBadge";
+import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
+import { useRealtimeVault } from "@/hooks/use-realtime-vault";
+import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
+import type { VaultMetrics } from "@/lib/stellar";
 import { useVault } from "@/app/context/VaultContext";
 
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-
 export function VaultOverviewCard() {
-  const { connected, address, network } = useWallet();
-  const { 
-    optimisticBalance, 
-    optimisticShares, 
-    hasPending,
-    updateMetrics 
-  } = useVault();
-  const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { connected, address } = useWallet();
+  const { format } = useCurrency();
+  const { state } = useStaleData<VaultMetrics>(5 * 60 * 1000);
   const [refreshing, setRefreshing] = useState(false);
+  const { optimisticBalance, optimisticShares, hasPending } = useVault();
 
-  const loadVaultData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    
-    try {
-      const data = await fetchVaultData(
-        CONTRACT_ID,
-        address,
-        (network as "PUBLIC" | "TESTNET") || "TESTNET"
-      );
-      setMetrics(data);
-      updateMetrics(data.userBalance, data.userShares);
-    } catch (error) {
-      console.error("Failed to fetch vault data:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [address, network]);
+  // Real-time vault connection
+  const { status, reconnectAttempts, refresh: realtimeRefresh } = useRealtimeVault(address);
 
-  useEffect(() => {
-    loadVaultData();
-  }, [loadVaultData]);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    realtimeRefresh();
+    setRefreshing(false);
+  }, [realtimeRefresh]);
 
-  const handleRefresh = () => {
-    loadVaultData(true);
-  };
-
-  if (loading) {
-    return (
-      <div className="rounded-lg border bg-card p-6 shadow-sm">
-        <div className="flex items-center justify-center py-8">
-          <RefreshCw className="w-6 h-6 animate-spin text-primary" />
-          <span className="ml-2 text-muted-foreground">Loading vault data...</span>
-        </div>
-      </div>
-    );
+  if (state.loading) {
+    return <VaultOverviewSkeleton />;
   }
 
+  const metrics = state.data;
   const totalAssets = parseFloat(metrics?.totalAssets || "0") / 1e7;
   const totalShares = parseFloat(metrics?.totalShares || "0") / 1e7;
-  const sharePrice = metrics?.sharePrice || "1.0000000";
+  const sharePrice = parseFloat(metrics?.sharePrice || "1.0000000");
+  
   // Use optimistic metrics from context
-  const userBalance = optimisticBalance;
-  const displayedShares = optimisticShares;
+  const userBalance = connected ? optimisticBalance : 0;
 
   return (
     <div className="rounded-lg border bg-card p-6 shadow-sm">
@@ -77,24 +48,39 @@ export function VaultOverviewCard() {
           <Shield className="w-6 h-6 text-primary" />
           <h2 className="text-xl font-semibold">Vault Overview</h2>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-          title="Refresh data"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
-        </button>
+
+        <div className="flex items-center gap-2">
+          <ConnectionStatusIndicator
+            status={status}
+            reconnectAttempts={reconnectAttempts}
+          />
+
+          <StaleBadge
+            lastFetchedAt={state.lastFetchedAt}
+            isStale={state.isStale}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+          />
+
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+            title="Refresh data"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total Assets"
-          value={`$${formatNumber(totalAssets)}`}
+          value={format(totalAssets)}
           subtitle={metrics?.assetSymbol || "USDC"}
           icon={<TrendingUp className="w-4 h-4 text-green-500" />}
         />
-        
+
         <MetricCard
           title="Total Shares"
           value={formatNumber(totalShares)}
@@ -102,23 +88,41 @@ export function VaultOverviewCard() {
           icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
           pending={hasPending}
         />
-        
+
         <MetricCard
           title="Share Price"
-          value={`$${sharePrice}`}
+          value={format(sharePrice)}
           subtitle={`${metrics?.assetSymbol || "USDC"} per share`}
           icon={<TrendingUp className="w-4 h-4 text-primary" />}
           highlight
         />
-        
+
         <MetricCard
           title="Your Balance"
-          value={connected ? `$${formatNumber(userBalance)}` : "—"}
+          value={connected ? format(userBalance) : "—"}
           subtitle={connected ? `${metrics?.assetSymbol || "USDC"}` : "Connect wallet"}
           icon={<Wallet className="w-4 h-4 text-muted-foreground" />}
           pending={hasPending}
         />
       </div>
+
+      {state.error && (
+        <div className="mt-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          {state.error} — showing last known data.
+        </div>
+      )}
+
+      {status === "disconnected" && (
+        <div className="mt-4 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center gap-2">
+          <span>Real-time connection lost. Data may be outdated.</span>
+          <button
+            onClick={handleRefresh}
+            className="underline text-red-400 hover:text-red-300 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {!connected && (
         <div className="mt-4 p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">

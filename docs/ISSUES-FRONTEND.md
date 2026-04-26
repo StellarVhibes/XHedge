@@ -6,70 +6,70 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
 
 ## 🚀 Module 4: Foundation & Config (Issues FE-19 to FE-22)
 
-### Issue #FE-19: Project Scaffold & Theme
+### Issue #FE-19: Project Scaffold & Theme [COMPLETED]
 **Priority:** Critical
 **Labels:** `frontend`, `config`
 **Description:** Initialize Next.js 16.1.1 app with XHedge branding.
 - **Tasks:**
-  - [ ] Configure `tailwind.config.ts` (Dark mode focus).
-  - [ ] Setup `globals.css` colors (Deep Blue/Purple).
-  - [ ] Implement `Layout` with Sidebar navigation.
+  - [x] Configure `tailwind.config.ts` (Dark mode focus).
+  - [x] Setup `globals.css` colors (Deep Blue/Purple).
+  - [x] Implement `Layout` with Sidebar navigation.
 
-### Issue #FE-20: Freighter Context
+### Issue #FE-20: Freighter Context [COMPLETED]
 **Priority:** Critical
 **Labels:** `frontend`, `wallet`
 **Description:** Global wallet state management.
 - **Tasks:**
-  - [ ] Create `FreighterContext`.
-  - [ ] Implement connection logic.
-  - [ ] Auto-reconnect on refresh.
+  - [x] Create `FreighterContext`.
+  - [x] Implement connection logic.
+  - [x] Auto-reconnect on refresh.
 
-### Issue #FE-21: Stellar RPC Configuration
+### Issue #FE-21: Stellar RPC Configuration [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `config`
 **Description:** Setup network connection to Soroban Futurenet/Mainnet.
 - **Tasks:**
-  - [ ] Create `network.ts` config file.
-  - [ ] Implement `getProvider` helper.
+  - [x] Create `network.ts` config file.
+  - [x] Implement `getProvider` helper.
 
-### Issue #FE-22: Component Library Setup
+### Issue #FE-22: Component Library Setup [COMPLETED]
 **Priority:** Medium
 **Labels:** `frontend`, `ui`
 **Description:** Install and configure ShadcnUI/Radix.
 - **Tasks:**
-  - [ ] Install base components (Button, Card, Input).
-  - [ ] Configure `components.json`.
+  - [x] Install base components (Button, Card, Input).
+  - [x] Configure `components.json`.
 
 ---
 
 ## 💼 Module 5: Vault Interface (Issues FE-23 to FE-27)
 
-### Issue #FE-23: Vault Overview Card
+### Issue #FE-23: Vault Overview Card [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `feature`
 **Description:** Display key vault metrics.
 - **Tasks:**
-  - [ ] Fetch `total_assets` and `total_shares`.
-  - [ ] Calculate and display `Share Price`.
-  - [ ] Display User's Balance.
+  - [x] Fetch `total_assets` and `total_shares`.
+  - [x] Calculate and display `Share Price`.
+  - [x] Display User's Balance.
 
-### Issue #FE-24: Deposit Tab Logic
+### Issue #FE-24: Deposit Tab Logic [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `interaction`
 **Description:** UI and logic for depositing funds.
 - **Tasks:**
-  - [ ] Create Deposit Form (Input + Button).
-  - [ ] Build XDR for `deposit` call.
-  - [ ] Handle sign & submit flow.
+  - [x] Create Deposit Form (Input + Button).
+  - [x] Build XDR for `deposit` call.
+  - [x] Handle sign & submit flow.
 
-### Issue #FE-25: Withdraw Tab Logic
+### Issue #FE-25: Withdraw Tab Logic [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `interaction`
 **Description:** UI and logic for withdrawing funds.
 - **Tasks:**
-  - [ ] Create Withdraw Form.
-  - [ ] Build XDR for `withdraw` call.
-  - [ ] Validate sufficient balance.
+  - [x] Create Withdraw Form.
+  - [x] Build XDR for `withdraw` call.
+  - [x] Validate sufficient balance.
 
 ### Issue #FE-26: Transaction History List
 **Priority:** Medium
@@ -108,13 +108,13 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
   - [ ] Fetch current allocation from contract.
   - [ ] Render Pie Chart.
 
-### Issue #FE-30: AI Insight Stream
+### Issue #FE-30: AI Insight Stream [COMPLETED]
 **Priority:** Low
 **Labels:** `frontend`, `ai`
 **Description:** Text feed of AI decisions.
 - **Tasks:**
-  - [ ] Create scrolling log component.
-  - [ ] Format "Rebalance Triggered" messages.
+  - [x] Create scrolling log component.
+  - [x] Format "Rebalance Triggered" messages.
 
 ---
 
@@ -136,13 +136,13 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
   - [ ] Create `SigningOverlay` component.
   - [ ] Add loading animations and status messages.
 
-### Issue #FE-33: Network Switcher UI
+### Issue #FE-33: Network Switcher UI [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `config`
 **Description:** Allow users to switch between Mainnet and Testnet.
 - **Tasks:**
-  - [ ] Implement network selector in Sidebar.
-  - [ ] Trigger re-initialization of Stellar providers.
+  - [x] Implement network selector in Sidebar.
+  - [x] Trigger re-initialization of Stellar providers.
 
 ### Issue #FE-34: User Settings Profile
 **Priority:** Medium
@@ -152,25 +152,25 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
   - [ ] Build `/settings` page route.
   - [ ] Implement notification and display preferences.
 
-### Issue #FE-35: Referral Rewards Dashboard
+### Issue #FE-35: Referral Rewards Dashboard [COMPLETED]
 **Priority:** Low
 **Labels:** `frontend`, `marketing`
 **Description:** UI for tracking referral bonuses.
 - **Tasks:**
-  - [ ] Design referral link sharing card.
-  - [ ] Fetch and display referral earnings.
+  - [x] Design referral link sharing card.
+  - [x] Fetch and display referral earnings.
 
 ---
 
 ## ✨ Module 8: UX Polish & Feedback (Issues FE-36 to FE-40)
 
-### Issue #FE-36: Dark/Light Mode Refinement
+### Issue #FE-36: Dark/Light Mode Refinement [COMPLETED]
 **Priority:** Medium
 **Labels:** `frontend`, `ui`
 **Description:** Polish theme transitions and contrast.
 - **Tasks:**
-  - [ ] Fix color contrast issues in Light Mode.
-  - [ ] Ensure smooth CSS transitions between themes.
+  - [x] Fix color contrast issues in Light Mode.
+  - [x] Ensure smooth CSS transitions between themes.
 
 ### Issue #FE-37: Error Boundary & Toasts
 **Priority:** High
@@ -196,10 +196,54 @@ This document tracks the detailed UI/UX and integration tasks for the dashboard.
   - [ ] Implement `React.memo` on heavy components.
   - [ ] Virtualize long transaction history lists.
 
-### Issue #FE-40: Mobile Responsiveness Audit
+### Issue #FE-40: Mobile Responsiveness Audit [COMPLETED]
 **Priority:** High
 **Labels:** `frontend`, `ui`
 **Description:** Ensure full functionality on smartphones.
 - **Tasks:**
-  - [ ] Audit all pages on mobile viewports.
-  - [ ] Fix navigation menu and table overflows.
+  - [x] Audit all pages on mobile viewports. (@your-github-username - YYYY-MM-DD HH:MM)
+  - [x] Fix navigation menu and table overflows. (@your-github-username - YYYY-MM-DD HH:MM)
+
+
+
+### Issue #FE-41: Onboarding Tour Component
+**Priority:** Medium
+**Labels:** `frontend`, `ux`
+**Description:** Guide new users through the dashboard.
+- **Tasks:**
+  - [ ] Integrate a tour library (e.g., `react-joyride`).
+  - [ ] Define steps for Treasury and Strategy sections.
+
+### Issue #FE-42: Governance/Voting UI
+**Priority:** Low
+**Labels:** `frontend`, `governance`
+**Description:** Layout for future voting features.
+- **Tasks:**
+  - [ ] Create `/governance` route.
+  - [ ] Build placeholder cards for active proposals.
+
+### Issue #FE-43: Advanced Chart Filters
+**Priority:** Medium
+**Labels:** `frontend`, `chart`
+**Description:** Add timeframe filters to performance charts.
+- **Tasks:**
+  - [ ] Add 1D, 1W, 1M, 1Y filters to Recharts components.
+  - [ ] Update data fetching logic based on filters.
+
+### Issue #FE-44: History Export to CSV
+**Priority:** Low
+**Labels:** `frontend`, `data`
+**Description:** Allow users to download transaction logs.
+- **Tasks:**
+  - [ ] Implement CSV generation from transaction data.
+  - [ ] Add "Download CSV" button to History.
+
+### Issue #FE-45: Real-time Price Tracker
+**Priority:** Medium
+**Labels:** `frontend`, `hook`
+**Description:** Live updates for asset prices.
+- **Tasks:**
+  - [ ] Create `usePriceTracker` custom hook.
+  - [ ] Use polling or WebSockets for live data.
+
+---

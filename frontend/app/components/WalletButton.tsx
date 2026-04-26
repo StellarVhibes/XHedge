@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { toast } from "sonner";
 import { useFreighter } from "../context/FreighterContext";
 
 /**
@@ -14,6 +16,12 @@ function truncateKey(key: string, prefixLen = 4, suffixLen = 4): string {
 export function WalletButton() {
   const { isConnected, isLoading, publicKey, error, connect, disconnect } =
     useFreighter();
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+    }
+  }, [error]);
 
   if (isLoading) {
     return (
@@ -50,15 +58,12 @@ export function WalletButton() {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
-        onClick={connect}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white 
-                   transition-colors hover:bg-indigo-500 active:bg-indigo-700"
-      >
-        Connect Wallet
-      </button>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-    </div>
+    <button
+      onClick={connect}
+      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white
+                 transition-colors hover:bg-indigo-500 active:bg-indigo-700"
+    >
+      Connect Wallet
+    </button>
   );
 }

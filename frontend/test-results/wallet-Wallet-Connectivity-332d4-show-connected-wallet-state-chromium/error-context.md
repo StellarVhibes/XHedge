@@ -1,0 +1,189 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e6]
+          - generic [ref=e8]: XHedge
+        - navigation [ref=e9]:
+          - link "Dashboard" [ref=e10] [cursor=pointer]:
+            - /url: /
+            - img [ref=e11]
+            - text: Dashboard
+          - link "Vault" [ref=e14] [cursor=pointer]:
+            - /url: /vault
+            - img [ref=e15]
+            - text: Vault
+          - link "Strategies" [ref=e17] [cursor=pointer]:
+            - /url: /strategies
+            - img [ref=e18]
+            - text: Strategies
+          - link "Portfolio" [ref=e21] [cursor=pointer]:
+            - /url: /portfolio
+            - img [ref=e22]
+            - text: Portfolio
+          - link "Referrals" [ref=e25] [cursor=pointer]:
+            - /url: /referrals
+            - img [ref=e26]
+            - text: Referrals
+          - link "Settings" [ref=e31] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e32]
+            - text: Settings
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e38]: Currency
+            - generic [ref=e39]:
+              - button "USD ($)" [ref=e40] [cursor=pointer]
+              - button "NGN (₦)" [ref=e41] [cursor=pointer]
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - img [ref=e44]
+              - generic [ref=e47]: Network
+            - generic [ref=e48]:
+              - button "mainnet" [ref=e49] [cursor=pointer]:
+                - generic [ref=e50]: mainnet
+              - button "testnet" [ref=e51] [cursor=pointer]:
+                - generic [ref=e52]: testnet
+              - button "futurenet" [ref=e54] [cursor=pointer]:
+                - generic [ref=e55]: futurenet
+        - generic [ref=e57]:
+          - generic [ref=e59]: XH
+          - generic [ref=e60]:
+            - generic [ref=e61]: XHedge
+            - generic [ref=e62]: Volatility Shield
+    - main [ref=e63]:
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - img [ref=e69]
+            - generic [ref=e71]:
+              - heading "XHedge" [level=1] [ref=e72]
+              - paragraph [ref=e73]: Volatility Shield for Weak Currencies
+          - button "Connecting…" [disabled] [ref=e74]: Connecting…
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - generic [ref=e78]:
+              - img [ref=e79]
+              - heading "Vault Overview" [level=2] [ref=e81]
+            - button "Refresh data" [ref=e82] [cursor=pointer]:
+              - img [ref=e83]
+          - generic [ref=e88]:
+            - generic [ref=e89]:
+              - generic [ref=e90]:
+                - img [ref=e91]
+                - generic [ref=e94]: Total Assets
+              - generic [ref=e95]: $1,000.00
+              - generic [ref=e96]: USDC
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - img [ref=e99]
+                - generic [ref=e102]: Total Shares
+              - generic [ref=e103]: 1.00K
+              - generic [ref=e104]: XHS
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - img [ref=e107]
+                - generic [ref=e110]: Share Price
+              - generic [ref=e111]: $1.00
+              - generic [ref=e112]: USDC per share
+            - generic [ref=e113]:
+              - generic [ref=e114]:
+                - img [ref=e115]
+                - generic [ref=e118]: Your Balance
+              - generic [ref=e119]: —
+              - generic [ref=e120]: Connect wallet
+          - generic [ref=e121]: Connect your Freighter wallet to see your personal vault statistics.
+        - generic [ref=e122]:
+          - link "Deposit Funds Deposit assets into the vault" [ref=e123] [cursor=pointer]:
+            - /url: /vault
+            - img [ref=e124]
+            - generic [ref=e126]:
+              - heading "Deposit Funds" [level=2] [ref=e127]
+              - paragraph [ref=e128]: Deposit assets into the vault
+          - link "Withdraw Funds Withdraw your assets from the vault" [ref=e129] [cursor=pointer]:
+            - /url: /vault
+            - img [ref=e130]
+            - generic [ref=e132]:
+              - heading "Withdraw Funds" [level=2] [ref=e133]
+              - paragraph [ref=e134]: Withdraw your assets from the vault
+        - region "AI Insight Stream" [ref=e135]:
+          - generic [ref=e136]:
+            - generic [ref=e137]:
+              - img [ref=e138]
+              - heading "AI Insight Stream" [level=2] [ref=e140]
+            - generic [ref=e141]: Live
+          - log "AI decision log" [ref=e144]:
+            - generic [ref=e145]:
+              - generic [ref=e146]:
+                - generic [ref=e147]: 01:00:00
+                - img [ref=e148]
+                - generic [ref=e150]: AI engine initialised. Monitoring FX feeds.
+              - generic [ref=e151]:
+                - generic [ref=e152]: 01:00:15
+                - img [ref=e153]
+                - generic [ref=e155]: "FX feed updated: XLM/USD 0.1124"
+              - generic [ref=e156]:
+                - generic [ref=e157]: 01:00:30
+                - img [ref=e158]
+                - generic [ref=e163]: "Rebalance Triggered- USDC to XLM: 45% allocation threshold exceeded"
+              - generic [ref=e164]:
+                - generic [ref=e165]: 01:01:00
+                - img [ref=e166]
+                - generic [ref=e168]: "Vault APY recalculated: 7.42%"
+              - generic [ref=e169]:
+                - generic [ref=e170]: 01:01:20
+                - img [ref=e171]
+                - generic [ref=e173]: Volatility spike detected - risk level elevated to HIGH
+              - generic [ref=e174]:
+                - generic [ref=e175]: 01:01:45
+                - img [ref=e176]
+                - generic [ref=e181]: "Rebalance Triggered- defensive shift: XLM to USDC: 60% stable allocation"
+              - generic [ref=e182]:
+                - generic [ref=e183]: 01:02:10
+                - img [ref=e184]
+                - generic [ref=e186]: Volatility normalised. Risk level returned to MEDIUM.
+              - generic [ref=e187]:
+                - generic [ref=e188]: 01:02:40
+                - img [ref=e189]
+                - generic [ref=e194]: Rebalance Triggered- portfolio drift correction applied
+            - generic [ref=e195]:
+              - generic [ref=e196]:
+                - generic [ref=e197]: 01:00:00
+                - img [ref=e198]
+                - generic [ref=e200]: AI engine initialised. Monitoring FX feeds.
+              - generic [ref=e201]:
+                - generic [ref=e202]: 01:00:15
+                - img [ref=e203]
+                - generic [ref=e205]: "FX feed updated: XLM/USD 0.1124"
+              - generic [ref=e206]:
+                - generic [ref=e207]: 01:00:30
+                - img [ref=e208]
+                - generic [ref=e213]: "Rebalance Triggered- USDC to XLM: 45% allocation threshold exceeded"
+              - generic [ref=e214]:
+                - generic [ref=e215]: 01:01:00
+                - img [ref=e216]
+                - generic [ref=e218]: "Vault APY recalculated: 7.42%"
+              - generic [ref=e219]:
+                - generic [ref=e220]: 01:01:20
+                - img [ref=e221]
+                - generic [ref=e223]: Volatility spike detected - risk level elevated to HIGH
+              - generic [ref=e224]:
+                - generic [ref=e225]: 01:01:45
+                - img [ref=e226]
+                - generic [ref=e231]: "Rebalance Triggered- defensive shift: XLM to USDC: 60% stable allocation"
+              - generic [ref=e232]:
+                - generic [ref=e233]: 01:02:10
+                - img [ref=e234]
+                - generic [ref=e236]: Volatility normalised. Risk level returned to MEDIUM.
+              - generic [ref=e237]:
+                - generic [ref=e238]: 01:02:40
+                - img [ref=e239]
+                - generic [ref=e244]: Rebalance Triggered- portfolio drift correction applied
+  - button "Open Next.js Dev Tools" [ref=e250] [cursor=pointer]:
+    - img [ref=e251]
+  - alert [ref=e254]
+```

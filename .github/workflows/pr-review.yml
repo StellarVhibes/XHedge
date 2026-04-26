@@ -1,7 +1,7 @@
 name: Protocol Liaison (XHedge Reviewer)
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
@@ -50,34 +50,13 @@ jobs:
       - name: ❌ Handle Review Failure
         if: steps.protocol_review.outcome == 'failure'
         run: |
-          gh pr comment ${{ env.PR_NUMBER }} --body "### ❌ Institutional Review Required
-          
-          Inconsistencies were found in the protocol logic or structural build.
-          
-          **Required Action:**
-          1. **Inspect logs**: Review the logs for specific errors.
-          2. **Code Alignment**: Ensure the sub-project you worked on compiles successfully. If you worked on both, ensure both compile.
-          3. **Stay in Sync**: Ensure your local environment is synchronized with the upstream project. Run:
-             \`\`\`bash
-             git fetch origin
-             git pull origin main
-             \`\`\`
-          4. Sync your fork on GitHub and pull the latest changes to your local branch.
-          5. **Update PR**: Push your fix to update the PR, or you can delete the PR and make a new one. Either way works for the project.
-          
-          *Merging is restricted until the review is successful.*"
+          echo "### ❌ Institutional Review Required"
+          echo "Inconsistencies were found in the protocol logic or structural build."
           exit 1
 
       - name: ✅ Handle Review Success
         if: steps.protocol_review.outcome == 'success'
         run: |
-          gh pr comment ${{ env.PR_NUMBER }} --body "### ✅ Review Successful
-          
-          The structural and logic integrity of both the Contracts and the Dashboard has been verified.
-          
-          **Status:** Ready for Integration.
-          **Action:** Merging into \`main\`...
-          
-          *Project maintained by @bbkenny.*"
-          
-          gh pr merge ${{ env.PR_NUMBER }} --merge --auto
+          echo "### ✅ Review Successful"
+          echo "The structural and logic integrity of both the Contracts and the Dashboard has been verified."
+          echo "Status: Ready for Integration."

@@ -84,16 +84,16 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Transfer underlying token to user.
   - [x] Emit `Withdraw` event.
 
-### Issue #SC-8: Emergency Pause Mechanism
+### Issue #SC-8: Emergency Pause Mechanism [COMPLETED]
 
 **Priority:** Medium
 **Labels:** `smart-contract`, `security`
 **Description:** A circuit breaker for the admin to stop deposits/withdrawals.
 
 - **Tasks:**
-  - [ ] Add `Paused` state to `DataKey`.
-  - [ ] Implement `set_paused(env, state: bool)`.
-  - [ ] Add `assert_not_paused` check to deposit/withdraw.
+  - [x] Add `Paused` state to `DataKey`.
+  - [x] Implement `set_paused(env, state: bool)`.
+  - [x] Add `assert_not_paused` check to deposit/withdraw.
 
 ---
 
@@ -118,14 +118,14 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Define `Strategies` storage key (Vec<Address>).
   - [x] Implement `add_strategy` function (Admin only).
 
-### Issue #SC-11: Rebalance Logic (Calculation)
+### Issue #SC-11: Rebalance Logic (Calculation) [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `logic`
 **Description:** Logic to determine how much to move.
 
 - **Tasks:**
-  - [ ] Implement `calc_rebalance_delta(current, target)`.
+  - [x] Implement `calc_rebalance_delta(current, target)`.
 
 ### Issue #SC-12: Rebalance Execution [COMPLETED]
 
@@ -147,15 +147,15 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Implement `harvest(env)`.
   - [x] Distribute yield to vault (increasing share price).
 
-### Issue #SC-14: Access Control Modifiers
+### Issue #SC-14: Access Control Modifiers [COMPLETED]
 
 **Priority:** High
 **Labels:** `smart-contract`, `security`
 **Description:** Ensure only admin can call sensitive functions.
 
 - **Tasks:**
-  - [ ] Implement `require_admin` check.
-  - [ ] Apply to all config functions.
+  - [x] Implement `require_admin` check.
+  - [x] Apply to all config functions.
 
 ### Issue #SC-15: Fee Management [COMPLETED]
 
@@ -170,25 +170,154 @@ This document tracks the detailed development tasks for the Soroban smart contra
 
 # 🧪 Module 3: Testing & Verification (Issues SC-16 to SC-18)
 
-### Issue #SC-16: Core Unit Tests
+### Issue #SC-16: Core Unit Tests [COMPLETED]
 **Priority:** High
 **Labels:** `testing`, `rust`
 **Description:** Verify basic vault mechanics.
 - **Tasks:**
-  - [ ] Test initialization.
-  - [ ] Test simple deposit/withdraw flow.
+  - [x] Test initialization.
+  - [x] Test simple deposit/withdraw flow.
 
-### Issue #SC-17: Integration Tests (Mock Strategy)
+### Issue #SC-17: Integration Tests (Mock Strategy) [COMPLETED]
 **Priority:** Medium
 **Labels:** `testing`, `integration`
 **Description:** Test interaction with external contracts.
 - **Tasks:**
-  - [ ] Create `MockStrategy` contract.
-  - [ ] Test rebalancing into mock strategy.
+  - [x] Create `MockStrategy` contract.
+  - [x] Test rebalancing into mock strategy.
 
-### Issue #SC-18: Fuzz Testing
+### Issue #SC-18: Fuzz Testing [COMPLETED]
 **Priority:** Low
 **Labels:** `testing`, `security`
 **Description:** Property-based testing for math safety.
 - **Tasks:**
-  - [ ] Fuzz test share conversion for overflows.
+  - [x] Fuzz test share conversion for overflows.
+
+
+============
+
+# 🆕 NEW ISSUES
+
+
+### Issue #SC-19a: Multi-Signature Admin — Guardian Registry
+**Priority:** Critical
+**Labels:** `smart-contract`, `security`, `governance`
+**Description:** Set up the guardian storage and management functions for multi-sig control.
+- **Tasks:**
+  - [ ] Add `DataKey::Guardians` (Vec\<Address\>) and `DataKey::Threshold` to storage.
+  - [ ] Implement `add_guardian(env, guardian: Address)` (admin-only).
+  - [ ] Implement `remove_guardian(env, guardian: Address)` (admin-only).
+  - [ ] Implement `set_threshold(env, threshold: u32)` for approval count.
+  - [ ] Write unit tests for guardian CRUD operations.
+
+### Issue #SC-19b: Multi-Signature Admin — Proposal & Approval Flow
+**Priority:** Critical
+**Labels:** `smart-contract`, `security`, `governance`
+**Description:** Build the proposal/approval mechanism and migrate sensitive functions to use it.
+- **Tasks:**
+  - [ ] Create `propose_action(env, action_type, params)` that stores pending proposals.
+  - [ ] Create `approve_action(env, proposal_id)` that requires `threshold` guardian signatures.
+  - [ ] Migrate `set_paused`, `add_strategy`, and `rebalance` to require multi-sig approval.
+  - [ ] Write integration tests for quorum scenarios (partial approval, full approval, rejection).
+
+### Issue #SC-20: Timelock on Critical Operations
+**Priority:** High
+**Labels:** `smart-contract`, `security`
+**Description:** Enforce a configurable delay between proposal and execution for high-impact admin actions (e.g., strategy changes, fee updates). This gives users time to exit if they disagree.
+- **Tasks:**
+  - [ ] Add `DataKey::TimelockDuration` to storage.
+  - [ ] Implement `set_timelock_duration(env, duration: u64)`.
+  - [ ] Store proposal timestamp on `propose_action`.
+  - [ ] Add `assert_timelock_elapsed` check to `execute_action`.
+  - [ ] Emit `TimelockStarted` and `TimelockExecuted` events.
+  - [ ] Write tests for premature execution rejection.
+
+### Issue #SC-21: Deposit & Withdrawal Caps
+**Priority:** High
+**Labels:** `smart-contract`, `risk-management`
+**Description:** Implement per-user and global caps to limit exposure and prevent whale manipulation.
+- **Tasks:**
+  - [ ] Add `DataKey::MaxDepositPerUser` and `DataKey::MaxTotalAssets` to storage.
+  - [ ] Implement `set_deposit_cap(env, per_user: i128, global: i128)`.
+  - [ ] Add cap validation in `deposit()` function.
+  - [ ] Add `DataKey::MaxWithdrawPerTx` for single-transaction withdrawal limits.
+  - [ ] Emit `CapBreached` event when a deposit is rejected.
+  - [ ] Write unit tests for cap enforcement edge cases.
+
+### Issue #SC-22: Slippage Protection on Rebalance
+**Priority:** High
+**Labels:** `smart-contract`, `risk-management`
+**Description:** Prevent rebalancing from executing if market conditions have shifted significantly since the allocation was calculated.
+- **Tasks:**
+  - [ ] Add `max_slippage_bps: u32` parameter to `rebalance()`.
+  - [ ] After strategy deposit/withdraw, verify actual balance vs. expected within tolerance.
+  - [ ] Revert the entire rebalance if any strategy deviates beyond `max_slippage_bps`.
+  - [ ] Emit `SlippageExceeded` event on revert.
+  - [ ] Write tests with a mock strategy that simulates price drift.
+
+---
+
+## ⚙️ Module R-SC: Operational Resilience (Issues SC-23 to SC-26)
+
+### Issue #SC-23: Contract Upgrade Pattern (Proxy)
+**Priority:** Critical
+**Labels:** `smart-contract`, `architecture`
+**Description:** Implement an upgrade mechanism so the vault logic can be patched without migrating user funds.
+- **Tasks:**
+  - [ ] Design a versioned storage schema (e.g., `DataKey::Version`).
+  - [ ] Implement `migrate(env, new_version: u32)` function.
+  - [ ] Add version check on all public entry points.
+  - [ ] Write migration tests that simulate upgrading from v1 to v2.
+  - [ ] Document the upgrade procedure in `docs/UPGRADE_GUIDE.md`.
+
+### Issue #SC-24a: Oracle Data Validation — Freshness & Staleness
+**Priority:** High
+**Labels:** `smart-contract`, `security`, `oracle`
+**Description:** Ensure the rebalance oracle's signals are fresh before executing fund movements.
+- **Tasks:**
+  - [ ] Add `DataKey::OracleLastUpdate` timestamp to storage.
+  - [ ] Implement `set_oracle_data(env, data, timestamp)` with freshness validation.
+  - [ ] Reject rebalance if oracle data is older than `MAX_STALENESS` (configurable).
+  - [ ] Emit `StaleOracleRejected` event.
+
+### Issue #SC-24b: Oracle Data Validation — Allocation Sanity Checks [COMPLETED]
+**Priority:** High
+**Labels:** `smart-contract`, `security`, `oracle`
+**Description:** Validate the oracle's allocation data for logical correctness before rebalancing.
+- **Tasks:**
+  - [x] Validate allocation percentages sum to 100% in `rebalance()`.
+  - [x] Validate individual allocation values are non-negative.
+  - [x] Reject allocations with zero-address strategies.
+  - [x] Write tests for malformed allocation scenarios.
+
+### Issue #SC-25a: Withdrawal Queue — Core Queue Mechanism
+**Priority:** Medium
+**Labels:** `smart-contract`, `feature`, `risk-management`
+**Description:** Implement the queuing mechanism for large withdrawals that could destabilize strategy allocations.
+- **Tasks:**
+  - [ ] Add `DataKey::WithdrawQueueThreshold` and `DataKey::PendingWithdrawals` to storage.
+  - [ ] Implement `queue_withdraw(env, from, shares)` for above-threshold amounts.
+  - [ ] Emit `WithdrawQueued` event.
+  - [ ] Write unit tests for threshold enforcement.
+
+### Issue #SC-25b: Withdrawal Queue — Processing & Cancellation
+**Priority:** Medium
+**Labels:** `smart-contract`, `feature`, `risk-management`
+**Description:** Allow admins to process queued withdrawals and users to cancel their pending requests.
+- **Tasks:**
+  - [ ] Implement `process_withdraw_queue(env)` (admin/keeper callable).
+  - [ ] Allow users to cancel queued withdrawals via `cancel_withdraw(env, from)`.
+  - [ ] Emit `WithdrawProcessed` and `WithdrawCancelled` events.
+  - [ ] Write end-to-end tests for the full queue lifecycle.
+
+### Issue #SC-26: Strategy Health Monitoring
+**Priority:** Medium
+**Labels:** `smart-contract`, `monitoring`
+**Description:** Track strategy performance and automatically flag or remove underperforming/unresponsive strategies.
+- **Tasks:**
+  - [ ] Add `DataKey::StrategyHealth(Address)` storing last-known balance and timestamp.
+  - [ ] Implement `check_strategy_health(env)` that compares expected vs. actual balances.
+  - [ ] Implement `flag_strategy(env, strategy)` to mark unhealthy strategies.
+  - [ ] Implement `remove_strategy(env, strategy)` that withdraws all funds first.
+  - [ ] Emit `StrategyFlagged` and `StrategyRemoved` events.
+  - [ ] Write tests for strategy failure scenarios.

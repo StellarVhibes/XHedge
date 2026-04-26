@@ -199,12 +199,84 @@ const result = await client.hello({ to: "World" });
 
 ---
 
-## 7. Checklist for Integration ✅
+## 7. Analytics & Privacy 📊
+
+XHedge implements privacy-first analytics to track key user actions without collecting personal data. The system respects the browser's "Do Not Track" setting and provides an opt-out toggle in settings.
+
+### Analytics Data Model
+
+The following events are tracked:
+
+| Event | Properties | Purpose |
+|-------|-----------|---------|
+| `wallet_connected` | `network` | Track wallet connection attempts |
+| `wallet_disconnected` | — | Track disconnections |
+| `deposit_submitted` | `asset`, `hasAmount` | Monitor deposit patterns |
+| `withdraw_submitted` | `asset`, `hasAmount` | Monitor withdrawal patterns |
+| `vote_cast` | `proposalType`, `vote` | Track governance participation |
+| `language_changed` | `language` | Monitor localization preferences |
+| `network_switched` | `network` | Track network usage |
+| `settings_changed` | `setting`, `enabled` | Monitor feature adoption |
+
+### Implementation
+
+```typescript
+import { 
+  trackWalletConnected, 
+  trackDepositSubmitted, 
+  trackVoteCast 
+} from '@/lib/analytics';
+
+// Track wallet connection
+const handleConnect = async () => {
+  await connectWallet();
+  trackWalletConnected(network);
+};
+
+// Track deposit
+const handleDeposit = async (amount, asset) => {
+  await submitDeposit(amount, asset);
+  trackDepositSubmitted(amount, asset);
+};
+
+// Track voting
+const handleVote = (proposalId, vote) => {
+  submitVote(proposalId, vote);
+  trackVoteCast('governance', vote);
+};
+```
+
+### Privacy Guarantees
+
+- **No Personal Data:** Wallet addresses are never sent
+- **Hashed Identifiers:** Session IDs are generated, not user-identifying
+- **doNotTrack Respected:** If the browser's "Do Not Track" header is set, analytics are disabled
+- **User Control:** Users can disable analytics via the Settings page
+- **No Fingerprinting:** No fingerprinting techniques are used
+- **Minimal Payload:** Only essential, non-identifying properties are sent
+
+### Configuration
+
+Set the analytics provider URL in `lib/analytics.ts`:
+
+```typescript
+const ANALYTICS_PROVIDER = 'https://your-plausible-or-umami-instance.com';
+```
+
+Currently supported providers:
+- **Plausible Analytics** (recommended for privacy)
+- **Umami** (self-hosted)
+- Custom HTTP endpoint
+
+---
+
+## 8. Checklist for Integration ✅
 
 - [ ] **Network Config:** Ensure your app points to the right RPC (Testnet vs Mainnet).
 - [ ] **Passphrase:** Use the correct Network Passphrase.
 - [ ] **Simulation:** ALWAYS simulate before asking the user to sign. It catches errors early and calculates gas.
-- **XDR:** Familiarize yourself with Stellar's data format (XDR) if you aren't using generated bindings.
+- [ ] **XDR:** Familiarize yourself with Stellar's data format (XDR) if you aren't using generated bindings.
+- [ ] **Analytics:** Track key user actions using privacy-first event tracking. Always respect doNotTrack and user preferences.
 
 ---
 *Ready to build the future of finance? 🚀*
