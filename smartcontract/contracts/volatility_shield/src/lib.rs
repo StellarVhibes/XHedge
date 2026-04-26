@@ -83,6 +83,7 @@ pub enum DataKey {
     AllowlistMode,
     Blocklist,
     Allowlist,
+    Delegate(Address),
 }
 
 // ─────────────────────────────────────────────
@@ -871,11 +872,13 @@ impl VolatilityShield {
     ///
     /// The user burns shares and receives a proportional amount of assets.
     /// If the withdrawal amount exceeds the queue threshold, it is queued instead.
+    /// @param caller The owner or approved delegate authorizing the withdrawal.
     /// @param from The address of the user withdrawing.
     /// @param shares The amount of shares to burn.
     /// @param min_assets_out Optional minimum acceptable assets to receive.
     pub fn withdraw(
         env: Env,
+        caller: Address,
         from: Address,
         shares: i128,
         min_assets_out: Option<i128>,
@@ -886,7 +889,7 @@ impl VolatilityShield {
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
         }
-        from.require_auth();
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
 
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -1113,16 +1116,23 @@ impl VolatilityShield {
     /// Queue a withdrawal request for processing later.
     ///
     /// This is called automatically by withdraw() when the amount exceeds the threshold.
+    /// @param caller The owner or approved delegate authorizing the queue request.
     /// @param from The address of the user withdrawing.
     /// @param shares The amount of shares to burn.
-    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+    pub fn queue_withdraw(
+        env: Env,
+        caller: Address,
+        from: Address,
+        shares: i128,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::assert_not_paused(&env);
         if shares <= 0 {
             panic!("shares to queue must be positive");
         }
-        from.require_auth();
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
         Self::internal_queue_withdraw(env.clone(), from, shares);
+        Ok(())
     }
 
     fn internal_queue_withdraw(env: Env, from: Address, shares: i128) {
@@ -1336,6 +1346,35 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::PendingWithdrawals)
             .unwrap_or(Vec::new(&env))
+    }
+
+    /// Approve a delegate that may execute withdrawals on behalf of `owner`.
+    pub fn set_delegate(env: Env, owner: Address, delegate: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Delegate(owner.clone()), &delegate);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
+            (owner, delegate),
+        );
+    }
+
+    /// Remove the approved delegate for `owner`.
+    pub fn remove_delegate(env: Env, owner: Address) {
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(owner.clone()));
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateRemoved"),),
+            (owner,),
+        );
+    }
+
+    /// Return the approved delegate for `owner`, if one is set.
+    pub fn get_delegate(env: Env, owner: Address) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Delegate(owner))
     }
 
     // ── Rebalance ─────────────────────────────
@@ -2586,6 +2625,27 @@ impl VolatilityShield {
             // Both are required to be checked; the signed party will pass.
             // In Soroban the host simply verifies whichever has an auth entry.
             admin.require_auth();
+        }
+    }
+
+    fn require_owner_or_delegate(
+        env: &Env,
+        owner: &Address,
+        caller: &Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+
+        if caller == owner {
+            return Ok(());
+        }
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
+        {
+            Some(delegate) if delegate == *caller => Ok(()),
+            _ => Err(Error::Unauthorized),
         }
     }
 

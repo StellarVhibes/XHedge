@@ -102,7 +102,7 @@ proptest! {
 
         assert_eq!(client.total_shares(), shares);
 
-        client.withdraw(&user, &shares, &None::<i128>);
+        client.withdraw(&user, &user, &shares, &None::<i128>);
         assert_eq!(client.balance(&user), 0);
         assert_eq!(client.total_shares(), 0);
     }
@@ -147,7 +147,7 @@ proptest! {
         for &s in deposit_shares.iter() {
             let u = Address::generate(&env);
             client.set_balance(&u, &s);
-            let _ = client.try_queue_withdraw(&u, &s);
+            let _ = client.try_queue_withdraw(&u, &u, &s);
         }
 
         let mut queued = 0;

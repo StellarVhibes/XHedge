@@ -266,12 +266,111 @@ fn test_withdraw_success() {
 
     stellar_asset_client.mint(&contract_id, &5000);
 
-    client.withdraw(&user, &50, &None::<i128>);
+    client.withdraw(&user, &user, &50, &None::<i128>);
 
     assert_eq!(client.balance(&user), 50);
     assert_eq!(client.total_shares(), 950);
     assert_eq!(client.total_assets(), 4750);
     assert_eq!(token_client.balance(&user), 250);
+}
+
+#[test]
+fn test_set_and_remove_delegate() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    client.set_delegate(&owner, &delegate);
+    assert_eq!(client.get_delegate(&owner), Some(delegate.clone()));
+
+    client.remove_delegate(&owner);
+    assert_eq!(client.get_delegate(&owner), None);
+}
+
+#[test]
+fn test_delegate_can_withdraw_for_owner() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&owner, &100);
+    client.set_delegate(&owner, &delegate);
+
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    client.withdraw(&delegate, &owner, &50, &None::<i128>);
+
+    assert_eq!(client.balance(&owner), 50);
+    assert_eq!(client.total_shares(), 950);
+    assert_eq!(client.total_assets(), 4750);
+    assert_eq!(token_client.balance(&owner), 250);
+    assert_eq!(token_client.balance(&delegate), 0);
+}
+
+#[test]
+fn test_non_delegate_withdraw_rejected() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&owner, &100);
+    client.set_delegate(&owner, &delegate);
+
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    let res = client.try_withdraw(&stranger, &owner, &50, &None::<i128>);
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.balance(&owner), 100);
+    assert_eq!(client.total_shares(), 1000);
+    assert_eq!(client.total_assets(), 5000);
+    assert_eq!(token_client.balance(&owner), 0);
 }
 
 #[test]
@@ -365,7 +464,7 @@ fn test_withdraw_slippage_exact_minimum_passes() {
 
     stellar_asset_client.mint(&contract_id, &5000);
 
-    client.withdraw(&user, &50, &Some(250));
+    client.withdraw(&user, &user, &50, &Some(250));
 
     assert_eq!(client.balance(&user), 50);
     assert_eq!(client.total_shares(), 950);
@@ -399,7 +498,7 @@ fn test_withdraw_slippage_below_minimum_fails() {
 
     stellar_asset_client.mint(&contract_id, &5000);
 
-    let res = client.try_withdraw(&user, &50, &Some(251));
+    let res = client.try_withdraw(&user, &user, &50, &Some(251));
     assert_eq!(res, Err(Ok(Error::SlippageExceeded)));
     assert_eq!(client.balance(&user), 100);
     assert_eq!(client.total_shares(), 1000);
@@ -1051,7 +1150,7 @@ fn test_withdraw_below_threshold_processes_immediately() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Withdraw 50 shares (converts to 250 assets, below threshold)
-    client.withdraw(&user, &50, &None::<i128>);
+    client.withdraw(&user, &user, &50, &None::<i128>);
 
     // Should process immediately
     assert_eq!(client.balance(&user), 150);
@@ -1089,13 +1188,50 @@ fn test_withdraw_above_threshold_queues() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Queue 300 shares via queue_withdraw (converts to 1500 assets, above threshold)
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
 
     // Should be queued; balance is reduced immediately
     assert_eq!(client.balance(&user), 200);
     let pending = client.get_pending_withdrawals();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending.get(0).unwrap().user, user);
+    assert_eq!(pending.get(0).unwrap().shares, 300);
+}
+
+#[test]
+fn test_delegate_can_queue_withdraw_for_owner() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+    client.set_withdraw_queue_threshold(&1000);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&owner, &500);
+    client.set_delegate(&owner, &delegate);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    client.queue_withdraw(&delegate, &owner, &300);
+
+    assert_eq!(client.balance(&owner), 200);
+    let pending = client.get_pending_withdrawals();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending.get(0).unwrap().user, owner);
     assert_eq!(pending.get(0).unwrap().shares, 300);
 }
 
@@ -1129,7 +1265,7 @@ fn test_process_withdraw_queue() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Queue a withdrawal directly (300 shares = 1500 assets > threshold of 1000)
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
 
     // Process the queue
@@ -1172,7 +1308,7 @@ fn test_cancel_withdraw() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Queue a withdrawal directly (300 shares = 1500 assets > threshold of 1000)
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
     // Balance is subtracted immediately
     assert_eq!(client.balance(&user), 200);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
@@ -1215,12 +1351,12 @@ fn test_cannot_queue_multiple_withdrawals() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Queue first withdrawal via queue_withdraw (300 shares = 1500 assets, above threshold of 1000)
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
     // User now has 300 shares remaining
 
     // Try to queue another - should panic because user already has pending withdrawal
     // This will try to withdraw 250 shares = 1250 assets, which is above threshold
-    client.queue_withdraw(&user, &250);
+    client.queue_withdraw(&user, &user, &250);
 }
 
 #[test]
@@ -1296,8 +1432,8 @@ fn test_withdrawal_queue_fifo_order() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // Queue withdrawals in order using queue_withdraw
-    client.queue_withdraw(&user1, &300);
-    client.queue_withdraw(&user2, &300);
+    client.queue_withdraw(&user1, &user1, &300);
+    client.queue_withdraw(&user2, &user2, &300);
 
     let pending = client.get_pending_withdrawals();
     assert_eq!(pending.len(), 2);
@@ -1342,7 +1478,7 @@ fn test_withdrawal_queue_full_lifecycle() {
     stellar_asset_client.mint(&contract_id, &5000);
 
     // 1. Queue withdrawal via queue_withdraw
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
     // Balance is subtracted immediately (500 - 300 = 200)
     assert_eq!(client.balance(&user), 200);
     assert_eq!(client.get_pending_withdrawals().len(), 1);
@@ -1353,7 +1489,7 @@ fn test_withdrawal_queue_full_lifecycle() {
     assert_eq!(client.get_pending_withdrawals().len(), 0);
 
     // 3. Queue again (user has 500 shares now)
-    client.queue_withdraw(&user, &300);
+    client.queue_withdraw(&user, &user, &300);
     assert_eq!(client.balance(&user), 200); // reduced immediately to 200
     assert_eq!(client.get_pending_withdrawals().len(), 1);
 
@@ -1664,13 +1800,13 @@ fn test_queue_withdraw_prevents_double_spending() {
     client.set_withdraw_queue_threshold(&500);
 
     // Queue 600
-    client.withdraw(&user, &600, &None::<i128>);
+    client.withdraw(&user, &user, &600, &None::<i128>);
 
     // User balance should be 400 now (1000 - 600)
     assert_eq!(client.balance(&user), 400);
 
     // Try to withdraw another 500 - should fail as user only has 400 left
-    let res = client.try_withdraw(&user, &500, &None::<i128>);
+    let res = client.try_withdraw(&user, &user, &500, &None::<i128>);
     assert!(res.is_err());
 }
 
@@ -1698,7 +1834,7 @@ fn test_cancel_queued_withdrawal_restores_balance() {
     client.deposit(&user, &token_id, &1000, &None::<i128>);
 
     client.set_withdraw_queue_threshold(&500);
-    client.withdraw(&user, &600, &None::<i128>);
+    client.withdraw(&user, &user, &600, &None::<i128>);
     assert_eq!(client.balance(&user), 400);
 
     // Cancel
@@ -1788,7 +1924,7 @@ fn test_withdraw_cap_exceeded() {
     client.set_balance(&user, &200);
 
     // Attempt withdrawal of 150 which exceeds cap of 100
-    client.withdraw(&user, &150, &None::<i128>);
+    client.withdraw(&user, &user, &150, &None::<i128>);
 }
 
 #[test]
