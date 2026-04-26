@@ -91,18 +91,18 @@ export async function fetchVaultData(
           .build()
       );
 
-      if (rpc.Api.isSimulationSuccess(userBalanceSim)) {
+      if (rpc.Api.isSimulationSuccess(userBalanceSim) && userBalanceSim.result) {
         userShares = scValToNative(userBalanceSim.result.retval).toString();
       }
     }
 
-    const totalAssets = rpc.Api.isSimulationSuccess(totalAssetsSim)
+    const totalAssets = (rpc.Api.isSimulationSuccess(totalAssetsSim) && totalAssetsSim.result)
       ? scValToNative(totalAssetsSim.result.retval).toString()
       : "0";
-    const totalShares = rpc.Api.isSimulationSuccess(totalSharesSim)
+    const totalShares = (rpc.Api.isSimulationSuccess(totalSharesSim) && totalSharesSim.result)
       ? scValToNative(totalSharesSim.result.retval).toString()
       : "0";
-    const sharePrice = rpc.Api.isSimulationSuccess(sharePriceSim)
+    const sharePrice = (rpc.Api.isSimulationSuccess(sharePriceSim) && sharePriceSim.result)
       ? (Number(scValToNative(sharePriceSim.result.retval)) / 1e7).toFixed(7)
       : "1.0000000";
 
