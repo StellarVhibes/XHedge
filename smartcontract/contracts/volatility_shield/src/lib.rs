@@ -190,6 +190,13 @@ pub struct RebalancePartialFailure {
     pub reason: soroban_sdk::String,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RebalanceWithdrawTransferFailed {
+    pub strategy: Address,
+    pub amount: i128,
+}
+
 // ─────────────────────────────────────────────
 // Queued withdrawal struct
 // ─────────────────────────────────────────────
@@ -903,9 +910,8 @@ impl VolatilityShield {
         let price = Self::get_asset_price(env.clone(), asset.clone());
         let value_deposited = amount.checked_mul(price).unwrap().checked_div(1_000_000_000).unwrap();
 
-        // Transfer the asset from user to contract
-        token::Client::new(&env, &asset).transfer(&from, &env.current_contract_address(), &amount);
-
+        // ── Checks ───────────────────────────────────────────────────────────
+        // Compute shares using pre-deposit totals so the ratio is not skewed.
         let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
 
         // Slippage check
@@ -960,6 +966,9 @@ impl VolatilityShield {
         }
         // -------------------------------
 
+        // ── Effects ──────────────────────────────────────────────────────────
+        // Commit all state mutations before touching external contracts (CEI).
+
         // Update per-asset balance
         env.storage()
             .persistent()
@@ -986,6 +995,10 @@ impl VolatilityShield {
 
         Self::set_total_shares(env.clone(), new_total_shares);
         env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+
+        // ── Interaction ───────────────────────────────────────────────────────
+        // Token transfer occurs last, after all state is committed (CEI pattern).
+        token::Client::new(&env, &asset).transfer(&from, &env.current_contract_address(), &amount);
 
         let share_price = Self::get_share_price(&env);
 
@@ -1095,14 +1108,7 @@ impl VolatilityShield {
                 continue;
             }
 
-            // Transfer the asset
-            token::Client::new(&env, &asset).transfer(
-                &from,
-                &env.current_contract_address(),
-                &amount,
-            );
-
-            // Update state
+            // ── Effects: commit all state before external call (CEI) ──────────
             env.storage()
                 .persistent()
                 .set(&asset_balance_key, &(current_asset_balance + shares_to_mint));
@@ -1125,6 +1131,13 @@ impl VolatilityShield {
 
             Self::set_total_shares(env.clone(), new_total_shares);
             env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+
+            // ── Interaction: token transfer last ──────────────────────────────
+            token::Client::new(&env, &asset).transfer(
+                &from,
+                &env.current_contract_address(),
+                &amount,
+            );
 
             let share_price = Self::get_share_price(&env);
 
@@ -1798,19 +1811,24 @@ impl VolatilityShield {
             let mut op_success = true;
 
             if target_allocation > current_balance {
-                // Vault → Strategy
+                // Vault → Strategy (CEI: confirm strategy accepts before transferring tokens)
                 let diff = target_allocation - current_balance;
-                token_client.transfer(&vault, &strategy_addr, &diff);
-                if let Err(reason) = strategy.try_deposit(diff) {
-                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
-                    env.events().publish(
-                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
-                        RebalancePartialFailure {
-                            failed_strategy: strategy_addr.clone(),
-                            reason,
-                        },
-                    );
-                    op_success = false;
+                match strategy.try_deposit(diff) {
+                    Ok(_) => {
+                        // Strategy accepted the deposit; now transfer tokens to back it.
+                        token_client.transfer(&vault, &strategy_addr, &diff);
+                    }
+                    Err(reason) => {
+                        let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                        env.events().publish(
+                            (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                            RebalancePartialFailure {
+                                failed_strategy: strategy_addr.clone(),
+                                reason,
+                            },
+                        );
+                        op_success = false;
+                    }
                 }
             } else if target_allocation < current_balance {
                 // Strategy → Vault
@@ -1826,7 +1844,25 @@ impl VolatilityShield {
                     );
                     op_success = false;
                 } else {
-                    token_client.transfer(&strategy_addr, &vault, &diff);
+                    // Strategy withdrew successfully; now pull the tokens into the vault.
+                    // Use try_transfer so a transfer failure is caught and handled rather
+                    // than leaving vault accounting inconsistent with actual balances.
+                    match token_client.try_transfer(&strategy_addr, &vault, &diff) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            // Tokens didn't arrive — re-deposit to restore strategy balance,
+                            // then emit an alert event for off-chain monitoring.
+                            let _ = strategy.try_deposit(diff);
+                            env.events().publish(
+                                (soroban_sdk::Symbol::new(env, "RebalanceWithdrawTransferFailed"), strategy_addr.clone()),
+                                RebalanceWithdrawTransferFailed {
+                                    strategy: strategy_addr.clone(),
+                                    amount: diff,
+                                },
+                            );
+                            op_success = false;
+                        }
+                    }
                 }
             }
             
