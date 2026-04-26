@@ -10,7 +10,6 @@ import {
   xdr,
   Contract,
   rpc,
-  scValToNative,
 } from "@stellar/stellar-sdk";
 
 export enum NetworkType {

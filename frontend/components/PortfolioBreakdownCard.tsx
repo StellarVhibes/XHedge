@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Wallet, PieChart, Activity } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 import { fetchUserBasis } from "@/lib/stellar";
-import { CONTRACTS } from "@/lib/contracts.config";
+import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 
 /**
  * PortfolioBreakdownCard
@@ -29,7 +29,7 @@ export function PortfolioBreakdownCard() {
       if (address && connected) {
         setLoadingBasis(true);
         try {
-          const contractId = CONTRACTS.volatility_shield.id;
+          const contractId = getVolatilityShieldAddress(network as any);
           const basis = await fetchUserBasis(contractId, address, network as any);
           if (basis.totalSharesMinted > 0) {
             setEntryPrice(basis.averageEntryPrice);

@@ -325,7 +325,6 @@ pub struct YieldHistory {
 #[contract]
 pub struct VolatilityShield;
 
-#[contractimpl]
 impl VolatilityShield {
     fn emit_error(env: &Env, error: Error) {
         env.events()
@@ -335,6 +334,8 @@ impl VolatilityShield {
     fn emit_and_err<T>(env: &Env, error: Error) -> Result<T, Error> {
         Self::emit_error(env, error);
         Err(error)
+    }
+
     fn emit_slippage_protection_triggered(env: &Env, expected_min: i128, actual: i128) {
         env.events().publish(
             (soroban_sdk::Symbol::new(env, "SlippageProtectionTriggered"),),
@@ -359,6 +360,10 @@ impl VolatilityShield {
     pub fn exit_guard(env: &Env) {
         env.storage().instance().remove(&DataKey::ReentrancyGuard);
     }
+}
+
+#[contractimpl]
+impl VolatilityShield {
 
     /// Propose a new governance action.
     ///
@@ -2157,26 +2162,18 @@ impl VolatilityShield {
                 || consecutive_failures != current_health.consecutive_failures
                 || actual_balance != current_health.last_known_balance
             {
-                let new_health = StrategyHealth {
+                current_health = StrategyHealth {
                     last_known_balance: actual_balance,
                     last_check_timestamp: current_time,
                     is_healthy,
                     consecutive_failures,
                 };
-                env.storage().instance().set(&health_key, &new_health);
+                env.storage().instance().set(&health_key, &current_health);
             }
 
+            if !is_healthy {
                 unhealthy_strategies.push_back(strategy_addr.clone());
-            } else {
-                // ── Successful check: reset strike counter ───────────────
-                current_health.consecutive_failures = 0;
             }
-
-            // Always refresh balance and timestamp
-            current_health.last_known_balance = actual_balance;
-            current_health.last_check_timestamp = current_time;
-
-            env.storage().instance().set(&health_key, &current_health);
         }
 
         Ok(unhealthy_strategies)
