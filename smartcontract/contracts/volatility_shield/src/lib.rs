@@ -309,7 +309,7 @@ impl VolatilityShield {
             id,
             proposer: proposer.clone(),
             action: action.clone(),
-            approvals: soroban_sdk::vec![&env, proposer],
+            approvals: soroban_sdk::vec![&env, proposer.clone()],
             executed: false,
             executed_ledger: 0,
             proposed_at,
@@ -393,7 +393,7 @@ impl VolatilityShield {
             return Err(Error::AlreadyApproved);
         }
 
-        proposal.approvals.push_back(guardian);
+        proposal.approvals.push_back(guardian.clone());
 
         let threshold: u32 = env
             .storage()
