@@ -836,11 +836,12 @@ export async function fetchUserBasis(
       try {
         const value = scValToNative(e.value);
         if (Array.isArray(value)) {
-          // Updated Deposit event value: (asset, amount, shares_minted, share_price, total_assets, total_shares)
-          const sharesMinted = Number(value[2]) / 1e7;
-          const sharePrice = Number(value[3]) / 1e9;
-          
-          totalValueDeposited += sharesMinted * sharePrice;
+          // Schema Deposit event value: (asset, amount, share_price, total_assets, total_shares)
+          const amount = Number(value[1]) / 1e7;
+          const sharePrice = Number(value[2]) / 1e9;
+          const sharesMinted = amount / sharePrice;
+
+          totalValueDeposited += amount;
           totalSharesMinted += sharesMinted;
         }
       } catch (err) {

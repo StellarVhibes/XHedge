@@ -9,7 +9,9 @@ import {
   Download,
 } from 'lucide-react';
 import { useWallet } from '@/hooks/use-wallet';
-import { Transaction, fetchTransactionHistory } from '@/lib/stellar';
+import { useNetwork } from '@/app/context/NetworkContext';
+import { Transaction, fetchTransactionHistory, NetworkType } from '@/lib/stellar';
+import { getVolatilityShieldAddress } from '@/lib/contracts.config';
 import { formatNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -48,20 +50,22 @@ function buildTransactionCsv(transactions: Transaction[]): string {
  */
 export function TransactionList() {
   const { connected, address } = useWallet();
+  const { network } = useNetwork();
   const { state, setData, setLoading, setError } = useStaleData<Transaction[]>(5 * 60 * 1000);
   const transactions = state.data ?? [];
 
   const loadHistory = useCallback(async () => {
-    if (!connected || !address) return;
+    if (!connected || !address || !network) return;
     setLoading(true);
     try {
-      const history = await fetchTransactionHistory(address);
+      const contractId = getVolatilityShieldAddress(network);
+      const history = await fetchTransactionHistory(contractId, address, network);
       setData(history);
     } catch (error) {
       console.error('Failed to fetch history:', error);
       setError(error instanceof Error ? error.message : 'Failed to load transactions');
     }
-  }, [connected, address, setData, setLoading, setError]);
+  }, [connected, address, network, setData, setLoading, setError]);
 
   useEffect(() => {
     loadHistory();

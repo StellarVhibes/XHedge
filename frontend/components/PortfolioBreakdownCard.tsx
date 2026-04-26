@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useWallet } from "@/hooks/use-wallet";
+import { useNetwork } from "@/app/context/NetworkContext";
 import { useRealtimeVault } from "@/hooks/use-realtime-vault";
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { Card } from "@/components/ui/card";
@@ -17,7 +18,8 @@ import { getVolatilityShieldAddress } from "@/lib/contracts.config";
  * vault percentage ownership, unrealized P&L, and current value.
  */
 export function PortfolioBreakdownCard() {
-  const { address, connected, network } = useWallet();
+  const { address, connected } = useWallet();
+  const { network } = useNetwork();
   const { metrics } = useRealtimeVault(address);
   const { format } = useCurrency();
   const [entryPrice, setEntryPrice] = useState<number | null>(null);
@@ -26,11 +28,11 @@ export function PortfolioBreakdownCard() {
   // Calculate weighted entry basis from on-chain events
   useEffect(() => {
     async function loadBasis() {
-      if (address && connected) {
+      if (address && connected && network) {
         setLoadingBasis(true);
         try {
-          const contractId = getVolatilityShieldAddress(network as any);
-          const basis = await fetchUserBasis(contractId, address, network as any);
+          const contractId = getVolatilityShieldAddress(network);
+          const basis = await fetchUserBasis(contractId, address, network);
           if (basis.totalSharesMinted > 0) {
             setEntryPrice(basis.averageEntryPrice);
           }

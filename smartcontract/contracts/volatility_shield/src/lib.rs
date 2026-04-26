@@ -929,7 +929,6 @@ impl VolatilityShield {
             (
                 asset.clone(),
                 amount,
-                shares_to_mint,
                 share_price,
                 new_total_assets_value,
                 new_total_shares,
@@ -1066,7 +1065,6 @@ impl VolatilityShield {
                 (
                     asset.clone(),
                     amount,
-                    shares_to_mint,
                     share_price,
                     new_total_assets_value,
                     new_total_shares,
