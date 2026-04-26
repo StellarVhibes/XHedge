@@ -69,6 +69,8 @@ pub enum DataKey {
     WithdrawQueueThreshold,
     PendingWithdrawals,
     StrategyHealth(Address),
+    /// Admin-configurable consecutive-failure threshold (default: 3).
+    MaxConsecutiveFailures,
     TimelockDuration,
     GovernanceToken,
     AssetBalance(Address, Address),
@@ -1935,6 +1937,12 @@ impl VolatilityShield {
             return Err(Error::NoStrategies);
         }
 
+        let max_failures: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3);
+
         let mut unhealthy_strategies = Vec::new(&env);
         let current_time = env.ledger().timestamp();
 
@@ -1961,7 +1969,7 @@ impl VolatilityShield {
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let current_health =
+            let mut current_health: StrategyHealth =
                 env.storage()
                     .instance()
                     .get(&health_key)
@@ -2026,10 +2034,17 @@ impl VolatilityShield {
                 env.storage().instance().set(&health_key, &new_health);
             }
 
-            // If unhealthy, add to list for flagging
-            if !is_healthy {
                 unhealthy_strategies.push_back(strategy_addr.clone());
+            } else {
+                // ── Successful check: reset strike counter ───────────────
+                current_health.consecutive_failures = 0;
             }
+
+            // Always refresh balance and timestamp
+            current_health.last_known_balance = actual_balance;
+            current_health.last_check_timestamp = current_time;
+
+            env.storage().instance().set(&health_key, &current_health);
         }
 
         Ok(unhealthy_strategies)
@@ -2061,9 +2076,19 @@ impl VolatilityShield {
         let health_key = DataKey::StrategyHealth(strategy.clone());
         let current_time = env.ledger().timestamp();
 
-        // Update health to unhealthy
+        // Update health to unhealthy, preserving the existing counter
+        let existing: StrategyHealth = env
+            .storage()
+            .instance()
+            .get(&health_key)
+            .unwrap_or(StrategyHealth {
+                last_known_balance: 0,
+                last_check_timestamp: current_time,
+                is_healthy: true,
+                consecutive_failures: 0,
+            });
         let updated_health = StrategyHealth {
-            last_known_balance: 0, // Will be updated on next health check
+            last_known_balance: existing.last_known_balance,
             last_check_timestamp: current_time,
             is_healthy: false,
             consecutive_failures: 0,
@@ -2137,6 +2162,30 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .get(&DataKey::StrategyHealth(strategy))
+    }
+
+    /// Set the number of consecutive failed balance checks before a strategy is
+    /// auto-flagged as unhealthy.  Defaults to 3 when not configured.
+    /// Only the admin can call this.
+    pub fn set_max_consecutive_failures(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        if threshold == 0 {
+            return Err(Error::NegativeAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxConsecutiveFailures, &threshold);
+        env.events()
+            .publish((symbol_short!("MaxFail"),), threshold);
+        Ok(())
+    }
+
+    /// Return the currently configured consecutive-failure threshold (default: 3).
+    pub fn get_max_consecutive_failures(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3)
     }
 
     /// Calculate annualized percentage yield (APY) for a strategy.
