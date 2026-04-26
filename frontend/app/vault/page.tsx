@@ -325,6 +325,36 @@ export default function VaultPage() {
                   {status.message}
                 </div>
               )}
+
+              {/* Detailed Pending List */}
+              {hasPending && (
+                <div className="mt-6 space-y-3">
+                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Clock className="w-3 h-3" />
+                    Pending Transactions
+                  </h3>
+                  <div className="space-y-2">
+                    {pendingTxs.filter(tx => tx.status === 'pending').map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30 border-dashed">
+                        <div className="flex items-center gap-3">
+                          {tx.type === 'deposit' ? (
+                            <ArrowUpFromLine className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <ArrowDownToLine className="w-4 h-4 text-blue-500" />
+                          )}
+                          <span className="text-sm">
+                            {tx.type === 'deposit' ? 'Deposit' : 'Withdraw'} {tx.amount} {tx.type === 'deposit' ? 'USDC' : 'XHS'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-yellow-600">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Processing
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
