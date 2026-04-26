@@ -18,7 +18,7 @@ interface NotificationContextType {
   addNotification: (notification: Omit<Notification, "id" | "timestamp" | "read">) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
-  clearNotifications: () => void;
+  clearAll: () => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   requestPermission: () => Promise<boolean>;
@@ -29,6 +29,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -36,9 +37,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Convert string timestamps back to Date objects
         setNotifications(
-          parsed.map((n: Notification) => ({
+          parsed.map((n: any) => ({
             ...n,
             timestamp: new Date(n.timestamp),
           }))
@@ -47,12 +47,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         console.error("Failed to parse notifications", e);
       }
     }
+    setIsInitialized(true);
   }, []);
 
   // Save to localStorage on change
   useEffect(() => {
-    localStorage.setItem("xh_notifications", JSON.stringify(notifications));
-  }, [notifications]);
+    if (isInitialized) {
+      localStorage.setItem("xh_notifications", JSON.stringify(notifications));
+    }
+  }, [notifications, isInitialized]);
 
   // Register Service Worker and request permissions if possible
   useEffect(() => {
@@ -121,7 +124,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setNotifications((prev: Notification[]) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const clearNotifications = () => {
+  const clearAll = () => {
     setNotifications([]);
   };
 
@@ -135,7 +138,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         addNotification,
         markAsRead,
         markAllAsRead,
-        clearNotifications,
+        clearAll,
         isOpen,
         setIsOpen,
         requestPermission,
