@@ -12,52 +12,38 @@ Events are versioned by contract version. The following table tracks which event
 
 ## Event Schema Table
 
-| Event Topic | Emitting Function | Payload Fields | Types | Example XDR |
-|-------------|-------------------|----------------|-------|-------------|
-| `Deposit` | `deposit()` | `from`, `asset`, `amount`, `share_price`, `total_assets`, `total_shares` | `Address`, `Address`, `i128`, `i128`, `i128`, `i128` | `(Address, (Address, i128, i128, i128, i128))` |
-| `Withdraw` | `withdraw()` | `from`, `shares`, `share_price`, `total_assets`, `total_shares` | `Address`, `i128`, `i128`, `i128`, `i128` | `(Address, (i128, i128, i128, i128))` |
-| `Rebalance` | `internal_rebalance()` | (emitted via VaultSnapshot) | - | - |
-| `VaultSnapshot` | `internal_rebalance()` | `total_assets`, `total_shares`, `allocations` | `i128`, `i128`, `Map<Address, i128>` | `((), (i128, i128, Map<Address, i128>))` |
-| `StrategyFlagged` | `flag_strategy()` | `strategy`, `timestamp` | `Address`, `u64` | `(Address, u64)` |
-| `StrategyRemoved` | `remove_strategy()` | `strategy`, `balance` | `Address`, `i128` | `(Address, i128)` |
-| `StrategyAdded` | `internal_add_strategy()` | `strategy` | `Address` | `((), Address)` |
-| `WithdrawQueued` | `queue_withdraw()`, `internal_queue_withdraw()` | `from`, `shares`, `share_price`, `total_assets`, `total_shares` | `Address`, `i128`, `i128`, `i128`, `i128` | `(Address, (i128, i128, i128, i128))` |
-| `WithdrawProcessed` | `process_queued_withdrawals()` | `user`, `shares` | `Address`, `i128` | `(Address, i128)` |
-| `WithdrawCancelled` | `cancel_queued_withdrawal()` | `from`, `shares` | `Address`, `i128` | `((), (Address, i128))` |
-| `ProposalCreated` | `propose_action()` | (emitted via TimelockStarted) | - | - |
-| `TimelockStarted` | `propose_action()` | `proposal_id`, `proposed_at` | `u64`, `u64` | `((), (u64, u64))` |
-| `ProposalApproved` | `approve_action()` | (no direct event) | - | - |
-| `ProposalExecuted` | `execute_action()` | (emitted via TlockExec) | - | - |
-| `TlockExec` | `execute_action()` | (empty) | `()` | `((), ())` |
-| `OracleDataUpdated` | `set_oracle_data()` | (no direct event, uses OracleLastUpdate storage) | - | - |
-| `OracleStale` | `internal_rebalance()` | `last_update` | `u64` | `((), u64)` |
-| `VaultPaused` | `set_paused()` | `state` | `bool` | `(Symbol, bool)` |
-| `paused` | `set_paused()` | `state` | `bool` | `(Symbol, bool)` |
-| `EmergencyShutdownActivated` | (not directly implemented) | - | - | - |
-| `Harvest` | `harvest()` | `total_yield`, `total_assets_after`, `total_shares_after` | `i128`, `i128`, `i128` | `((), (i128, i128, i128))` |
-| `HarvestScheduled` | `harvest()`, `set_harvest_interval()` | `next_eligible_ledger` | `u32` | `(Symbol, u32)` |
-| `GuardAdd` | `add_guardian()` | `guardian` | `Address` | `(Symbol, Address)` |
-| `GuardRm` | `remove_guardian()` | `guardian` | `Address` | `(Symbol, Address)` |
-| `Threshold` | `set_threshold()` | `threshold` | `u32` | `(Symbol, u32)` |
-| `GovToken` | `set_governance_token()` | `token` | `Address` | `(Symbol, Address)` |
-| `CapsSet` | `set_deposit_cap()`, `set_withdraw_cap()` | `cap_type`, `value` | `Symbol`, `i128` | `(Symbol, Symbol, i128)` |
-| `Staleness` | `set_max_staleness()` | `seconds` | `u64` | `(Symbol, u64)` |
-| `upgrade` | `upgrade()`, `migrate()` | `upgrade_type`, `data` | `Symbol`, `BytesN<32>` or `u32` | `(Symbol, Symbol, BytesN<32>)` or `(Symbol, Symbol, u32)` |
-| `TimelockD` | `set_timelock_duration()` | `duration` | `u64` | `(Symbol, u64)` |
-| `SlippageExceeded` | `internal_rebalance()` | `strategy`, `expected_balance`, `final_balance`, `slippage_bps` | `Address`, `i128`, `i128`, `i128` | `(Symbol, (Address, i128, i128, i128))` |
-| `OracleCircuitBreakerActivated` | `activate_oracle_circuit_breaker()` | `timestamp` | `u64` | `(Symbol, u64)` |
-| `OracleCircuitBreakerReset` | `reset_oracle_circuit_breaker()` | `timestamp` | `u64` | `(Symbol, u64)` |
-| `UserBlocked` | `check_compliance()`, `add_to_blocklist()` | `user` | `Address` | `(Symbol, Address)` |
-| `UserAllowlisted` | `add_to_allowlist()` | `user` | `Address` | `(Symbol, Address)` |
-| `BatchDep` | `batch_deposit()` (failure events) | `status`, `from`, `asset`, `amount`, `reason` | `Symbol`, `Address`, `Address`, `i128`, `Symbol` | `(Symbol, Symbol, (Address, Address, i128, Symbol))` |
-| `BatchWd` | `batch_withdraw()` (failure events) | `status`, `from`, `shares`, `reason` | `Symbol`, `Address`, `i128`, `Symbol` | `(Symbol, Symbol, (Address, i128, Symbol))` |
-| `DepositCapExceeded` | `deposit()`, `batch_deposit()` | `amount` | `i128` | `(Symbol, i128)` |
-| `WithdrawCapExceeded` | `withdraw()`, `batch_withdraw()` | `amount` | `i128` | `(Symbol, i128)` |
-| `QueueThr` | `set_withdraw_queue_threshold()` | `threshold` | `i128` | `(Symbol, i128)` |
-| `WithdrawP` | `process_queued_withdrawals()` | `user`, `shares` | `Address`, `i128` | `(Symbol, Address), i128` |
-| `WdrwCncl` | `cancel_queued_withdrawal()` | `from`, `shares` | `Address`, `i128` | `(Symbol, (Address, i128))` |
-| `StrategyF` | `flag_strategy()` | `strategy`, `timestamp` | `Address`, `u64` | `(Symbol, Address), u64` |
-| `StrategyR` | `remove_strategy()` | `strategy`, `balance` | `Address`, `i128` | `(Symbol, Address), i128` |
+| Event | Topics | Payload Fields | Emitting Function |
+|-------|--------|----------------|-------------------|
+| `ProposalCreated` | `ProposalCreated` | `id` | `propose_action()` |
+| `TimelockStarted` | `TimelockStarted` | `(id, proposed_at)` | `propose_action()` |
+| `ProposalApproved` | `ProposalApproved`, `proposal_id` | `guardian` | `approve_action()` |
+| `ProposalExecuted` | `ProposalExecuted` | `()` | `execute_action()` |
+| `TimelockExecuted` | `TimelockExecuted` | `()` | `execute_action()` |
+| `Deposit` | `Deposit`, `user` | `(asset, amount, share_price, total_assets_value, total_shares)` | `deposit()` |
+| `Withdraw` | `Withdraw`, `user` | `(asset, shares, share_price, total_assets_value, total_shares)` | `withdraw()` |
+| `WithdrawQueued` | `WithdrawQueued`, `user` | `(asset, shares, share_price, total_assets_value, total_shares)` | `queue_withdraw()` |
+| `WithdrawProcessed` | `WithdrawP`, `user` | `shares` | `process_queued_withdrawals()` |
+| `WithdrawCancelled` | `WdrwCncl` | `(user, shares)` | `cancel_queued_withdrawal()` |
+| `VaultSnapshot` | `VaultSnapshot` | `(total_assets, total_shares, allocations)` | `internal_rebalance()` |
+| `StrategyAdded` | `StrategyAdded` | `strategy` | `internal_add_strategy()` |
+| `StrategyFlagged` | `StrategyF`, `strategy` | `timestamp` | `flag_strategy()` |
+| `StrategyRemoved` | `StrategyR`, `strategy` | `final_balance` | `remove_strategy()` |
+| `Harvest` | `Harvest` | `(yield, total_assets, total_shares)` | `harvest()` |
+| `HarvestScheduled` | `HarvestScheduled` | `next_eligible` | `harvest()`, `set_harvest_interval()` |
+| `GuardianAdded` | `GuardAdd`, `guardian` | `()` | `add_guardian()` |
+| `GuardianRemoved` | `GuardRm`, `guardian` | `()` | `remove_guardian()` |
+| `ThresholdChanged` | `Threshold` | `threshold` | `set_threshold()` |
+| `CapsSet` | `CapsSet`, `type` | `(per_user, global)` or `per_tx` | `set_deposit_cap()`, `set_withdraw_cap()` |
+| `UserBlocked` | `UserBlocked` | `user` | `add_to_blocklist()` |
+| `UserAllowlisted` | `UserAllowlisted` | `user` | `add_to_allowlist()` |
+| `SlippageExceeded` | `SlippageExceeded` | `(strategy, expected, actual, slippage_bps)` | `internal_rebalance()` |
+| `AssetAdd` | `AssetAdd` | `asset` | `add_supported_asset()` |
+| `BatchDep` | `BatchDep`, `Fail` | `(from, asset, amount, reason)` | `batch_deposit()` |
+| `BatchWd` | `BatchWd`, `Fail` | `(from, shares, reason)` | `batch_withdraw()` |
+| `MaxFail` | `MaxFail` | `threshold` | `set_max_consecutive_failures()` |
+| `OracleCircuitBreakerActivated` | `OracleCircuitBreakerActivated` | `timestamp` | `activate_oracle_circuit_breaker()` |
+| `OracleCircuitBreakerReset` | `OracleCircuitBreakerReset` | `timestamp` | `reset_oracle_circuit_breaker()` |
+| `GovToken` | `GovToken` | `token` | `set_governance_token()` |
 
 ## Event Topic Symbols
 
