@@ -479,8 +479,7 @@ impl VolatilityShield {
         match action {
             ActionType::SetPaused(state) => {
                 env.storage().instance().set(&DataKey::Paused, state);
-                env.events()
-                    .publish((soroban_sdk::Symbol::new(env, "Paused"),), state);
+                env.events().publish((symbol_short!("Paused"),), state);
             }
             ActionType::AddStrategy(strategy) => {
                 Self::internal_add_strategy(env, strategy.clone())?;
@@ -2551,7 +2550,7 @@ impl VolatilityShield {
     pub fn set_paused(env: Env, state: bool) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &state);
-        env.events().publish((symbol_short!("paused"),), state);
+        env.events().publish((symbol_short!("Paused"),), state);
     }
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
