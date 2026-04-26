@@ -36,6 +36,7 @@ export default function VaultPage() {
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
   const [estimatingFee, setEstimatingFee] = useState(false);
   const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<VaultMetrics | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1M');
   const [chartData, setChartData] = useState<DataPoint[]>([]);
@@ -64,6 +65,7 @@ export default function VaultPage() {
   useEffect(() => {
     const loadChartData = async () => {
       setChartLoading(true);
+      setChartError(null);
       try {
         const contractId = getVolatilityShieldAddress(network);
         const data = await fetchApyData(selectedTimeframe, contractId, network);
@@ -71,6 +73,7 @@ export default function VaultPage() {
       } catch (error) {
         console.error('Failed to load chart data:', error);
         setChartData([]);
+        setChartError('Failed to load APY history');
       } finally {
         setChartLoading(false);
       }
@@ -471,7 +474,7 @@ export default function VaultPage() {
               loading={chartLoading}
             />
           </div>
-          <VaultAPYChart data={chartData} loading={chartLoading} />
+          <VaultAPYChart data={chartData} loading={chartLoading} error={chartError} />
         </div>
       )}
 

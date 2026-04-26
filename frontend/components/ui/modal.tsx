@@ -16,6 +16,8 @@ interface ModalProps {
 
 const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
   ({ isOpen, onClose, title, children, className, showCloseButton = true, size = "md" }, ref) => {
+    const modalRef = React.useRef<HTMLDivElement | null>(null);
+
     // Handle escape key
     React.useEffect(() => {
       const handleEscape = (event: KeyboardEvent) => {
@@ -34,6 +36,47 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
         document.body.style.overflow = "unset";
       };
     }, [isOpen, onClose]);
+
+    React.useEffect(() => {
+      if (!isOpen) return;
+      const host = modalRef.current;
+      if (!host) return;
+
+      const getFocusable = () =>
+        host.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+
+      const focusable = getFocusable();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      } else {
+        host.focus();
+      }
+
+      const handleTabTrap = (event: KeyboardEvent) => {
+        if (event.key !== "Tab") return;
+        const items = getFocusable();
+        if (items.length === 0) return;
+
+        const first = items[0];
+        const last = items[items.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+
+        if (event.shiftKey) {
+          if (active === first || !host.contains(active)) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (active === last || !host.contains(active)) {
+          event.preventDefault();
+          first.focus();
+        }
+      };
+
+      host.addEventListener("keydown", handleTabTrap);
+      return () => host.removeEventListener("keydown", handleTabTrap);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -56,12 +99,17 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
         
         {/* Modal */}
         <div
-          ref={ref}
+          ref={(node) => {
+            modalRef.current = node;
+            if (typeof ref === "function") ref(node);
+            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+          }}
           className={cn(
             "relative w-full bg-background rounded-lg shadow-lg border max-h-[90vh] overflow-hidden flex flex-col",
             sizeClasses[size],
             className
           )}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="modal-title"

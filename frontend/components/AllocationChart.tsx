@@ -37,7 +37,13 @@ function getRiskLabel(score: number): { label: string; color: string } {
 const TOOLTIP_WIDTH = 180;
 const TOOLTIP_OFFSET = 12;
 
-const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slice[] }) {
+const AllocationChart = memo(function AllocationChart({
+  slices,
+  onSliceClick,
+}: {
+  slices: Slice[];
+  onSliceClick?: (slice: Slice) => void;
+}) {
   const total = slices.reduce((s, c) => s + c.value, 0) || 1;
   const size = 220;
   const cx = size / 2;
@@ -94,6 +100,10 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
               d={path}
               fill={color}
               stroke="#ffffff"
+              role="button"
+              tabIndex={0}
+              aria-label={`View strategy details for ${slice.name}`}
+              data-testid={`allocation-slice-${i}`}
               strokeWidth={isHovered ? 2 : 1}
               style={{
                 transform: isHovered ? `scale(1.04)` : 'scale(1)',
@@ -105,6 +115,13 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
               onMouseEnter={(e) => { setHovered(i); showTooltip(e, slice, pct); }}
               onMouseMove={(e) => showTooltip(e, slice, pct)}
               onMouseLeave={hideTooltip}
+              onClick={() => onSliceClick?.(slice)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSliceClick?.(slice);
+                }
+              }}
             />
           );
         })}

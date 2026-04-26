@@ -8,6 +8,7 @@ import {
   xdr,
   Contract,
   rpc,
+  scValToNative,
 } from "@stellar/stellar-sdk";
 
 export enum NetworkType {
@@ -20,6 +21,12 @@ const RPC_URLS: Record<NetworkType, string> = {
   [NetworkType.MAINNET]: "https://horizon.stellar.org",
   [NetworkType.TESTNET]: "https://horizon-testnet.stellar.org",
   [NetworkType.FUTURENET]: "https://horizon-futurenet.stellar.org",
+};
+
+const SOROBAN_RPC_URLS: Record<NetworkType, string> = {
+  [NetworkType.MAINNET]: "https://rpc.mainnet.stellar.org",
+  [NetworkType.TESTNET]: "https://rpc.testnet.stellar.org",
+  [NetworkType.FUTURENET]: "https://rpc-futurenet.stellar.org",
 };
 
 export interface VaultMetrics {
@@ -390,59 +397,141 @@ export async function fetchHistoricalSharePrice(
   toDate?: Date
 ): Promise<HistoricalSharePrice[]> {
   try {
-    const horizonUrl = RPC_URLS[network];
-    const server = new Horizon.Server(horizonUrl);
-
     const endDate = toDate || new Date();
     const startDate = fromDate || new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const rpcUrl = SOROBAN_RPC_URLS[network];
+    const server = new rpc.Server(rpcUrl);
 
-    // Format dates for Horizon API (ISO 8601)
-    const startISO = startDate.toISOString();
-    const endISO = endDate.toISOString();
+    const latestLedger = await server.getLatestLedger();
 
-    // Query contract events - look for state changes related to share price
-    // This is a simplified implementation - real implementation would:
-    // 1. Query all Deposit/Withdraw events from the contract
-    // 2. Track cumulative totalAssets and totalShares
-    // 3. Calculate share price at each point: totalAssets / totalShares
-    // 4. Group by time period (day/week/month depending on timeframe)
+    const nowMs = Date.now();
+    const avgLedgerCloseMs = 5_000;
+    const ledgersAgo = Math.ceil((nowMs - startDate.getTime()) / avgLedgerCloseMs);
+    const maxLedgerRange = 200_000;
 
-    // For now, return empty array - in production this would fetch from Mercury indexer or similar
-    // The frontend can then fall back to mock data or show "No history available"
+    const estimatedStartLedger = Math.max(1, latestLedger.sequence - ledgersAgo);
+    const earliestAllowedLedger = Math.max(1, latestLedger.sequence - maxLedgerRange);
+    let startLedger = Math.max(estimatedStartLedger, earliestAllowedLedger);
 
-    const now = new Date();
-    const dataPoints: HistoricalSharePrice[] = [];
+    const rawPoints: Array<{ timestamp: number; price: number }> = [];
 
-    // Generate synthetic data points for demonstration
-    // In production, this would come from Mercury indexer or Horizon event queries
-    let currentDate = new Date(startDate);
-    let sharePrice = 1.0;
+    while (startLedger <= latestLedger.sequence) {
+      const resp = await server.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: "contract",
+            contractIds: [contractId],
+          },
+        ],
+      } as any);
 
-    while (currentDate <= endDate) {
-      const timestamp = currentDate.getTime();
-      const dateStr = currentDate.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
+      const events = resp?.events || [];
+      if (events.length === 0) {
+        break;
+      }
 
-      // Simulate slight APY (2-6% annual yield)
-      const daysSinceStart =
-        (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-      const apyRate = 0.04; // 4% APY
-      const dailyRate = apyRate / 365;
-      sharePrice = 1.0 * Math.pow(1 + dailyRate, daysSinceStart);
+      let maxSeenLedger = startLedger;
 
-      dataPoints.push({
-        timestamp,
-        price: parseFloat(sharePrice.toFixed(7)),
-        date: dateStr,
-      });
+      for (const e of events) {
+        maxSeenLedger = Math.max(maxSeenLedger, Number(e.ledger));
 
-      // Move to next day
-      currentDate.setDate(currentDate.getDate() + 1);
+        const closedAt = e.ledgerClosedAt ? Date.parse(e.ledgerClosedAt) : NaN;
+        const timestamp = Number.isFinite(closedAt) ? closedAt : Date.now();
+        if (timestamp < startDate.getTime() || timestamp > endDate.getTime()) {
+          continue;
+        }
+
+        let eventName: string | null = null;
+        try {
+          eventName = String(scValToNative(e.topic?.[0]));
+        } catch {
+          eventName = null;
+        }
+
+        if (eventName !== "Deposit" && eventName !== "Withdraw") {
+          continue;
+        }
+
+        let nativeValue: any;
+        try {
+          nativeValue = scValToNative(e.value);
+        } catch {
+          continue;
+        }
+
+        const tuple = Array.isArray(nativeValue) ? nativeValue : null;
+        const sharePriceScaled =
+          eventName === "Deposit" ? tuple?.[2] : tuple?.[1];
+
+        if (sharePriceScaled === undefined || sharePriceScaled === null) {
+          continue;
+        }
+
+        let sharePriceBigInt: bigint | null = null;
+        try {
+          if (typeof sharePriceScaled === "bigint") {
+            sharePriceBigInt = sharePriceScaled;
+          } else if (typeof sharePriceScaled === "number") {
+            sharePriceBigInt = BigInt(Math.trunc(sharePriceScaled));
+          } else if (typeof sharePriceScaled === "string") {
+            sharePriceBigInt = BigInt(sharePriceScaled);
+          }
+        } catch {
+          sharePriceBigInt = null;
+        }
+
+        if (sharePriceBigInt === null) {
+          continue;
+        }
+
+        const price = Number(sharePriceBigInt) / 1e9;
+        if (!Number.isFinite(price) || price <= 0) {
+          continue;
+        }
+
+        rawPoints.push({ timestamp, price });
+      }
+
+      if (maxSeenLedger <= startLedger) {
+        startLedger = startLedger + 1;
+      } else {
+        startLedger = maxSeenLedger + 1;
+      }
     }
 
-    return dataPoints;
+    if (rawPoints.length === 0) {
+      return [];
+    }
+
+    rawPoints.sort((a, b) => a.timestamp - b.timestamp);
+
+    const dailyLastPoint = new Map<string, { timestamp: number; price: number }>();
+    for (const p of rawPoints) {
+      const d = new Date(p.timestamp);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        d.getUTCDate()
+      ).padStart(2, "0")}`;
+      const existing = dailyLastPoint.get(key);
+      if (!existing || existing.timestamp <= p.timestamp) {
+        dailyLastPoint.set(key, p);
+      }
+    }
+
+    return Array.from(dailyLastPoint.values())
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((p) => {
+        const dateStr = new Date(p.timestamp).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        });
+
+        return {
+          timestamp: p.timestamp,
+          price: parseFloat(p.price.toFixed(9)),
+          date: dateStr,
+        };
+      });
   } catch (error) {
     console.error("Failed to fetch historical share price:", error);
     return [];
