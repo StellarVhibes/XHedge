@@ -131,7 +131,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const hasPending = pendingTxs.some((tx) => tx.status === "pending");
 
   return (
-    <VaultContext
+    <VaultContext.Provider
       value={{
         balance,
         shares,
@@ -147,7 +147,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </VaultContext>
+    </VaultContext.Provider>
   );
 }
 

@@ -33,8 +33,8 @@ export function VaultOverviewCard() {
   useEffect(() => {
     if (state.data) {
       updateMetrics(
-        parseFloat(state.data.userBalance || "0") / 1e7,
-        parseFloat(state.data.userShares || "0") / 1e7
+        state.data.userBalance || "0",
+        state.data.userShares || "0"
       );
     }
   }, [state.data, updateMetrics]);
