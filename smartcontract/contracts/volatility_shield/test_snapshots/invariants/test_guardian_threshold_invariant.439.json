@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 13,
+    "address": 14,
     "nonce": 0
   },
   "auth": [
@@ -158,7 +158,6 @@
         }
       ]
     ],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -166,10 +165,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_threshold",
+              "function_name": "add_guardian",
               "args": [
                 {
-                  "u32": 7
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
                 }
               ]
             }
@@ -178,6 +177,8 @@
         }
       ]
     ],
+    [],
+    [],
     [],
     []
   ],
@@ -310,6 +311,9 @@
                             },
                             {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
                             }
                           ]
                         }
@@ -411,7 +415,7 @@
                           ]
                         },
                         "val": {
-                          "u32": 7
+                          "u32": 1
                         }
                       },
                       {
@@ -487,7 +491,7 @@
             },
             "ext": "v0"
           },
-          4095
+          535680
         ]
       ],
       [
@@ -805,7 +809,7 @@
             },
             "ext": "v0"
           },
-          4095
+          535680
         ]
       ]
     ]

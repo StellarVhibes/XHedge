@@ -1,7 +1,11 @@
 name: Protocol Liaison (XHedge Reviewer)
 
 on:
+<<<<<<< HEAD
   pull_request:
+=======
+  pull_request_target:
+>>>>>>> upstream/main
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
@@ -50,6 +54,7 @@ jobs:
       - name: ❌ Handle Review Failure
         if: steps.protocol_review.outcome == 'failure'
         run: |
+<<<<<<< HEAD
           gh pr comment ${{ env.PR_NUMBER }} --body "### ❌ Institutional Review Required
           
           Inconsistencies were found in the protocol logic or structural build.
@@ -66,11 +71,16 @@ jobs:
           5. **Update PR**: Push your fix to update the PR, or you can delete the PR and make a new one. Either way works for the project.
           
           *Merging is restricted until the review is successful.*"
+=======
+          echo "### ❌ Institutional Review Required"
+          echo "Inconsistencies were found in the protocol logic or structural build."
+>>>>>>> upstream/main
           exit 1
 
       - name: ✅ Handle Review Success
         if: steps.protocol_review.outcome == 'success'
         run: |
+<<<<<<< HEAD
           gh pr comment ${{ env.PR_NUMBER }} --body "### ✅ Review Successful
           
           The structural and logic integrity of both the Contracts and the Dashboard has been verified.
@@ -81,3 +91,8 @@ jobs:
           *Project maintained by @bbkenny.*"
           
           gh pr merge ${{ env.PR_NUMBER }} --merge --auto
+=======
+          echo "### ✅ Review Successful"
+          echo "The structural and logic integrity of both the Contracts and the Dashboard has been verified."
+          echo "Status: Ready for Integration."
+>>>>>>> upstream/main

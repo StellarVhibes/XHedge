@@ -370,7 +370,7 @@
             },
             "ext": "v0"
           },
-          4095
+          535680
         ]
       ],
       [
@@ -457,7 +457,7 @@
             },
             "ext": "v0"
           },
-          4095
+          535680
         ]
       ]
     ]
@@ -505,6 +505,47 @@
                 }
               ]
             }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "OracleStale"
+              }
+            ],
+            "data": {
+              "u64": 1000
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "Error"
+              },
+              {
+                "symbol": "stale_oracle_data"
+              }
+            ],
+            "data": "void"
           }
         }
       },

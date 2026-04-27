@@ -1,5 +1,10 @@
 "use client";
 
+<<<<<<< HEAD
+=======
+import { useEffect } from "react";
+import { toast } from "sonner";
+>>>>>>> upstream/main
 import { useFreighter } from "../context/FreighterContext";
 
 /**
@@ -15,6 +20,15 @@ export function WalletButton() {
   const { isConnected, isLoading, publicKey, error, connect, disconnect } =
     useFreighter();
 
+<<<<<<< HEAD
+=======
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+    }
+  }, [error]);
+
+>>>>>>> upstream/main
   if (isLoading) {
     return (
       <button
@@ -50,6 +64,7 @@ export function WalletButton() {
   }
 
   return (
+<<<<<<< HEAD
     <div className="flex flex-col items-end gap-1">
       <button
         onClick={connect}
@@ -60,5 +75,14 @@ export function WalletButton() {
       </button>
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
+=======
+    <button
+      onClick={connect}
+      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white
+                 transition-colors hover:bg-indigo-500 active:bg-indigo-700"
+    >
+      Connect Wallet
+    </button>
+>>>>>>> upstream/main
   );
 }
