@@ -240,6 +240,24 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AssetTotalAssets"
+                            },
+                            {
+                              "address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ContractVersion"
                             }
                           ]
@@ -781,30 +799,10 @@
           "v0": {
             "topics": [
               {
-                "symbol": "UserBlocked"
-              }
-            ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
                 "symbol": "Error"
               },
               {
-                "symbol": "user_blocked"
+                "symbol": "below_min_deposit"
               }
             ],
             "data": "void"

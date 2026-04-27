@@ -1,9 +1,15 @@
 {
   "generators": {
-    "address": 8,
+    "address": 9,
     "nonce": 0
   },
   "auth": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
     [],
     [],
     [],
@@ -75,7 +81,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 417348
+                    "lo": 147051
                   }
                 }
               }
@@ -123,7 +129,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 246381
+                    "lo": 84194
                   }
                 }
               }
@@ -171,7 +177,55 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 221950
+                    "lo": 119299
+                  }
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          535680
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Balance"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Balance"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 181062
                   }
                 }
               }
@@ -242,7 +296,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1530635
+                            "lo": 1469856
                           }
                         }
                       },
@@ -433,7 +487,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1530635
+                            "lo": 1469856
                           }
                         }
                       },
@@ -448,7 +502,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 885679
+                            "lo": 531606
                           }
                         }
                       },

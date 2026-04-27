@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 13,
+    "address": 12,
     "nonce": 0
   },
   "auth": [
@@ -139,6 +139,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -146,10 +147,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "add_guardian",
+              "function_name": "set_threshold",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
+                  "u32": 2
                 }
               ]
             }
@@ -158,8 +159,6 @@
         }
       ]
     ],
-    [],
-    [],
     [],
     []
   ],
@@ -218,6 +217,24 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AssetTotalAssets"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
                         }
                       },
                       {
@@ -289,9 +306,6 @@
                             },
                             {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
-                            },
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
                             }
                           ]
                         }
@@ -393,7 +407,7 @@
                           ]
                         },
                         "val": {
-                          "u32": 1
+                          "u32": 2
                         }
                       },
                       {

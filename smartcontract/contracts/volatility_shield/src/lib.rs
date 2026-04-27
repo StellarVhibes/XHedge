@@ -73,6 +73,8 @@ pub enum Error {
     InvalidFeePercentage = 30,
     /// Arithmetic overflow occurred.
     ArithmeticOverflow = 31,
+    /// Deposit amount is below the configured minimum deposit floor.
+    BelowMinDeposit = 32,
 }
 
 impl Error {
@@ -107,6 +109,7 @@ impl Error {
             Error::EmergencyShutdownActive => Symbol::new(env, "emergency_shutdown_active"),
             Error::InvalidFeePercentage => Symbol::new(env, "invalid_fee_pct"),
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
+            Error::BelowMinDeposit => Symbol::new(env, "below_min_deposit"),
         }
     }
 }
@@ -167,6 +170,7 @@ pub enum DataKey {
     Delegate(Address),
     VoteRecord(u64, Address),
     VoteTally(u64),
+    MinDepositAmount,
 }
 
 #[contracttype]
@@ -989,6 +993,16 @@ impl VolatilityShield {
         }
         from.require_auth();
 
+        // Minimum deposit floor check
+        let min_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDepositAmount)
+            .unwrap_or(10_000_000);
+        if amount < min_deposit {
+            return Self::emit_and_err(&env, Error::BelowMinDeposit);
+        }
+
         // Compliance checks
         if let Err(e) = Self::check_compliance(&env, &from) {
             panic!("Compliance check failed: {:?}", e);
@@ -1105,6 +1119,136 @@ impl VolatilityShield {
         );
 
         Ok(())
+    }
+
+    // ── Multi-Beneficiary Batch Deposit ───────
+    /// Fund multiple user allocations in a single transaction.
+    ///
+    /// The caller (operator / DAO treasury) transfers the total asset amount once;
+    /// individual share balances are credited in a loop.  Each (user, amount) pair
+    /// is validated independently — a failing pair is skipped without reverting the
+    /// whole batch.  Emits `BatchDeposited { count, total_assets }` on completion.
+    ///
+    /// @param caller  The address funding all deposits (must authorise the call).
+    /// @param asset   The asset being deposited for all beneficiaries.
+    /// @param deposits  Vec of (beneficiary_address, amount) pairs.
+    pub fn batch_deposit_for(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        deposits: Vec<(Address, i128)>,
+    ) -> Vec<bool> {
+        let _guard = Guard::new(&env);
+        Self::check_version(&env, 1);
+        Self::assert_not_emergency_shutdown(&env);
+        Self::assert_not_paused(&env);
+        caller.require_auth();
+
+        if !Self::is_supported_asset(env.clone(), asset.clone()) {
+            panic!("unsupported asset");
+        }
+
+        let min_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDepositAmount)
+            .unwrap_or(10_000_000);
+
+        let max_deposit_per_user: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxDepositPerUser)
+            .unwrap_or(i128::MAX);
+
+        let price = Self::get_asset_price(env.clone(), asset.clone());
+
+        let mut results = Vec::new(&env);
+        let mut total_transfer: i128 = 0;
+        let mut count: u32 = 0;
+
+        // ── Validate & Effects pass (no external calls yet) ──────────────────
+        for pair in deposits.iter() {
+            let (user, amount) = pair;
+
+            if amount <= 0 || amount < min_deposit {
+                results.push_back(false);
+                continue;
+            }
+
+            let value_deposited = amount
+                .checked_mul(price)
+                .unwrap()
+                .checked_div(1_000_000_000)
+                .unwrap();
+            let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
+
+            let current_balance = Self::read_user_balance(&env, &user);
+            let new_user_balance = current_balance.checked_add(shares_to_mint).unwrap();
+
+            if new_user_balance > max_deposit_per_user {
+                results.push_back(false);
+                continue;
+            }
+
+            let total_assets_value = Self::total_assets(&env);
+            let new_total_assets_value = total_assets_value.checked_add(value_deposited).unwrap();
+
+            let max_total_assets: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::MaxTotalAssets)
+                .unwrap_or(i128::MAX);
+            if new_total_assets_value > max_total_assets {
+                results.push_back(false);
+                continue;
+            }
+
+            // Commit state for this beneficiary
+            let current_asset_balance = Self::read_asset_balance(&env, &asset, &user);
+            Self::write_asset_balance(
+                &env,
+                &asset,
+                &user,
+                current_asset_balance + shares_to_mint,
+            );
+            Self::write_user_balance(&env, &user, new_user_balance);
+
+            let asset_total: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::AssetTotalAssets(asset.clone()))
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::AssetTotalAssets(asset.clone()),
+                &asset_total.checked_add(amount).unwrap(),
+            );
+
+            let total_shares = Self::total_shares(&env);
+            Self::set_total_shares(env.clone(), total_shares.checked_add(shares_to_mint).unwrap());
+            env.storage()
+                .instance()
+                .set(&DataKey::TotalAssets, &new_total_assets_value);
+
+            total_transfer = total_transfer.checked_add(amount).unwrap();
+            count += 1;
+            results.push_back(true);
+        }
+
+        // ── Single interaction: transfer total from caller ────────────────────
+        if total_transfer > 0 {
+            token::Client::new(&env, &asset).transfer(
+                &caller,
+                &env.current_contract_address(),
+                &total_transfer,
+            );
+        }
+
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "BatchDeposited"),),
+            (count, total_transfer),
+        );
+
+        results
     }
 
     // ── Batch Deposit ─────────────────────────
@@ -1581,7 +1725,16 @@ impl VolatilityShield {
             let _ = Self::emit_and_err::<()>(&env, e);
             return;
         }
-        Self::internal_queue_withdraw(env.clone(), from, asset, shares);
+        Self::internal_queue_withdraw(env.clone(), from.clone(), asset, shares);
+        // Emit a lightweight entry-point event so off-chain indexers get a
+        // deterministic signal tied to the public call, not just the internal helper.
+        env.events().publish(
+            (
+                soroban_sdk::Symbol::new(&env, "WithdrawQueued"),
+                from.clone(),
+            ),
+            (shares, env.ledger().sequence()),
+        );
     }
 
     fn internal_queue_withdraw(env: Env, from: Address, asset: Address, shares: i128) {
@@ -1672,6 +1825,37 @@ impl VolatilityShield {
             .set(&DataKey::WithdrawQueueThreshold, &threshold);
         env.events()
             .publish((symbol_short!("QueueThr"),), threshold);
+    }
+
+    /// Set the minimum deposit amount (dust floor).
+    ///
+    /// Deposits below this amount are rejected with `BelowMinDeposit`.
+    /// Default is 10_000_000 (1 XLM in stroops). Only the admin can call this.
+    pub fn set_min_deposit(env: Env, amount: i128) {
+        Self::require_admin(&env);
+        if amount < 0 {
+            panic!("min deposit must be non-negative");
+        }
+        let old: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDepositAmount)
+            .unwrap_or(10_000_000);
+        env.storage()
+            .instance()
+            .set(&DataKey::MinDepositAmount, &amount);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "MinDepositUpdated"),),
+            (old, amount),
+        );
+    }
+
+    /// Get the current minimum deposit amount.
+    pub fn get_min_deposit(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinDepositAmount)
+            .unwrap_or(10_000_000)
     }
 
     /// Process a batch of queued withdrawals.

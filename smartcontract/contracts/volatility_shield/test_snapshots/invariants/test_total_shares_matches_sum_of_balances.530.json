@@ -1,15 +1,9 @@
 {
   "generators": {
-    "address": 14,
+    "address": 13,
     "nonce": 0
   },
   "auth": [
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
     [],
     [],
     [],
@@ -111,7 +105,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 413167
+                    "lo": 201527
                   }
                 }
               }
@@ -159,7 +153,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 249891
+                    "lo": 79886
                   }
                 }
               }
@@ -207,7 +201,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 67140
+                    "lo": 71209
                   }
                 }
               }
@@ -255,7 +249,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 66153
+                    "lo": 9899
                   }
                 }
               }
@@ -303,7 +297,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 300401
+                    "lo": 167195
                   }
                 }
               }
@@ -351,7 +345,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 73614
+                    "lo": 95802
                   }
                 }
               }
@@ -399,7 +393,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 295206
+                    "lo": 207494
                   }
                 }
               }
@@ -447,55 +441,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 338971
-                  }
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          535680
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "Balance"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Balance"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 195646
+                    "lo": 224528
                   }
                 }
               }
@@ -566,7 +512,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 4296274
+                            "lo": 2134594
                           }
                         }
                       },
@@ -757,7 +703,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 4296274
+                            "lo": 2134594
                           }
                         }
                       },
@@ -772,7 +718,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 2000189
+                            "lo": 1057540
                           }
                         }
                       },

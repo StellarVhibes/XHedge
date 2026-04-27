@@ -37,7 +37,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 6978
+                    "lo": 3212
                   }
                 },
                 {
@@ -69,7 +69,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 15498
+                    "lo": 101
                   }
                 }
               ]
@@ -79,7 +79,6 @@
         }
       ]
     ],
-    [],
     []
   ],
   "ledger": {
@@ -285,6 +284,24 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AssetTotalAssets"
+                            },
+                            {
+                              "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ContractVersion"
                             }
                           ]
@@ -344,7 +361,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 6978
+                            "lo": 3212
                           }
                         }
                       },
@@ -616,7 +633,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 15498
+                          "lo": 101
                         }
                       }
                     },
@@ -780,5 +797,27 @@
       ]
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "Error"
+              },
+              {
+                "symbol": "below_min_deposit"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": true
+    }
+  ]
 }

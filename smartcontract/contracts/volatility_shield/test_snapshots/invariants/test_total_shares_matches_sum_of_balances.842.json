@@ -1,15 +1,9 @@
 {
   "generators": {
-    "address": 10,
+    "address": 9,
     "nonce": 0
   },
   "auth": [
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
     [],
     [],
     [],
@@ -87,7 +81,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 479273
+                    "lo": 679017
                   }
                 }
               }
@@ -135,7 +129,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 313938
+                    "lo": 335876
                   }
                 }
               }
@@ -183,7 +177,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 250480
+                    "lo": 413343
                   }
                 }
               }
@@ -231,55 +225,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 233708
-                  }
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          535680
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "Balance"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Balance"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 339395
+                    "lo": 118329
                   }
                 }
               }
@@ -350,7 +296,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 3563083
+                            "lo": 2471710
                           }
                         }
                       },
@@ -541,7 +487,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 3563083
+                            "lo": 2471710
                           }
                         }
                       },
@@ -556,7 +502,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1616794
+                            "lo": 1546565
                           }
                         }
                       },

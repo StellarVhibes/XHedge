@@ -1,9 +1,15 @@
 {
   "generators": {
-    "address": 10,
+    "address": 11,
     "nonce": 0
   },
   "auth": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
     [],
     [],
     [],
@@ -87,7 +93,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 481145
+                    "lo": 981774
                   }
                 }
               }
@@ -135,7 +141,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 171736
+                    "lo": 404275
                   }
                 }
               }
@@ -183,7 +189,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 363222
+                    "lo": 57958
                   }
                 }
               }
@@ -231,7 +237,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 283003
+                    "lo": 281225
                   }
                 }
               }
@@ -279,7 +285,55 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 47979
+                    "lo": 246321
+                  }
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          535680
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Balance"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Balance"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 480987
                   }
                 }
               }
@@ -350,7 +404,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 2427092
+                            "lo": 3337777
                           }
                         }
                       },
@@ -541,7 +595,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 2427092
+                            "lo": 3337777
                           }
                         }
                       },
@@ -556,7 +610,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1347085
+                            "lo": 2452540
                           }
                         }
                       },
