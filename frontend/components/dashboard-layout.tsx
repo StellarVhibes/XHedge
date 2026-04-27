@@ -21,7 +21,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="lg:pl-64">
+      <main id="main-content" role="main" className="lg:pl-64" tabIndex={-1}>
         <div className="p-4 pt-16 lg:p-8">
           {children}
         </div>

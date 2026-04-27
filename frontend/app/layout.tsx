@@ -46,6 +46,10 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
+        {/* Skip-to-content link: first focusable element for keyboard/SR users */}
+        <a href="#main-content" className="skip-to-content">
+          Skip to main content
+        </a>
         <PwaServiceWorker />
         <Providers nonce={nonce}>
           <ErrorBoundary>
