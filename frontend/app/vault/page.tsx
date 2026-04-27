@@ -478,6 +478,8 @@ export default function VaultPage() {
             <Input
               id={inputId}
               type="number"
+              min="0"
+              step="any"
               placeholder={activeTab === "deposit" ? t("enterAmountToDeposit") : t("enterAmountToWithdraw")}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}

@@ -189,6 +189,28 @@ describe("VaultPage accessibility", () => {
     const criticalViolations = results.violations.filter((violation) => violation.impact === "critical");
     expect(criticalViolations, JSON.stringify(criticalViolations, null, 2)).toHaveLength(0);
   });
+
+  it("shows error for zero input on deposit", async () => {
+    render(<VaultPage />);
+    const depositInput = await screen.findByLabelText("Deposit amount");
+    fireEvent.change(depositInput, { target: { value: "0" } });
+    await waitFor(() => {
+      expect(depositInput).toHaveAttribute("aria-invalid", "true");
+    });
+    expect(screen.getByText("Enter an amount greater than 0.")).toBeInTheDocument();
+  });
+
+  it("does not show error for valid positive input", async () => {
+    render(<VaultPage />);
+    const depositInput = await screen.findByLabelText("Deposit amount");
+    fireEvent.change(depositInput, { target: { value: "10" } });
+    await waitFor(() => {
+      expect(depositInput).not.toHaveAttribute("aria-invalid");
+    });
+    const feedback = screen.getByText("Enter the amount of XLM to deposit.");
+    expect(feedback).toBeInTheDocument();
+    expect(feedback).toHaveClass("text-muted-foreground");
+  });
 });
 
 function createStorageMock(): Storage {
