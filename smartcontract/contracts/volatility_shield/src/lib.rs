@@ -73,6 +73,8 @@ pub enum Error {
     InvalidFeePercentage = 30,
     /// Arithmetic overflow occurred.
     ArithmeticOverflow = 31,
+    /// Invalid configuration parameters were supplied.
+    InvalidConfig = 32,
 }
 
 impl Error {
@@ -107,6 +109,7 @@ impl Error {
             Error::EmergencyShutdownActive => Symbol::new(env, "emergency_shutdown_active"),
             Error::InvalidFeePercentage => Symbol::new(env, "invalid_fee_pct"),
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
+            Error::InvalidConfig => Symbol::new(env, "invalid_config"),
         }
     }
 }
@@ -183,6 +186,13 @@ pub struct Withdrawn {
     pub withdrawer: Address,
     pub shares_burned: i128,
     pub amount_out: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DepositCapsUpdated {
+    pub per_user: i128,
+    pub global: i128,
 }
 
 #[contracttype]
@@ -322,6 +332,18 @@ impl<'a> StrategyClient<'a> {
         match res {
             Ok(Ok(val)) => Ok(val),
             _ => Err(soroban_sdk::String::from_str(self.env, "balance failed")),
+        }
+    }
+
+    pub fn try_collect_yield(&self) -> Result<i128, soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<i128, soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "collect_yield"),
+            soroban_sdk::vec![self.env],
+        );
+        match res {
+            Ok(Ok(val)) => Ok(val),
+            _ => Err(soroban_sdk::String::from_str(self.env, "collect_yield failed")),
         }
     }
 }
@@ -2362,11 +2384,51 @@ impl VolatilityShield {
             env.storage().instance().set(&history_key, &history);
         }
 
+        let asset_addr = Self::get_asset(&env);
+        let vault = env.current_contract_address();
+
         let mut total_yield: i128 = 0;
         for strategy_addr in strategies.iter() {
-            let strategy = StrategyClient::new(&env, strategy_addr);
-            let yield_amount = strategy.balance();
-            total_yield = total_yield.checked_add(yield_amount).unwrap();
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            let vault_balance_before = env.try_invoke_contract::<i128, soroban_sdk::Error>(
+                &asset_addr,
+                &soroban_sdk::Symbol::new(&env, "balance"),
+                soroban_sdk::vec![&env, vault.clone().into_val(&env)],
+            );
+
+            let reported_yield = match strategy.try_collect_yield() {
+                Ok(amount) => amount,
+                Err(reason) => {
+                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                    env.events().publish(
+                        (
+                            soroban_sdk::Symbol::new(&env, "HarvestPartialFailure"),
+                            strategy_addr.clone(),
+                        ),
+                        reason,
+                    );
+                    continue;
+                }
+            };
+
+            let vault_balance_after = env.try_invoke_contract::<i128, soroban_sdk::Error>(
+                &asset_addr,
+                &soroban_sdk::Symbol::new(&env, "balance"),
+                soroban_sdk::vec![&env, vault.clone().into_val(&env)],
+            );
+            let collected_yield = match (vault_balance_before, vault_balance_after) {
+                (Ok(Ok(before)), Ok(Ok(after))) => after.saturating_sub(before),
+                _ => {
+                    if reported_yield > 0 {
+                        reported_yield
+                    } else {
+                        0
+                    }
+                }
+            };
+            total_yield = total_yield
+                .checked_add(collected_yield)
+                .ok_or(Error::ArithmeticOverflow)?;
         }
 
         if total_yield > 0 {
@@ -3437,9 +3499,14 @@ impl VolatilityShield {
     }
 
     // ── Deposit / Withdrawal Caps ──────────────────────────
-    pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) {
+    pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) -> Result<(), Error> {
         Self::check_version(&env, 1);
         Self::require_admin(&env);
+
+        if per_user <= 0 || global <= 0 || per_user > global {
+            return Self::emit_and_err(&env, Error::InvalidConfig);
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::MaxDepositPerUser, &per_user);
@@ -3447,12 +3514,10 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::MaxTotalAssets, &global);
         env.events().publish(
-            (
-                soroban_sdk::Symbol::new(&env, "CapsSet"),
-                soroban_sdk::Symbol::new(&env, "Deposit"),
-            ),
-            (per_user, global),
+            (soroban_sdk::Symbol::new(&env, "DepositCapsUpdated"),),
+            DepositCapsUpdated { per_user, global },
         );
+        Ok(())
     }
 
     pub fn set_withdraw_cap(env: Env, per_tx: i128) {

@@ -27,6 +27,25 @@ impl MockStrategy {
         env.storage().instance().get(&DataKey::Balance).unwrap_or(0)
     }
 
+    /// Collect currently accumulated yield and transfer it to the vault.
+    /// Returns the amount transferred.
+    pub fn collect_yield(env: Env) -> i128 {
+        let current: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
+        if current <= 0 {
+            return 0;
+        }
+
+        let vault: Option<Address> = env.storage().instance().get(&DataKey::Vault);
+        let token_addr: Option<Address> = env.storage().instance().get(&DataKey::Token);
+        if let (Some(vault_addr), Some(tok)) = (vault, token_addr) {
+            let token_client = token::Client::new(&env, &tok);
+            token_client.transfer(&env.current_contract_address(), &vault_addr, &current);
+        }
+
+        env.storage().instance().set(&DataKey::Balance, &0i128);
+        current
+    }
+
     /// Deposit funds into the strategy.
     pub fn deposit(env: Env, amount: i128) {
         let current: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
