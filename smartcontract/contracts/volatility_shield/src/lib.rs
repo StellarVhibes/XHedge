@@ -69,6 +69,8 @@ pub enum Error {
     CircuitBreakerActive = 25,
     /// Operation is blocked because emergency shutdown mode is active.
     EmergencyShutdownActive = 26,
+    /// Operation is blocked while cascade pause is active (all strategies paused).
+    CascadePauseActive = 27,
     /// Invalid fee percentage (must be <= 10,000 bps).
     InvalidFeePercentage = 30,
     /// Arithmetic overflow occurred.
@@ -107,6 +109,7 @@ impl Error {
             Error::UserBlocked => Symbol::new(env, "user_blocked"),
             Error::CircuitBreakerActive => Symbol::new(env, "circuit_breaker_active"),
             Error::EmergencyShutdownActive => Symbol::new(env, "emergency_shutdown_active"),
+            Error::CascadePauseActive => Symbol::new(env, "cascade_pause_active"),
             Error::InvalidFeePercentage => Symbol::new(env, "invalid_fee_pct"),
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
             Error::BelowMinDeposit => Symbol::new(env, "below_min_deposit"),
@@ -328,6 +331,30 @@ impl<'a> StrategyClient<'a> {
             _ => Err(soroban_sdk::String::from_str(self.env, "balance failed")),
         }
     }
+
+    pub fn try_pause(&self) -> Result<(), soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "pause"),
+            soroban_sdk::vec![self.env],
+        );
+        match res {
+            Ok(Ok(())) => Ok(()),
+            _ => Err(soroban_sdk::String::from_str(self.env, "pause failed")),
+        }
+    }
+
+    pub fn try_unpause(&self) -> Result<(), soroban_sdk::String> {
+        let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "unpause"),
+            soroban_sdk::vec![self.env],
+        );
+        match res {
+            Ok(Ok(())) => Ok(()),
+            _ => Err(soroban_sdk::String::from_str(self.env, "unpause failed")),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -360,6 +387,7 @@ pub struct VaultSummary {
     pub total_shares: i128,
     pub share_price: i128,
     pub paused: bool,
+    pub cascade_pause_active: bool,
     pub oracle_last_update: u64,
 }
 
@@ -3425,10 +3453,28 @@ impl VolatilityShield {
         env.storage().instance().set(&DataKey::Token, &token);
     }
 
-    fn require_admin(env: &Env) -> Address {
+    fn require_admin(env: &Env) {
         let admin = Self::read_admin(env);
         admin.require_auth();
-        admin
+    }
+
+    /// Check if the caller is either the owner or an authorized delegate.
+    /// Returns an error if the caller is not authorized.
+    fn require_owner_or_delegate(env: &Env, owner: &Address, caller: &Address) -> Result<(), Error> {
+        // If caller is the owner, allow
+        if caller == owner {
+            return Ok(());
+        }
+
+        // Check if caller is an authorized delegate
+        if let Some(delegate) = Self::read_delegate(env, owner) {
+            if &delegate == caller {
+                return Ok(());
+            }
+        }
+
+        // Not authorized
+        Err(Error::Unauthorized)
     }
 
     fn proposal_ttl_ledgers(env: &Env) -> u32 {
@@ -3549,6 +3595,109 @@ impl VolatilityShield {
             .set(&DataKey::EmergencyShutdown, &true);
 
         Self::record_pause_change(&env, admin, true);
+    }
+
+    /// Pause all registered strategies and activate cascade pause mode.
+    /// 
+    /// This function iterates through all registered strategies and calls their pause entry point,
+    /// then sets the cascade pause flag to halt all vault operations simultaneously.
+    /// Only the admin can call this function.
+    pub fn pause_all_strategies(env: Env) {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+
+        // Set cascade pause flag first to prevent new operations
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"), &true);
+
+        // Get all registered strategies
+        let strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+
+        // Pause each strategy
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            // Try to call pause on the strategy, but don't fail if it doesn't support pause
+            let _ = strategy.try_pause();
+        }
+
+        // Also pause the vault itself
+        Self::record_pause_change(&env, admin.clone(), true);
+
+        // Emit cascade pause activated event
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "CascadePauseActivated"),),
+            (env.ledger().sequence(), admin),
+        );
+    }
+
+    /// Lift the cascade pause and unpause all strategies.
+    /// Only the admin can call this function.
+    pub fn lift_cascade_pause(env: Env) {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+
+        // Get all registered strategies
+        let strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+
+        // Unpause each strategy
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            // Try to call unpause on the strategy, but don't fail if it doesn't support unpause
+            let _ = strategy.try_unpause();
+        }
+
+        // Clear cascade pause flag
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"), &false);
+
+        // Also unpause the vault
+        Self::record_pause_change(&env, admin.clone(), false);
+
+        // Emit cascade pause lifted event
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "CascadePauseLifted"),),
+            (env.ledger().sequence(), admin),
+        );
+    }
+
+    /// Set a delegate address that can withdraw on behalf of the caller.
+    /// The delegate can call withdraw() to withdraw funds to the original owner's address.
+    pub fn set_withdraw_delegate(env: Env, caller: Address, delegate: Address) {
+        caller.require_auth();
+        Self::write_delegate(&env, &caller, &delegate);
+        
+        // Emit DelegateSet event
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
+            (caller, delegate),
+        );
+    }
+
+    /// Revoke the current withdraw delegate for the caller.
+    pub fn revoke_withdraw_delegate(env: Env, caller: Address) {
+        caller.require_auth();
+        Self::write_delegate(&env, &caller, &caller); // Set delegate to self (no delegation)
+        
+        // Emit DelegateRevoked event
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateRevoked"),),
+            caller,
+        );
+    }
+
+    /// Get the current delegate address for a given owner.
+    pub fn get_withdraw_delegate(env: Env, owner: Address) -> Address {
+        Self::read_delegate(&env, &owner).unwrap_or_else(|| owner.clone())
     }
 
     pub fn emergency_withdraw(env: Env, from: Address) {
@@ -3736,7 +3885,15 @@ impl VolatilityShield {
     pub fn is_emergency_shutdown(env: Env) -> bool {
         Self::emergency_shutdown_active(&env)
     }
+
+    pub fn cascade_pause_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"))
+            .unwrap_or(false)
+    }
     fn assert_not_paused(env: &Env) {
+        // Check regular pause state
         if env
             .storage()
             .instance()
@@ -3744,6 +3901,16 @@ impl VolatilityShield {
             .unwrap_or(false)
         {
             panic!("ContractPaused");
+        }
+
+        // Check cascade pause state
+        if env
+            .storage()
+            .instance()
+            .get(&soroban_sdk::Symbol::new(env, "CascadePauseActive"))
+            .unwrap_or(false)
+        {
+            panic!("CascadePauseActive");
         }
     }
 
@@ -3788,27 +3955,7 @@ impl VolatilityShield {
         }
     }
 
-    fn require_owner_or_delegate(
-        env: &Env,
-        owner: &Address,
-        caller: &Address,
-    ) -> Result<(), Error> {
-        caller.require_auth();
-
-        if caller == owner {
-            return Ok(());
-        }
-
-        match env
-            .storage()
-            .persistent()
-            .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
-        {
-            Some(delegate) if delegate == *caller => Ok(()),
-            _ => Err(Error::Unauthorized),
-        }
-    }
-
+    
     // ── Structured view/query functions for off-chain consumers (SC-31) ────
 
     /// Returns a single-call snapshot of the vault's global state.
@@ -3824,6 +3971,11 @@ impl VolatilityShield {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
+        let cascade_pause_active = env
+            .storage()
+            .instance()
+            .get(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"))
+            .unwrap_or(false);
         let oracle_last_update: u64 = env
             .storage()
             .instance()
@@ -3834,6 +3986,7 @@ impl VolatilityShield {
             total_shares,
             share_price,
             paused,
+            cascade_pause_active,
             oracle_last_update,
         }
     }

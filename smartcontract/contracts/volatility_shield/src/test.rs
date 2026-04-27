@@ -3247,6 +3247,391 @@ fn test_get_strategy_summary() {
     assert_eq!(summary.len(), 0);
 }
 
+#[test]
+fn test_cascade_pause_activation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Initially cascade pause is not active
+    assert!(!client.cascade_pause_active());
+
+    // Activate cascade pause
+    client.pause_all_strategies();
+
+    // Cascade pause should now be active
+    assert!(client.cascade_pause_active());
+
+    // Vault should also be paused
+    assert!(client.is_paused());
+
+    // Check vault summary includes cascade pause state
+    let summary = client.get_vault_summary();
+    assert!(summary.cascade_pause_active);
+    assert!(summary.paused);
+}
+
+#[test]
+fn test_cascade_pause_lift() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Activate cascade pause
+    client.pause_all_strategies();
+    assert!(client.cascade_pause_active());
+
+    // Lift cascade pause
+    client.lift_cascade_pause();
+
+    // Cascade pause should no longer be active
+    assert!(!client.cascade_pause_active());
+
+    // Vault should also be unpaused
+    assert!(!client.is_paused());
+
+    // Check vault summary reflects lifted state
+    let summary = client.get_vault_summary();
+    assert!(!summary.cascade_pause_active);
+    assert!(!summary.paused);
+}
+
+#[test]
+fn test_cascade_pause_blocks_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Activate cascade pause
+    client.pause_all_strategies();
+
+    // Deposit should fail with cascade pause error
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.deposit(&user, &asset, &1000i128);
+    }));
+    assert!(result.is_err());
+
+    // Withdraw should fail with cascade pause error  
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.withdraw(&user, &asset, &1000i128);
+    }));
+    assert!(result.is_err());
+
+    // Rebalance should fail with cascade pause error
+    let allocations = soroban_sdk::Map::new(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.rebalance(&admin, &allocations, &100u32);
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cascade_pause_with_strategies() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Add a mock strategy
+    use mock_strategy::{MockStrategy, MockStrategyClient};
+    let mock_strategy_id = env.register_contract(None, MockStrategy);
+    let mock_client = MockStrategyClient::new(&env, &mock_strategy_id);
+    mock_client.init(&contract_id, &token_id);
+
+    client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+    
+    // Activate cascade pause - should call pause on strategy
+    client.pause_all_strategies();
+    assert!(client.cascade_pause_active());
+
+    // Lift cascade pause - should call unpause on strategy
+    client.lift_cascade_pause();
+    assert!(!client.cascade_pause_active());
+}
+
+#[test]
+fn test_cascade_pause_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let unauthorized_user = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Unauthorized user should not be able to activate cascade pause
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause_all_strategies();
+    }));
+    assert!(result.is_err());
+
+    // Activate cascade pause first, then test unauthorized lift
+    client.pause_all_strategies();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.lift_cascade_pause();
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_set_withdraw_delegate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Initially, no delegate is set (should return owner)
+    assert_eq!(client.get_withdraw_delegate(&owner), owner);
+
+    // Set a delegate
+    client.set_withdraw_delegate(&owner, &delegate);
+
+    // Verify delegate is set
+    assert_eq!(client.get_withdraw_delegate(&owner), delegate);
+}
+
+#[test]
+fn test_revoke_withdraw_delegate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Set a delegate
+    client.set_withdraw_delegate(&owner, &delegate);
+    assert_eq!(client.get_withdraw_delegate(&owner), delegate);
+
+    // Revoke delegate
+    client.revoke_withdraw_delegate(&owner);
+
+    // Verify delegate is revoked (should return owner)
+    assert_eq!(client.get_withdraw_delegate(&owner), owner);
+}
+
+#[test]
+fn test_delegate_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Create token contract and mint tokens to owner
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
+    stellar_asset_client.mint(&owner, &1000);
+
+    // Owner deposits tokens
+    client.deposit(&owner, &token_id, &1000i128);
+    assert_eq!(client.balance(&owner), 1000);
+
+    // Set delegate
+    client.set_withdraw_delegate(&owner, &delegate);
+
+    // Delegate withdraws on behalf of owner
+    client.withdraw(&delegate, &owner, &token_id, &500i128);
+
+    // Verify withdrawal went to owner's address
+    assert_eq!(client.balance(&owner), 500);
+    assert_eq!(token_client.balance(&owner), 500);
+}
+
+#[test]
+fn test_delegate_withdrawal_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Create token contract and mint tokens to owner
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
+    stellar_asset_client.mint(&owner, &1000);
+
+    // Owner deposits tokens
+    client.deposit(&owner, &token_id, &1000i128);
+    assert_eq!(client.balance(&owner), 1000);
+
+    // Unauthorized user tries to withdraw on behalf of owner
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.withdraw(&unauthorized, &owner, &token_id, &500i128);
+    }));
+    assert!(result.is_err());
+
+    // Verify no withdrawal occurred
+    assert_eq!(client.balance(&owner), 1000);
+    assert_eq!(token_client.balance(&owner), 0);
+}
+
+#[test]
+fn test_revoked_delegate_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Create token contract and mint tokens to owner
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
+    stellar_asset_client.mint(&owner, &1000);
+
+    // Owner deposits tokens
+    client.deposit(&owner, &token_id, &1000i128);
+    assert_eq!(client.balance(&owner), 1000);
+
+    // Set delegate
+    client.set_withdraw_delegate(&owner, &delegate);
+
+    // Delegate withdraws successfully
+    client.withdraw(&delegate, &owner, &token_id, &500i128);
+    assert_eq!(client.balance(&owner), 500);
+
+    // Revoke delegate
+    client.revoke_withdraw_delegate(&owner);
+
+    // Try to withdraw again after revocation - should fail
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.withdraw(&delegate, &owner, &token_id, &200i128);
+    }));
+    assert!(result.is_err());
+
+    // Verify no additional withdrawal occurred
+    assert_eq!(client.balance(&owner), 500);
+    assert_eq!(token_client.balance(&owner), 500);
+}
+
+#[test]
+fn test_owner_can_always_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    // Create token contract and mint tokens to owner
+    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
+    stellar_asset_client.mint(&owner, &1000);
+
+    // Owner deposits tokens
+    client.deposit(&owner, &token_id, &1000i128);
+    assert_eq!(client.balance(&owner), 1000);
+
+    // Set delegate
+    client.set_withdraw_delegate(&owner, &delegate);
+
+    // Owner can still withdraw on their own behalf
+    client.withdraw(&owner, &owner, &token_id, &300i128);
+
+    // Verify withdrawal
+    assert_eq!(client.balance(&owner), 700);
+    assert_eq!(token_client.balance(&owner), 300);
+
+    // Delegate can also withdraw
+    client.withdraw(&delegate, &owner, &token_id, &200i128);
+
+    // Verify both withdrawals
+    assert_eq!(client.balance(&owner), 500);
+    assert_eq!(token_client.balance(&owner), 500);
+}
+
 // Additional tests for partial failure and APY can be added here
 #[test]
 fn test_multi_asset_total_assets_aggregation() {
