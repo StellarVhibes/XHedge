@@ -61,6 +61,8 @@ export default function StrategyDetailModal({
               setCopied(true);
               setTimeout(() => setCopied(false), 1200);
             }}
+            aria-label={copied ? "Address copied" : "Copy strategy address"}
+            aria-live="polite"
             data-testid="strategy-copy-address"
           >
             {copied ? "Copied" : "Copy"}
@@ -68,13 +70,15 @@ export default function StrategyDetailModal({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Health</span>
+          <span className="text-xs text-muted-foreground" id="strategy-health-label">Health</span>
           <span
             className={`rounded px-2 py-1 text-xs font-semibold ${
               detail.health === "Healthy"
                 ? "bg-green-100 text-green-700"
                 : "bg-red-100 text-red-700"
             }`}
+            role="status"
+            aria-labelledby="strategy-health-label"
             data-testid="strategy-health-badge"
           >
             {detail.health}
@@ -109,10 +113,11 @@ export default function StrategyDetailModal({
               {detail.targetAllocationPct.toFixed(2)}% / {detail.actualAllocationPct.toFixed(2)}%
             </span>
           </div>
-          <div className="h-2 rounded bg-muted">
+          <div className="h-2 rounded bg-muted" role="img" aria-label={`Actual allocation: ${detail.actualAllocationPct.toFixed(2)}% of target ${detail.targetAllocationPct.toFixed(2)}%`}>
             <div
               className="h-2 rounded bg-primary"
               style={{ width: `${Math.min(100, Math.max(0, detail.actualAllocationPct))}%` }}
+              aria-hidden="true"
             />
           </div>
         </div>
@@ -122,6 +127,7 @@ export default function StrategyDetailModal({
             type="button"
             className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
             onClick={() => onFlagStrategy?.(detail.address)}
+            aria-label={`Flag strategy ${truncateAddress(detail.address)} for review`}
             data-testid="strategy-flag-button"
           >
             Flag Strategy

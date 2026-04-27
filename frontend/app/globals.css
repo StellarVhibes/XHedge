@@ -74,12 +74,26 @@
     @apply bg-background text-foreground;
   }
 
-  *,
-  ::before,
-  ::after {
-    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 300ms;
+  @media (prefers-reduced-motion: no-preference) {
+    *,
+    ::before,
+    ::after {
+      transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+      transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      transition-duration: 300ms;
+    }
+  }
+
+  /* Visible focus indicator for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove default outline only when focus-visible is not applicable */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
@@ -128,4 +142,28 @@
   to {
     width: 0%;
   }
+}
+
+/* Skip to main content link — visible only on keyboard focus */
+.skip-to-content {
+  position: fixed;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 0.75rem 1.5rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0 0 0.5rem 0.5rem;
+  text-decoration: none;
+  transition: top 0.2s ease;
+  white-space: nowrap;
+}
+
+.skip-to-content:focus {
+  top: 0;
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 2px;
 }

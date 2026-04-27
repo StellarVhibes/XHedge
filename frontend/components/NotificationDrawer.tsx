@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { X, Bell, Trash2, CheckCircle2, Clock } from "lucide-react";
 import { useNotifications, Notification } from "@/app/context/NotificationContext";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,52 @@ export function NotificationDrawer() {
     clearAll,
     addNotification,
   } = useNotifications();
+
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
+
+  // Save the element that opened the drawer so we can restore focus on close
+  useEffect(() => {
+    if (isOpen) {
+      lastFocusedRef.current = document.activeElement as HTMLElement;
+    } else if (lastFocusedRef.current) {
+      lastFocusedRef.current.focus();
+      lastFocusedRef.current = null;
+    }
+  }, [isOpen]);
+
+  // Focus the first focusable element when the drawer opens
+  useEffect(() => {
+    if (!isOpen || !drawerRef.current) return;
+    const getFocusable = () =>
+      drawerRef.current!.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+    const focusable = getFocusable();
+    if (focusable.length > 0) focusable[0].focus();
+
+    const handleTabTrap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !drawerRef.current!.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !drawerRef.current!.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    const host = drawerRef.current;
+    host.addEventListener("keydown", handleTabTrap);
+    return () => host.removeEventListener("keydown", handleTabTrap);
+  }, [isOpen]);
 
   // Handle escape key
   useEffect(() => {
@@ -52,6 +98,10 @@ export function NotificationDrawer() {
 
       {/* Drawer */}
       <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="notification-drawer-title"
         className={cn(
           "fixed top-0 right-0 z-50 h-full w-full max-w-md bg-background border-l shadow-xl transition-transform duration-300 transform flex flex-col",
           isOpen ? "translate-x-0" : "translate-x-full"
@@ -60,19 +110,20 @@ export function NotificationDrawer() {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div className="flex items-center gap-2">
-            <Bell className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-semibold text-foreground">Notifications</h2>
+            <Bell className="w-5 h-5 text-primary" aria-hidden="true" />
+            <h2 id="notification-drawer-title" className="text-xl font-semibold text-foreground">Notifications</h2>
             {unreadCount > 0 && (
-              <span className="bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-full">
+              <span className="bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-full" aria-live="polite" aria-atomic="true">
                 {unreadCount} new
               </span>
             )}
           </div>
           <button
             onClick={() => setIsOpen(false)}
+            aria-label="Close notifications panel"
             className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -117,6 +168,7 @@ export function NotificationDrawer() {
               {notifications.map((n) => (
                 <div
                   key={n.id}
+                  role="listitem"
                   className={cn(
                     "p-4 transition-colors hover:bg-muted/50 relative group",
                     !n.read && "bg-primary/5"
@@ -129,6 +181,7 @@ export function NotificationDrawer() {
                         "mt-1 w-2 h-2 rounded-full",
                         !n.read ? "bg-primary" : "bg-transparent"
                       )}
+                      aria-hidden="true"
                     />
                     <div className="flex-1 pr-4">
                       <div className="flex items-center justify-between mb-1">
@@ -136,8 +189,8 @@ export function NotificationDrawer() {
                           {n.title}
                         </span>
                         <div className="flex items-center text-[10px] text-muted-foreground">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {formatTimestamp(n.timestamp)}
+                          <Clock className="w-3 h-3 mr-1" aria-hidden="true" />
+                          <time dateTime={n.timestamp.toISOString()}>{formatTimestamp(n.timestamp)}</time>
                         </div>
                       </div>
                       <p className="text-sm text-muted-foreground line-clamp-2">
@@ -152,9 +205,9 @@ export function NotificationDrawer() {
                         e.stopPropagation();
                         markAsRead(n.id);
                       }}
-                      title="Mark as read"
+                      aria-label={`Mark "${n.title}" as read`}
                     >
-                      <CheckCircle2 className="w-4 h-4 text-primary" />
+                      <CheckCircle2 className="w-4 h-4 text-primary" aria-hidden="true" />
                     </button>
                   )}
                 </div>
