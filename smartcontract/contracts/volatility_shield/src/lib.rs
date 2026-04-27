@@ -1,10 +1,13 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, IntoVal, Map,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    IntoVal, Map, Symbol, TryFromVal, Val, Vec,
 };
 
 const DEFAULT_PROPOSAL_TTL_LEDGERS: u32 = 518_400;
+const DAY_IN_LEDGERS: u32 = 17_280;
+const BALANCE_TTL_THRESHOLD: u32 = DEFAULT_PROPOSAL_TTL_LEDGERS;
+const BALANCE_TTL_BUMP: u32 = BALANCE_TTL_THRESHOLD + DAY_IN_LEDGERS;
 const SHARE_PRICE_HISTORY_CAP: u32 = 365;
 
 // ─────────────────────────────────────────────
@@ -251,7 +254,6 @@ pub struct VoteTally {
     pub no_votes: i128,
 }
 
-
 pub struct StrategyClient<'a> {
     env: &'a Env,
     address: Address,
@@ -412,6 +414,76 @@ impl VolatilityShield {
         Err(error)
     }
 
+    fn balance_deviation_amount(actual_balance: i128, expected_balance: i128) -> i128 {
+        // Avoid `abs(i128::MIN)`, which can panic in debug builds.
+        actual_balance
+            .saturating_sub(expected_balance)
+            .max(expected_balance.saturating_sub(actual_balance))
+    }
+
+    fn bump_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(BALANCE_TTL_THRESHOLD, BALANCE_TTL_BUMP);
+    }
+
+    fn bump_persistent_ttl(env: &Env, key: &DataKey) {
+        Self::bump_instance_ttl(env);
+        env.storage()
+            .persistent()
+            .extend_ttl(key, BALANCE_TTL_THRESHOLD, BALANCE_TTL_BUMP);
+    }
+
+    fn get_persistent<T>(env: &Env, key: &DataKey) -> Option<T>
+    where
+        T: TryFromVal<Env, Val>,
+        T::Error: core::fmt::Debug,
+    {
+        let value = env.storage().persistent().get(key);
+        if value.is_some() {
+            Self::bump_persistent_ttl(env, key);
+        }
+        value
+    }
+
+    fn set_persistent<T>(env: &Env, key: &DataKey, value: &T)
+    where
+        T: IntoVal<Env, Val>,
+    {
+        env.storage().persistent().set(key, value);
+        Self::bump_persistent_ttl(env, key);
+    }
+
+    fn read_user_balance(env: &Env, user: &Address) -> i128 {
+        let balance_key = DataKey::Balance(user.clone());
+        Self::get_persistent(env, &balance_key).unwrap_or(0)
+    }
+
+    fn write_user_balance(env: &Env, user: &Address, amount: i128) {
+        let balance_key = DataKey::Balance(user.clone());
+        Self::set_persistent(env, &balance_key, &amount);
+    }
+
+    fn read_asset_balance(env: &Env, asset: &Address, user: &Address) -> i128 {
+        let asset_balance_key = DataKey::AssetBalance(asset.clone(), user.clone());
+        Self::get_persistent(env, &asset_balance_key).unwrap_or(0)
+    }
+
+    fn write_asset_balance(env: &Env, asset: &Address, user: &Address, amount: i128) {
+        let asset_balance_key = DataKey::AssetBalance(asset.clone(), user.clone());
+        Self::set_persistent(env, &asset_balance_key, &amount);
+    }
+
+    fn read_delegate(env: &Env, owner: &Address) -> Option<Address> {
+        let delegate_key = DataKey::Delegate(owner.clone());
+        Self::get_persistent(env, &delegate_key)
+    }
+
+    fn write_delegate(env: &Env, owner: &Address, delegate: &Address) {
+        let delegate_key = DataKey::Delegate(owner.clone());
+        Self::set_persistent(env, &delegate_key, delegate);
+    }
+
     pub fn enter_guard(env: &Env) {
         if env
             .storage()
@@ -433,7 +505,6 @@ impl VolatilityShield {
 
 #[contractimpl]
 impl VolatilityShield {
-
     /// Propose a new governance action.
     ///
     /// This is the first step in the multisig/timelock process.
@@ -473,8 +544,12 @@ impl VolatilityShield {
         };
 
         // Emit Governance events
-        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalCreated"),), id);
-        env.events().publish((soroban_sdk::Symbol::new(&env, "TimelockStarted"),), (id, proposed_at));
+        env.events()
+            .publish((soroban_sdk::Symbol::new(&env, "ProposalCreated"),), id);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "TimelockStarted"),),
+            (id, proposed_at),
+        );
 
         let threshold: u32 = env
             .storage()
@@ -553,7 +628,13 @@ impl VolatilityShield {
         proposal.approvals.push_back(guardian.clone());
 
         // Emit ProposalApproved event
-        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalApproved"), proposal_id), guardian.clone());
+        env.events().publish(
+            (
+                soroban_sdk::Symbol::new(&env, "ProposalApproved"),
+                proposal_id,
+            ),
+            guardian.clone(),
+        );
 
         let threshold: u32 = env
             .storage()
@@ -588,12 +669,16 @@ impl VolatilityShield {
             let client = token::Client::new(&env, &token_addr);
             client.balance(&user)
         } else {
-            let balance_key = DataKey::Balance(user);
-            env.storage().persistent().get(&balance_key).unwrap_or(0)
+            Self::read_user_balance(&env, &user)
         }
     }
 
-    pub fn cast_vote(env: Env, voter: Address, proposal_id: u64, support: bool) -> Result<(), Error> {
+    pub fn cast_vote(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+        support: bool,
+    ) -> Result<(), Error> {
         voter.require_auth();
 
         // Proposal must exist and not be executed
@@ -621,12 +706,21 @@ impl VolatilityShield {
             .storage()
             .instance()
             .get(&tally_key)
-            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 });
+            .unwrap_or(VoteTally {
+                yes_votes: 0,
+                no_votes: 0,
+            });
 
         if support {
-            tally.yes_votes = tally.yes_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+            tally.yes_votes = tally
+                .yes_votes
+                .checked_add(voting_power)
+                .unwrap_or(i128::MAX);
         } else {
-            tally.no_votes = tally.no_votes.checked_add(voting_power).unwrap_or(i128::MAX);
+            tally.no_votes = tally
+                .no_votes
+                .checked_add(voting_power)
+                .unwrap_or(i128::MAX);
         }
         env.storage().instance().set(&tally_key, &tally);
 
@@ -643,7 +737,10 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .get(&DataKey::VoteTally(proposal_id))
-            .unwrap_or(VoteTally { yes_votes: 0, no_votes: 0 })
+            .unwrap_or(VoteTally {
+                yes_votes: 0,
+                no_votes: 0,
+            })
     }
 
     /// Add a new guardian to the multisig.
@@ -735,8 +832,10 @@ impl VolatilityShield {
         }
 
         // Emit TimelockExecuted event
-        env.events().publish((soroban_sdk::Symbol::new(&env, "ProposalExecuted"),), ());
-        env.events().publish((soroban_sdk::Symbol::new(&env, "TimelockExecuted"),), ());
+        env.events()
+            .publish((soroban_sdk::Symbol::new(&env, "ProposalExecuted"),), ());
+        env.events()
+            .publish((soroban_sdk::Symbol::new(&env, "TimelockExecuted"),), ());
 
         Ok(())
     }
@@ -816,7 +915,7 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::NextProposalId, &1_u64);
-            
+
         // Multi-asset initialization
         let mut supported = Vec::new(&env);
         supported.push_back(asset.clone());
@@ -848,6 +947,8 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::ContractVersion, &1u32);
+
+        Self::bump_instance_ttl(&env);
 
         Ok(())
     }
@@ -908,7 +1009,11 @@ impl VolatilityShield {
         }
 
         let price = Self::get_asset_price(env.clone(), asset.clone());
-        let value_deposited = amount.checked_mul(price).unwrap().checked_div(1_000_000_000).unwrap();
+        let value_deposited = amount
+            .checked_mul(price)
+            .unwrap()
+            .checked_div(1_000_000_000)
+            .unwrap();
 
         // ── Checks ───────────────────────────────────────────────────────────
         // Compute shares using pre-deposit totals so the ratio is not skewed.
@@ -922,17 +1027,11 @@ impl VolatilityShield {
         }
 
         // Track per-asset user balance
-        let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
-        let current_asset_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&asset_balance_key)
-            .unwrap_or(0);
+        let current_asset_balance = Self::read_asset_balance(&env, &asset, &from);
         let new_asset_balance = current_asset_balance.checked_add(shares_to_mint).unwrap();
 
         // Also track total user balance (for backward compatibility)
-        let balance_key = DataKey::Balance(from.clone());
-        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let current_balance = Self::read_user_balance(&env, &from);
         let new_user_balance = current_balance.checked_add(shares_to_mint).unwrap();
 
         // --- Deposit Caps Validation ---
@@ -970,14 +1069,10 @@ impl VolatilityShield {
         // Commit all state mutations before touching external contracts (CEI).
 
         // Update per-asset balance
-        env.storage()
-            .persistent()
-            .set(&asset_balance_key, &new_asset_balance);
+        Self::write_asset_balance(&env, &asset, &from, new_asset_balance);
 
         // Update total user balance
-        env.storage()
-            .persistent()
-            .set(&balance_key, &new_user_balance);
+        Self::write_user_balance(&env, &from, new_user_balance);
 
         // Update per-asset total assets
         let asset_total: i128 = env
@@ -994,7 +1089,9 @@ impl VolatilityShield {
         let new_total_shares = total_shares.checked_add(shares_to_mint).unwrap();
 
         Self::set_total_shares(env.clone(), new_total_shares);
-        env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &new_total_assets_value);
 
         // ── Interaction ───────────────────────────────────────────────────────
         // Token transfer occurs last, after all state is committed (CEI pattern).
@@ -1063,18 +1160,15 @@ impl VolatilityShield {
             }
 
             let price = Self::get_asset_price(env.clone(), asset.clone());
-            let value_deposited = amount.checked_mul(price).unwrap().checked_div(1_000_000_000).unwrap();
+            let value_deposited = amount
+                .checked_mul(price)
+                .unwrap()
+                .checked_div(1_000_000_000)
+                .unwrap();
             let shares_to_mint = Self::convert_to_shares(env.clone(), value_deposited);
 
-            let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
-            let current_asset_balance: i128 = env
-                .storage()
-                .persistent()
-                .get(&asset_balance_key)
-                .unwrap_or(0);
-
-            let balance_key = DataKey::Balance(from.clone());
-            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            let current_asset_balance = Self::read_asset_balance(&env, &asset, &from);
+            let current_balance = Self::read_user_balance(&env, &from);
             let new_user_balance = current_balance.checked_add(shares_to_mint).unwrap();
 
             let max_deposit_per_user: i128 = env
@@ -1109,12 +1203,8 @@ impl VolatilityShield {
             }
 
             // ── Effects: commit all state before external call (CEI) ──────────
-            env.storage()
-                .persistent()
-                .set(&asset_balance_key, &(current_asset_balance + shares_to_mint));
-            env.storage()
-                .persistent()
-                .set(&balance_key, &new_user_balance);
+            Self::write_asset_balance(&env, &asset, &from, current_asset_balance + shares_to_mint);
+            Self::write_user_balance(&env, &from, new_user_balance);
 
             let asset_total: i128 = env
                 .storage()
@@ -1130,7 +1220,9 @@ impl VolatilityShield {
             let new_total_shares = total_shares.checked_add(shares_to_mint).unwrap();
 
             Self::set_total_shares(env.clone(), new_total_shares);
-            env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+            env.storage()
+                .instance()
+                .set(&DataKey::TotalAssets, &new_total_assets_value);
 
             // ── Interaction: token transfer last ──────────────────────────────
             token::Client::new(&env, &asset).transfer(
@@ -1169,7 +1261,13 @@ impl VolatilityShield {
     /// @param from The address of the user withdrawing.
     /// @param asset The address of the asset to withdraw.
     /// @param shares The amount of shares to burn.
-    pub fn withdraw(env: Env, caller: Address, from: Address, asset: Address, shares: i128) -> Result<(), Error> {
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        from: Address,
+        asset: Address,
+        shares: i128,
+    ) -> Result<(), Error> {
         let _guard = Guard::new(&env);
         Self::check_version(&env, 1);
         Self::assert_not_paused(&env);
@@ -1178,8 +1276,7 @@ impl VolatilityShield {
         }
         Self::require_owner_or_delegate(&env, &from, &caller);
 
-        let balance_key = DataKey::Balance(from.clone());
-        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let current_balance = Self::read_user_balance(&env, &from);
 
         if current_balance < shares {
             panic!("insufficient shares for withdrawal");
@@ -1228,26 +1325,37 @@ impl VolatilityShield {
         let total_assets_value = Self::total_assets(&env);
 
         let new_total_shares = total_shares.checked_sub(shares).unwrap();
-        let new_total_assets_value = total_assets_value.checked_sub(assets_to_withdraw_value).unwrap();
+        let new_total_assets_value = total_assets_value
+            .checked_sub(assets_to_withdraw_value)
+            .unwrap();
         let new_user_balance = current_balance.checked_sub(shares).unwrap();
 
         Self::set_total_shares(env.clone(), new_total_shares);
-        
-        // Update per-asset accounting
-        let asset_total: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
-        env.storage().instance().set(&DataKey::AssetTotalAssets(asset.clone()), &(asset_total - token_units_to_withdraw));
-        env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
 
+        // Update per-asset accounting
+        let asset_total: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AssetTotalAssets(asset.clone()))
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &DataKey::AssetTotalAssets(asset.clone()),
+            &(asset_total - token_units_to_withdraw),
+        );
         env.storage()
-            .persistent()
-            .set(&balance_key, &new_user_balance);
-            
+            .instance()
+            .set(&DataKey::TotalAssets, &new_total_assets_value);
+
+        Self::write_user_balance(&env, &from, new_user_balance);
+
         // Update per-asset user balance
-        let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
-        let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
+        let current_asset_balance = Self::read_asset_balance(&env, &asset, &from);
+        Self::write_asset_balance(
+            &env,
+            &asset,
+            &from,
+            current_asset_balance.saturating_sub(shares),
+        );
 
         let share_price = Self::get_share_price(&env);
 
@@ -1301,8 +1409,7 @@ impl VolatilityShield {
                 continue;
             }
 
-            let balance_key = DataKey::Balance(from.clone());
-            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            let current_balance = Self::read_user_balance(&env, &from);
 
             if current_balance < shares {
                 env.events().publish(
@@ -1364,16 +1471,16 @@ impl VolatilityShield {
                 };
 
                 let new_user_balance = current_balance.checked_sub(shares).unwrap();
-                env.storage()
-                    .persistent()
-                    .set(&balance_key, &new_user_balance);
-                    
+                Self::write_user_balance(&env, &from, new_user_balance);
+
                 // Update per-asset user balance
-                let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
-                let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
-                env.storage()
-                    .persistent()
-                    .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
+                let current_asset_balance = Self::read_asset_balance(&env, &asset, &from);
+                Self::write_asset_balance(
+                    &env,
+                    &asset,
+                    &from,
+                    current_asset_balance.saturating_sub(shares),
+                );
 
                 let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
                     .storage()
@@ -1394,7 +1501,13 @@ impl VolatilityShield {
                         soroban_sdk::Symbol::new(&env, "WithdrawQueued"),
                         from.clone(),
                     ),
-                    (asset.clone(), shares, share_price, total_assets, total_shares),
+                    (
+                        asset.clone(),
+                        shares,
+                        share_price,
+                        total_assets,
+                        total_shares,
+                    ),
                 );
 
                 results.push_back(true);
@@ -1405,30 +1518,36 @@ impl VolatilityShield {
             let total_assets_value = Self::total_assets(&env);
 
             let new_total_shares = total_shares.checked_sub(shares).unwrap();
-            let new_total_assets_value = total_assets_value.checked_sub(assets_to_withdraw_value).unwrap();
+            let new_total_assets_value = total_assets_value
+                .checked_sub(assets_to_withdraw_value)
+                .unwrap();
             let new_user_balance = current_balance.checked_sub(shares).unwrap();
 
             Self::set_total_shares(env.clone(), new_total_shares);
-            
-            let asset_total: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
+
+            let asset_total: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::AssetTotalAssets(asset.clone()))
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::AssetTotalAssets(asset.clone()),
+                &(asset_total - token_units_to_withdraw),
+            );
             env.storage()
                 .instance()
-                .set(
-                    &DataKey::AssetTotalAssets(asset.clone()),
-                    &(asset_total - token_units_to_withdraw),
-                );
-            env.storage().instance().set(&DataKey::TotalAssets, &new_total_assets_value);
+                .set(&DataKey::TotalAssets, &new_total_assets_value);
 
-            env.storage()
-                .persistent()
-                .set(&balance_key, &new_user_balance);
-                
+            Self::write_user_balance(&env, &from, new_user_balance);
+
             // Update per-asset user balance
-            let asset_balance_key = DataKey::AssetBalance(asset.clone(), from.clone());
-            let current_asset_balance: i128 = env.storage().persistent().get(&asset_balance_key).unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&asset_balance_key, &(current_asset_balance.saturating_sub(shares)));
+            let current_asset_balance = Self::read_asset_balance(&env, &asset, &from);
+            Self::write_asset_balance(
+                &env,
+                &asset,
+                &from,
+                current_asset_balance.saturating_sub(shares),
+            );
 
             let share_price = Self::get_share_price(&env);
 
@@ -1471,8 +1590,7 @@ impl VolatilityShield {
     }
 
     fn internal_queue_withdraw(env: Env, from: Address, asset: Address, shares: i128) {
-        let balance_key = DataKey::Balance(from.clone());
-        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let current_balance = Self::read_user_balance(&env, &from);
 
         if current_balance < shares {
             panic!("insufficient shares for withdrawal");
@@ -1512,9 +1630,7 @@ impl VolatilityShield {
 
         // Subtract shares from user balance immediately to prevent double-spending/inflation
         let new_user_balance = current_balance.checked_sub(shares).unwrap();
-        env.storage()
-            .persistent()
-            .set(&balance_key, &new_user_balance);
+        Self::write_user_balance(&env, &from, new_user_balance);
 
         // Add to pending withdrawals queue
         let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
@@ -1537,7 +1653,13 @@ impl VolatilityShield {
                 soroban_sdk::Symbol::new(&env, "WithdrawQueued"),
                 from.clone(),
             ),
-            (asset.clone(), shares, share_price, total_assets, total_shares),
+            (
+                asset.clone(),
+                shares,
+                share_price,
+                total_assets,
+                total_shares,
+            ),
         );
     }
 
@@ -1652,11 +1774,8 @@ impl VolatilityShield {
         pending_withdrawals.remove(index);
 
         // Return shares to user balance
-        let balance_key = DataKey::Balance(from.clone());
-        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&balance_key, &(current_balance + w.shares));
+        let current_balance = Self::read_user_balance(&env, &from);
+        Self::write_user_balance(&env, &from, current_balance + w.shares);
 
         env.storage()
             .instance()
@@ -1687,9 +1806,7 @@ impl VolatilityShield {
     /// Approve a delegate that may execute withdrawals on behalf of `owner`.
     pub fn set_delegate(env: Env, owner: Address, delegate: Address) {
         owner.require_auth();
-        env.storage()
-            .persistent()
-            .set(&DataKey::Delegate(owner.clone()), &delegate);
+        Self::write_delegate(&env, &owner, &delegate);
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
             (owner, delegate),
@@ -1710,7 +1827,7 @@ impl VolatilityShield {
 
     /// Return the approved delegate for `owner`, if one is set.
     pub fn get_delegate(env: Env, owner: Address) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::Delegate(owner))
+        Self::read_delegate(&env, &owner)
     }
 
     // ── Rebalance ─────────────────────────────
@@ -1722,7 +1839,11 @@ impl VolatilityShield {
     ///
     /// When circuit breaker is active, uses LastSafeAllocation instead of current oracle data.
     /// **Access control**: must be called via the multi-sig governance system.
-    fn internal_rebalance(env: &Env, caller: &Address, max_slippage_bps: u32) -> Result<u32, Error> {
+    fn internal_rebalance(
+        env: &Env,
+        caller: &Address,
+        max_slippage_bps: u32,
+    ) -> Result<u32, Error> {
         Self::check_version(env, 1);
         if Self::emergency_shutdown_active(env) {
             return Self::emit_and_err(env, Error::EmergencyShutdownActive);
@@ -1783,13 +1904,16 @@ impl VolatilityShield {
         // Execute rebalance operations
         for (strategy_addr, bps_allocation) in allocations.iter() {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            
+
             let current_balance = match strategy.try_balance() {
                 Ok(bal) => bal,
                 Err(reason) => {
                     let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
                     env.events().publish(
-                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                        (
+                            soroban_sdk::Symbol::new(env, "RebalancePartialFailure"),
+                            strategy_addr.clone(),
+                        ),
                         RebalancePartialFailure {
                             failed_strategy: strategy_addr.clone(),
                             reason,
@@ -1798,7 +1922,7 @@ impl VolatilityShield {
                     continue;
                 }
             };
-            
+
             initial_balances.set(strategy_addr.clone(), current_balance);
 
             // Convert BPS to absolute target allocation
@@ -1821,7 +1945,10 @@ impl VolatilityShield {
                     Err(reason) => {
                         let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
                         env.events().publish(
-                            (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                            (
+                                soroban_sdk::Symbol::new(env, "RebalancePartialFailure"),
+                                strategy_addr.clone(),
+                            ),
                             RebalancePartialFailure {
                                 failed_strategy: strategy_addr.clone(),
                                 reason,
@@ -1836,7 +1963,10 @@ impl VolatilityShield {
                 if let Err(reason) = strategy.try_withdraw(diff) {
                     let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
                     env.events().publish(
-                        (soroban_sdk::Symbol::new(env, "RebalancePartialFailure"), strategy_addr.clone()),
+                        (
+                            soroban_sdk::Symbol::new(env, "RebalancePartialFailure"),
+                            strategy_addr.clone(),
+                        ),
                         RebalancePartialFailure {
                             failed_strategy: strategy_addr.clone(),
                             reason,
@@ -1854,7 +1984,13 @@ impl VolatilityShield {
                             // then emit an alert event for off-chain monitoring.
                             let _ = strategy.try_deposit(diff);
                             env.events().publish(
-                                (soroban_sdk::Symbol::new(env, "RebalanceWithdrawTransferFailed"), strategy_addr.clone()),
+                                (
+                                    soroban_sdk::Symbol::new(
+                                        env,
+                                        "RebalanceWithdrawTransferFailed",
+                                    ),
+                                    strategy_addr.clone(),
+                                ),
                                 RebalanceWithdrawTransferFailed {
                                     strategy: strategy_addr.clone(),
                                     amount: diff,
@@ -1865,7 +2001,7 @@ impl VolatilityShield {
                     }
                 }
             }
-            
+
             if op_success {
                 successful_strategies += 1;
             }
@@ -1920,7 +2056,7 @@ impl VolatilityShield {
 
         let total_assets_before = total_assets;
         let final_total_assets = Self::total_assets(env);
-        
+
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "Rebalanced"),),
             Rebalanced {
@@ -2271,16 +2407,16 @@ impl VolatilityShield {
 
             // Get current health data
             let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let mut current_health: StrategyHealth =
-                env.storage()
-                    .instance()
-                    .get(&health_key)
-                    .unwrap_or(StrategyHealth {
-                        last_known_balance: expected_balance,
-                        last_check_timestamp: current_time,
-                        is_healthy: true,
-                        consecutive_failures: 0,
-                    });
+            let mut current_health: StrategyHealth = env
+                .storage()
+                .instance()
+                .get(&health_key)
+                .unwrap_or(StrategyHealth {
+                    last_known_balance: expected_balance,
+                    last_check_timestamp: current_time,
+                    is_healthy: true,
+                    consecutive_failures: 0,
+                });
 
             // Get max consecutive failures threshold
             let max_failures: u32 = env
@@ -2293,7 +2429,8 @@ impl VolatilityShield {
             let balance_deviation = if expected_balance > 0 {
                 // Allow 10% deviation before flagging as unhealthy
                 let deviation_threshold = expected_balance.checked_div(10).unwrap_or(0);
-                (actual_balance as i128 - expected_balance).abs() > deviation_threshold
+                Self::balance_deviation_amount(actual_balance, expected_balance)
+                    > deviation_threshold
             } else {
                 // If expected is 0, any positive actual balance is considered healthy
                 false
@@ -2361,16 +2498,16 @@ impl VolatilityShield {
         let current_time = env.ledger().timestamp();
 
         // Update health to unhealthy, preserving the existing counter
-        let existing: StrategyHealth = env
-            .storage()
-            .instance()
-            .get(&health_key)
-            .unwrap_or(StrategyHealth {
-                last_known_balance: 0,
-                last_check_timestamp: current_time,
-                is_healthy: true,
-                consecutive_failures: 0,
-            });
+        let existing: StrategyHealth =
+            env.storage()
+                .instance()
+                .get(&health_key)
+                .unwrap_or(StrategyHealth {
+                    last_known_balance: 0,
+                    last_check_timestamp: current_time,
+                    is_healthy: true,
+                    consecutive_failures: 0,
+                });
         let updated_health = StrategyHealth {
             last_known_balance: existing.last_known_balance,
             last_check_timestamp: current_time,
@@ -2459,8 +2596,7 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::MaxConsecutiveFailures, &threshold);
-        env.events()
-            .publish((symbol_short!("MaxFail"),), threshold);
+        env.events().publish((symbol_short!("MaxFail"),), threshold);
         Ok(())
     }
 
@@ -2588,12 +2724,24 @@ impl VolatilityShield {
     /// Total assets managed by the vault: vault token balance + sum of strategy balances.
     /// Get the total assets managed by the vault (cash + strategy balances).
     pub fn total_assets(env: &Env) -> i128 {
-        let supported: Vec<Address> = env.storage().instance().get(&DataKey::SupportedAssets).unwrap_or(Vec::new(env));
+        let supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(env));
         let mut total_value: i128 = 0;
         for asset in supported.iter() {
-            let asset_quantity: i128 = env.storage().instance().get(&DataKey::AssetTotalAssets(asset.clone())).unwrap_or(0);
+            let asset_quantity: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::AssetTotalAssets(asset.clone()))
+                .unwrap_or(0);
             let price = Self::get_asset_price(env.clone(), asset.clone());
-            let value = asset_quantity.checked_mul(price).unwrap_or(0).checked_div(1_000_000_000).unwrap_or(0);
+            let value = asset_quantity
+                .checked_mul(price)
+                .unwrap_or(0)
+                .checked_div(1_000_000_000)
+                .unwrap_or(0);
             total_value = total_value.checked_add(value).unwrap_or(total_value);
         }
         total_value
@@ -2653,8 +2801,7 @@ impl VolatilityShield {
             env.storage()
                 .instance()
                 .set(&DataKey::SupportedAssets, &supported);
-            env.events()
-                .publish((symbol_short!("AssetAdd"),), asset);
+            env.events().publish((symbol_short!("AssetAdd"),), asset);
         }
     }
 
@@ -2901,10 +3048,7 @@ impl VolatilityShield {
 
     /// Get the share balance of a specific user.
     pub fn balance(env: Env, user: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Balance(user))
-            .unwrap_or(0)
+        Self::read_user_balance(&env, &user)
     }
 
     /// Get the list of all guardians in the multisig governance.
@@ -3046,7 +3190,9 @@ impl VolatilityShield {
     pub fn set_total_assets(env: Env, amount: i128) {
         env.storage().instance().set(&DataKey::TotalAssets, &amount);
         let asset = Self::get_asset(&env);
-        env.storage().instance().set(&DataKey::AssetTotalAssets(asset), &amount);
+        env.storage()
+            .instance()
+            .set(&DataKey::AssetTotalAssets(asset), &amount);
     }
 
     pub fn set_total_shares(env: Env, amount: i128) {
@@ -3054,9 +3200,7 @@ impl VolatilityShield {
     }
 
     pub fn set_balance(env: Env, user: Address, amount: i128) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(user), &amount);
+        Self::write_user_balance(&env, &user, amount);
     }
 
     pub fn set_token(env: Env, token: Address) {
@@ -3181,7 +3325,7 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::EmergencyShutdown, &true);
-        
+
         Self::record_pause_change(&env, admin, true);
     }
 
@@ -3195,8 +3339,7 @@ impl VolatilityShield {
 
         from.require_auth();
 
-        let balance_key = DataKey::Balance(from.clone());
-        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let current_balance = Self::read_user_balance(&env, &from);
 
         let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
             .storage()
@@ -3237,7 +3380,7 @@ impl VolatilityShield {
 
         Self::set_total_shares(env.clone(), new_total_shares);
         Self::set_total_assets(env.clone(), new_total_assets);
-        env.storage().persistent().set(&balance_key, &0_i128);
+        Self::write_user_balance(&env, &from, 0_i128);
 
         let token: Address = env
             .storage()
@@ -3252,7 +3395,11 @@ impl VolatilityShield {
 
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "EmergencyWithdraw"), from),
-            (shares_to_withdraw, assets_to_withdraw, env.ledger().timestamp()),
+            (
+                shares_to_withdraw,
+                assets_to_withdraw,
+                env.ledger().timestamp(),
+            ),
         );
     }
 
@@ -3419,22 +3566,14 @@ impl VolatilityShield {
         }
     }
 
-    fn require_owner_or_delegate(
-        env: &Env,
-        owner: &Address,
-        caller: &Address,
-    ) {
+    fn require_owner_or_delegate(env: &Env, owner: &Address, caller: &Address) {
         caller.require_auth();
 
         if caller == owner {
             return;
         }
 
-        match env
-            .storage()
-            .persistent()
-            .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
-        {
+        match Self::read_delegate(env, owner) {
             Some(delegate) if delegate == *caller => (),
             _ => panic!("unauthorized: caller is neither owner nor delegate"),
         }
@@ -3474,11 +3613,7 @@ impl VolatilityShield {
     /// Includes balance, queued withdrawal (if any), and current voting power.
     /// Does not mutate any storage.
     pub fn get_user_summary(env: Env, user: Address) -> UserSummary {
-        let balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Balance(user.clone()))
-            .unwrap_or(0);
+        let balance = Self::read_user_balance(&env, &user);
 
         let pending: Vec<QueuedWithdrawal> = env
             .storage()

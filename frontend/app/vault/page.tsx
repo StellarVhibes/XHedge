@@ -371,6 +371,21 @@ export default function VaultPage() {
   const feeUsd = preview.feeXlm * (prices.XLM || 0);
   const outputLabel = activeTab === "deposit" ? "shares" : "assets";
   const inputId = activeTab === "deposit" ? "deposit-amount" : "withdraw-amount";
+  const inputDescriptionId = `${inputId}-feedback`;
+  const inputAriaLabel = activeTab === "deposit" ? "Deposit amount" : "Withdraw amount";
+  const inputHint =
+    activeTab === "deposit"
+      ? "Enter the amount of XLM to deposit."
+      : "Enter the amount of vault shares to withdraw.";
+  const parsedAmount = Number(amount);
+  const amountError =
+    !connected || amount.trim() === ""
+      ? null
+      : Number.isNaN(parsedAmount) || parsedAmount <= 0
+        ? "Enter an amount greater than 0."
+        : activeTab === "withdraw" && parsedAmount > optimisticShares
+          ? `Insufficient balance. You have ${optimisticShares.toFixed(2)} shares.`
+          : null;
   const activePending = pendingTxs.filter((tx) => tx.status === "pending");
 
   return (
@@ -465,8 +480,18 @@ export default function VaultPage() {
               placeholder={activeTab === "deposit" ? t("enterAmountToDeposit") : t("enterAmountToWithdraw")}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              aria-label={inputAriaLabel}
+              aria-describedby={inputDescriptionId}
+              aria-invalid={amountError ? true : undefined}
               disabled={!connected || loading}
             />
+            <p
+              id={inputDescriptionId}
+              role={amountError ? "alert" : undefined}
+              className={`mt-2 text-sm ${amountError ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {amountError ?? inputHint}
+            </p>
           </div>
 
           <div className="rounded-lg border p-4 bg-muted/20" data-testid="vault-preview-section">
@@ -510,7 +535,7 @@ export default function VaultPage() {
 
           <Button
             onClick={activeTab === "deposit" ? handleDeposit : handleWithdraw}
-            disabled={!connected || loading || !amount || parseFloat(amount) <= 0}
+            disabled={!connected || loading || !amount || parseFloat(amount) <= 0 || !!amountError}
             className="w-full"
           >
             {loading ? (

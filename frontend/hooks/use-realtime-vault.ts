@@ -174,7 +174,7 @@ export function useRealtimeVault(userAddress: string | null): RealtimeVaultState
     // Fire immediately, then on interval
     pollEvents();
     intervalRef.current = setInterval(pollEvents, POLL_INTERVAL_MS);
-  }, [network, clearTimers, refreshMetrics]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [network, clearTimers, refreshMetrics]);
 
   // ── effect: start / restart when network changes ─────────────────────────
 
@@ -189,7 +189,7 @@ export function useRealtimeVault(userAddress: string | null): RealtimeVaultState
     refreshMetrics();
 
     return clearTimers;
-  }, [network, userAddress]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [network, userAddress]);
 
   // ── manual refresh ────────────────────────────────────────────────────────
 

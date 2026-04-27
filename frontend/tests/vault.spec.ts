@@ -17,6 +17,15 @@ async function injectMockFreighter(page: import('@playwright/test').Page) {
     });
 }
 
+async function connectMockFreighter(page: import('@playwright/test').Page) {
+    await injectMockFreighter(page);
+    await page.goto('/vault');
+    const connectBtn = page.locator('button:has-text("Connect Wallet")');
+    if (await connectBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await connectBtn.click();
+    }
+}
+
 test.describe('Vault Page', () => {
     test('should display vault page heading', async ({ page }) => {
         await page.goto('/vault');
@@ -96,5 +105,44 @@ test.describe('Vault Page', () => {
         await page.goto('/vault');
         await expect(page.getByTestId('vault-preview-section')).toBeVisible({ timeout: 10000 });
         await expect(page.getByTestId('vault-preview-output')).toContainText('0.0000 shares', { timeout: 10000 });
+    });
+
+    test('amount inputs should expose labels, descriptions, and validation state', async ({ page }) => {
+        await connectMockFreighter(page);
+
+        const depositInput = page.locator('#deposit-amount');
+        await expect(depositInput).toBeEnabled({ timeout: 15000 });
+        await depositInput.fill('-1');
+        await expect(depositInput).toHaveAttribute('aria-label', 'Deposit amount');
+        await expect(depositInput).toHaveAttribute('aria-describedby', 'deposit-amount-feedback');
+        await expect(depositInput).toHaveAttribute('aria-invalid', 'true');
+        await expect(page.locator('#deposit-amount-feedback')).toContainText('Enter an amount greater than 0.');
+
+        await page.locator('button:has-text("Withdraw")').first().click();
+        const withdrawInput = page.locator('#withdraw-amount');
+        await expect(withdrawInput).toBeEnabled({ timeout: 15000 });
+        await withdrawInput.fill('1');
+        await expect(withdrawInput).toHaveAttribute('aria-label', 'Withdraw amount');
+        await expect(withdrawInput).toHaveAttribute('aria-describedby', 'withdraw-amount-feedback');
+        await expect(withdrawInput).toHaveAttribute('aria-invalid', 'true');
+        await expect(page.locator('#withdraw-amount-feedback')).toContainText('Insufficient balance.');
+    });
+
+    test('vault page should have no critical axe violations', async ({ page }) => {
+        await page.goto('/vault');
+        await expect(page.locator('h1:has-text("Vault")')).toBeVisible({ timeout: 10000 });
+        await page.addScriptTag({ path: './node_modules/axe-core/axe.min.js' });
+
+        const results = await page.evaluate(async () => {
+            return await (window as any).axe.run(document, {
+                runOnly: {
+                    type: 'tag',
+                    values: ['wcag2a', 'wcag2aa'],
+                },
+            });
+        });
+
+        const criticalViolations = results.violations.filter((violation: any) => violation.impact === 'critical');
+        expect(criticalViolations, JSON.stringify(criticalViolations, null, 2)).toHaveLength(0);
     });
 });
