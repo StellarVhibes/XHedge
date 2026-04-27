@@ -18,7 +18,7 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
   ({ isOpen, onClose, title, children, className, showCloseButton = true, size = "md" }, ref) => {
     const modalRef = React.useRef<HTMLDivElement | null>(null);
 
-    // Handle escape key
+    // Handle focus restoration and escape key
     React.useEffect(() => {
       const handleEscape = (event: KeyboardEvent) => {
         if (event.key === "Escape") {
@@ -26,7 +26,10 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
         }
       };
 
+      let previousActiveElement: HTMLElement | null = null;
+
       if (isOpen) {
+        previousActiveElement = document.activeElement as HTMLElement | null;
         document.addEventListener("keydown", handleEscape);
         document.body.style.overflow = "hidden";
       }
@@ -34,6 +37,9 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
       return () => {
         document.removeEventListener("keydown", handleEscape);
         document.body.style.overflow = "unset";
+        if (isOpen) {
+          previousActiveElement?.focus();
+        }
       };
     }, [isOpen, onClose]);
 
@@ -47,15 +53,31 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         );
 
-      const focusable = getFocusable();
-      if (focusable.length > 0) {
-        focusable[0].focus();
-      } else {
-        host.focus();
-      }
+      // Focus the first element on open
+      const initialFocus = () => {
+        const focusable = getFocusable();
+        if (focusable.length > 0) {
+          focusable[0].focus();
+        } else {
+          host.focus();
+        }
+      };
+      
+      initialFocus();
+
+      // MutationObserver to handle dynamic content changes
+      const observer = new MutationObserver(() => {
+        // We could re-focus here if active element is lost
+        if (!host.contains(document.activeElement)) {
+          initialFocus();
+        }
+      });
+      
+      observer.observe(host, { childList: true, subtree: true });
 
       const handleTabTrap = (event: KeyboardEvent) => {
         if (event.key !== "Tab") return;
+        
         const items = getFocusable();
         if (items.length === 0) return;
 
@@ -75,7 +97,10 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
       };
 
       host.addEventListener("keydown", handleTabTrap);
-      return () => host.removeEventListener("keydown", handleTabTrap);
+      return () => {
+        host.removeEventListener("keydown", handleTabTrap);
+        observer.disconnect();
+      };
     }, [isOpen]);
 
     if (!isOpen) return null;

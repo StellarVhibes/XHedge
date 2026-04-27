@@ -8,6 +8,7 @@ const DEFAULT_PROPOSAL_TTL_LEDGERS: u32 = 518_400;
 const DAY_IN_LEDGERS: u32 = 17_280;
 const BALANCE_TTL_THRESHOLD: u32 = DEFAULT_PROPOSAL_TTL_LEDGERS;
 const BALANCE_TTL_BUMP: u32 = BALANCE_TTL_THRESHOLD + DAY_IN_LEDGERS;
+const DEFAULT_PROPOSAL_TTL_SECONDS: u64 = 2_592_000; // 30 days = 518,400 * 5s
 const SHARE_PRICE_HISTORY_CAP: u32 = 365;
 
 // ─────────────────────────────────────────────
@@ -513,7 +514,6 @@ impl VolatilityShield {
         if Self::emergency_shutdown_active(&env) {
             return Self::emit_and_err(&env, Error::EmergencyShutdownActive);
         }
-        let _guard = Guard::new(&env);
         proposer.require_auth();
 
         let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).unwrap();
@@ -596,7 +596,6 @@ impl VolatilityShield {
     /// If the approval threshold is reached, the action is executed.
     /// Guardians cannot approve the same proposal twice.
     pub fn approve_action(env: Env, guardian: Address, proposal_id: u64) -> Result<(), Error> {
-        let _guard = Guard::new(&env);
         guardian.require_auth();
 
         let guardians: Vec<Address> = env
@@ -3090,7 +3089,7 @@ impl VolatilityShield {
         Self::prune_old_proposals_internal(&env)
     }
 
-    pub fn list_proposals(env: Env, offset: u32, limit: u32) -> Vec<Proposal> {
+    pub fn list_proposals(env: Env, offset: u32, limit: u32, include_expired: bool) -> Vec<Proposal> {
         if limit == 0 {
             return Vec::new(&env);
         }
@@ -3107,14 +3106,39 @@ impl VolatilityShield {
             .unwrap_or(Map::new(&env));
 
         let mut listed = Vec::new(&env);
-        let end = offset.saturating_add(limit);
-        let mut index = offset;
-        while index < proposal_ids.len() && index < end {
-            let proposal_id = proposal_ids.get(index).unwrap();
-            if let Some(proposal) = proposals.get(proposal_id) {
+        let mut skipped = 0;
+        let mut included = 0;
+
+        let now = env.ledger().timestamp();
+
+        for proposal_id in proposal_ids.iter() {
+            let id = proposal_id.clone();
+            if let Some(proposal) = proposals.get(id) {
+                if !include_expired {
+                    // Filter out ALL executed proposals by default
+                    if proposal.executed {
+                        continue;
+                    }
+
+                    // Filter out unexecuted but expired proposals
+                    let elapsed = now.saturating_sub(proposal.proposed_at);
+                    if elapsed >= DEFAULT_PROPOSAL_TTL_SECONDS {
+                        continue;
+                    }
+                }
+
+                if skipped < offset {
+                    skipped += 1;
+                    continue;
+                }
+
                 listed.push_back(proposal);
+                included += 1;
+
+                if included >= limit {
+                    break;
+                }
             }
-            index += 1;
         }
         listed
     }
@@ -3238,10 +3262,14 @@ impl VolatilityShield {
 
         for proposal_id in proposal_ids.iter() {
             if let Some(proposal) = proposals.get(proposal_id) {
-                let expired = proposal.executed
+                let now = env.ledger().timestamp();
+                let is_executed_expired = proposal.executed
                     && proposal.executed_ledger > 0
                     && current_ledger.saturating_sub(proposal.executed_ledger) >= ttl;
-                if expired {
+                let is_unexecuted_expired = !proposal.executed
+                    && now.saturating_sub(proposal.proposed_at) >= DEFAULT_PROPOSAL_TTL_SECONDS;
+
+                if is_executed_expired || is_unexecuted_expired {
                     proposals.remove(proposal_id);
                     pruned = pruned.saturating_add(1);
                 } else {

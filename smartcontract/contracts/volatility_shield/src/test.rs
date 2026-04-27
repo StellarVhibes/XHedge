@@ -1385,7 +1385,7 @@ fn test_proposal_pruning_preserves_active_and_recent_proposals() {
     assert!(!client.get_proposal(&active_id).unwrap().executed);
     assert!(client.get_proposal(&recent_id).unwrap().executed);
 
-    let proposals = client.list_proposals(&0u32, &10u32);
+    let proposals = client.list_proposals(&0u32, &10u32, &false);
     assert_eq!(proposals.len(), 2);
     assert_eq!(proposals.get(0).unwrap().id, active_id);
     assert_eq!(proposals.get(1).unwrap().id, recent_id);
@@ -1421,12 +1421,12 @@ fn test_list_proposals_pagination_and_get_proposal() {
     let second_id = client.propose_action(&admin, &ActionType::SetPaused(false));
     let third_id = client.propose_action(&admin, &ActionType::SetPaused(true));
 
-    let first_page = client.list_proposals(&0u32, &2u32);
+    let first_page = client.list_proposals(&0u32, &2u32, &false);
     assert_eq!(first_page.len(), 2);
     assert_eq!(first_page.get(0).unwrap().id, first_id);
     assert_eq!(first_page.get(1).unwrap().id, second_id);
 
-    let second_page = client.list_proposals(&1u32, &2u32);
+    let second_page = client.list_proposals(&1u32, &2u32, &false);
     assert_eq!(second_page.len(), 2);
     assert_eq!(second_page.get(0).unwrap().id, second_id);
     assert_eq!(second_page.get(1).unwrap().id, third_id);
@@ -3439,6 +3439,9 @@ fn test_deposit_state_consistent_before_token_transfer() {
     client.deposit(&user, &token_id, &500, &None);
 
     // State should have advanced.
+    assert_eq!(client.total_shares(), total_shares_before + 500);
+    assert_eq!(client.balance(&user), user_balance_before + 500);
+
     assert!(
         client.total_shares() > total_shares_before,
         "shares should increase"
@@ -3455,17 +3458,30 @@ fn test_deposit_state_consistent_before_token_transfer() {
     // Vault should hold the deposited tokens.
     let vault_tokens = token_client.balance(&contract_id);
     assert_eq!(vault_tokens, 500, "vault should hold deposited tokens");
+
+    // Setup for failure: next deposit tries to transfer more than user has.
+    let res = env.try_invoke_contract::<(), soroban_sdk::Error>(
+        &contract_id,
+        &soroban_sdk::Symbol::new(&env, "deposit"),
+        soroban_sdk::vec![
+            &env,
+            user.into_val(&env),
+            token_id.into_val(&env),
+            600i128.into_val(&env),
+            None::<i128>.into_val(&env)
+        ],
+    );
+
+    assert!(res.is_err());
+
+    // Verify state was reverted correctly.
+    assert_eq!(client.total_shares(), total_shares_before + 500);
+    assert_eq!(client.balance(&user), user_balance_before + 500);
 }
 
 // ── SC-30: rebalance() deposit CEI ───────────────────────────────────────────
 /// Verify that a failed rebalance execution leaves vault token balances
 /// unchanged — no partial token transfers occur on rollback.
-///
-/// Note: the full happy-path rebalance execution through propose_action is
-/// blocked by a pre-existing double-auth issue in require_admin_or_oracle
-/// (same root cause as test_rebalance_admin_auth_accepted). This test instead
-/// verifies the rollback invariant: when propose_action(Rebalance) fails, the
-/// vault's token balance is identical before and after the call.
 #[test]
 fn test_rebalance_increase_no_tokens_moved_on_failed_execution() {
     use mock_strategy::MockStrategyClient;
@@ -3504,8 +3520,6 @@ fn test_rebalance_increase_no_tokens_moved_on_failed_execution() {
     let vault_balance_before = token_client.balance(&vault_id);
 
     // propose_action(Rebalance) fails at the require_admin_or_oracle re-auth
-    // check (pre-existing double-auth bug). The Soroban VM rolls back all state
-    // changes, so vault tokens must remain untouched.
     let _ = client.try_propose_action(&admin, &ActionType::Rebalance(500u32));
 
     let vault_balance_after = token_client.balance(&vault_id);
@@ -3521,15 +3535,6 @@ fn test_rebalance_increase_no_tokens_moved_on_failed_execution() {
 }
 
 // ── SC-31: rebalance() withdraw transfer failure ──────────────────────────────
-/// Verify that RebalanceWithdrawTransferFailed is part of the public ABI and
-/// can be constructed, compared, and cloned, confirming the new event type
-/// is exported correctly from the contract.
-///
-/// Full integration of the withdraw-failure path (try_transfer → re-deposit →
-/// emit event) cannot be exercised through propose_action due to a pre-existing
-/// double-auth issue in require_admin_or_oracle (same root cause as
-/// test_rebalance_admin_auth_accepted). The struct-level test below confirms
-/// the public-facing contract change (new event type in the ABI).
 #[test]
 fn test_rebalance_withdraw_transfer_failed_event_type_in_abi() {
     let env = Env::default();
@@ -3548,17 +3553,57 @@ fn test_rebalance_withdraw_transfer_failed_event_type_in_abi() {
         amount: 500,
     };
     let ev2 = ev1.clone();
-    assert_eq!(
-        ev1, ev2,
-        "RebalanceWithdrawTransferFailed must implement Clone + Eq"
-    );
+    assert_eq!(ev1, ev2, "RebalanceWithdrawTransferFailed must implement Clone + Eq");
     assert_eq!(ev1.amount, 500);
     assert_eq!(ev1.strategy, strategy_id);
 
     // Sanity-check init still works (exercises vault code path, not just struct).
     let client = VolatilityShieldClient::new(&env, &vault_id);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+}
+
+#[test]
+fn test_proposal_auto_pruning_and_filtering() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    
+    // threshold 2 means proposals stay unexecuted
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+
+    // 1. Create 3 proposals at early timestamps
+    env.ledger().set_timestamp(100);
+    client.propose_action(&admin, &ActionType::SetPaused(true));
+    
+    env.ledger().set_timestamp(200);
+    client.propose_action(&admin, &ActionType::SetPaused(false));
+    
+    env.ledger().set_timestamp(300); 
+    client.propose_action(&admin, &ActionType::SetPaused(true));
+
+    // 2. Advance time to expire
+    env.ledger().set_timestamp(3_000_000); 
+
+    // 3. Call list_proposals(include_expired=true) -> should see all 3
+    assert_eq!(client.list_proposals(&0u32, &10u32, &true).len(), 3);
+
+    // 4. Call list_proposals(include_expired=false) -> should filter out all 3
+    assert_eq!(client.list_proposals(&0u32, &10u32, &false).len(), 0);
+    
+    // 5. Create a new active one
+    env.ledger().set_timestamp(3_000_100);
+    let id_4 = client.propose_action(&admin, &ActionType::SetPaused(false));
+    
+    let proposals = client.list_proposals(&0u32, &10u32, &false);
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals.get(0).unwrap().id, id_4);
 }

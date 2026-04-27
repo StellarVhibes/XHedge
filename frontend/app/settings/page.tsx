@@ -298,13 +298,21 @@ function NotificationRow({
   checked: boolean;
   onCheckedChange: (val: boolean) => void;
 }) {
+  const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div className="flex items-center justify-between py-4">
       <div className="space-y-0.5">
-        <Label className="text-sm font-medium text-foreground">{label}</Label>
+        <Label htmlFor={id} className="text-sm font-medium text-foreground">
+          {label}
+        </Label>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        id={id}
+        aria-label={`Toggle ${label} notifications`}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   );
 }
