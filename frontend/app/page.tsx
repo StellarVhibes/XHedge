@@ -13,6 +13,7 @@ import AllocationChart, { Slice } from "@/components/AllocationChart";
 import StrategyDetailModal, { StrategyDetail } from "@/components/StrategyDetailModal";
 import { RiskChart } from "@/components/RiskChart";
 import { useWallet } from "@/hooks/use-wallet";
+import { useRiskScore } from "@/hooks/use-risk-score";
 
 import { useTranslations } from "@/lib/i18n-context";
 
@@ -25,6 +26,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyDetail | null>(null);
   const { address } = useWallet();
+  const { score: riskScore, loading: riskLoading } = useRiskScore();
 
   const canFlagStrategy = (() => {
     if (!address) return false;
@@ -91,7 +93,13 @@ export default function Home() {
           </div>
           <div className="lg:col-span-1 flex">
             <div className="w-full h-full">
-              <RiskChart score={45} />
+              {riskLoading ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="animate-pulse text-muted-foreground">Loading risk score...</div>
+                </div>
+              ) : (
+                <RiskChart score={riskScore ?? 45} />
+              )}
             </div>
           </div>
         </div>

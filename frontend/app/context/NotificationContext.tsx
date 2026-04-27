@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { useSorobanEvents, SorobanEvent } from "@/hooks/use-soroban-events";
+import { safeLocalStorage } from "@/lib/safe-local-storage";
 
 export interface Notification {
   id: string;
@@ -33,7 +34,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   // Load from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem("xh_notifications");
+    const saved = safeLocalStorage.get("xh_notifications");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -53,7 +54,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   // Save to localStorage on change
   useEffect(() => {
     if (isInitialized) {
-      localStorage.setItem("xh_notifications", JSON.stringify(notifications));
+      safeLocalStorage.set("xh_notifications", JSON.stringify(notifications));
     }
   }, [notifications, isInitialized]);
 

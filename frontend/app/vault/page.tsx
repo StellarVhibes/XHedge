@@ -21,6 +21,7 @@ import { useWallet } from "@/hooks/use-wallet";
 import { fetchApyData, DataPoint } from "@/lib/chart-data";
 import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import { useTranslations } from "@/lib/i18n-context";
+import { safeLocalStorage } from "@/lib/safe-local-storage";
 import {
   buildDepositXdr,
   buildWithdrawXdr,
@@ -140,8 +141,8 @@ export default function VaultPage() {
       return;
     }
 
-    setTermsAccepted(localStorage.getItem("terms_accepted") === "true");
-    setPrivacyAccepted(localStorage.getItem("privacy_accepted") === "true");
+    setTermsAccepted(safeLocalStorage.get("terms_accepted") === "true");
+    setPrivacyAccepted(safeLocalStorage.get("privacy_accepted") === "true");
   }, []);
 
   useEffect(() => {
@@ -203,13 +204,13 @@ export default function VaultPage() {
 
   const handleTermsAccept = () => {
     setTermsAccepted(true);
-    localStorage.setItem("terms_accepted", "true");
+    safeLocalStorage.set("terms_accepted", "true");
     setShowTermsModal(false);
   };
 
   const handlePrivacyAccept = () => {
     setPrivacyAccepted(true);
-    localStorage.setItem("privacy_accepted", "true");
+    safeLocalStorage.set("privacy_accepted", "true");
     setShowPrivacyModal(false);
   };
 
@@ -270,8 +271,8 @@ export default function VaultPage() {
       // Persist entry price per user address on first deposit
       if (address && metrics?.sharePrice) {
         const storageKey = `xh_entry_price_${address}`;
-        if (!localStorage.getItem(storageKey)) {
-          localStorage.setItem(storageKey, metrics.sharePrice);
+        if (!safeLocalStorage.get(storageKey)) {
+          safeLocalStorage.set(storageKey, metrics.sharePrice);
         }
       }
 

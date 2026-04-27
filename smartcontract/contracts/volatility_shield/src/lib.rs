@@ -1163,7 +1163,7 @@ impl VolatilityShield {
         if shares <= 0 {
             panic!("shares to withdraw must be positive");
         }
-        Self::require_owner_or_delegate(&env, &from, &caller);
+        Self::require_owner_or_delegate(&env, &from, &caller)?;
 
         let balance_key = DataKey::Balance(from.clone());
         let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -1453,7 +1453,10 @@ impl VolatilityShield {
         if shares <= 0 {
             panic!("shares to queue must be positive");
         }
-        Self::require_owner_or_delegate(&env, &from, &caller);
+        if let Err(e) = Self::require_owner_or_delegate(&env, &from, &caller) {
+            let _ = Self::emit_and_err::<()>(&env, e);
+            return;
+        }
         Self::internal_queue_withdraw(env.clone(), from, asset, shares);
     }
 
@@ -2202,12 +2205,6 @@ impl VolatilityShield {
         if strategies.is_empty() {
             return Self::emit_and_err(&env, Error::NoStrategies);
         }
-
-        let _max_failures: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MaxConsecutiveFailures)
-            .unwrap_or(3);
 
         let mut unhealthy_strategies = Vec::new(&env);
         let current_time = env.ledger().timestamp();
@@ -3375,9 +3372,10 @@ impl VolatilityShield {
     /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
     /// contract as the top-level caller).  In tests, use mock_all_auths().
     fn require_admin_or_oracle(_env: &Env, caller: &Address, admin: &Address, oracle: &Address) {
-        if *caller == *admin || *caller == *oracle {
-            caller.require_auth();
-        } else {
+        // This helper is only used by governance-driven execution paths in this contract.
+        // Authentication is already enforced by `propose_action` / `approve_action` (guardian require_auth),
+        // so we only need to validate the caller role here.
+        if *caller != *admin && *caller != *oracle {
             // Neither admin nor oracle is the caller.
             panic!("Unauthorized: expected admin or oracle");
         }
@@ -3387,11 +3385,11 @@ impl VolatilityShield {
         env: &Env,
         owner: &Address,
         caller: &Address,
-    ) {
+    ) -> Result<(), Error> {
         caller.require_auth();
 
         if caller == owner {
-            return;
+            return Ok(());
         }
 
         match env
@@ -3399,8 +3397,8 @@ impl VolatilityShield {
             .persistent()
             .get::<DataKey, Address>(&DataKey::Delegate(owner.clone()))
         {
-            Some(delegate) if delegate == *caller => (),
-            _ => panic!("unauthorized: caller is neither owner nor delegate"),
+            Some(delegate) if delegate == *caller => Ok(()),
+            _ => Err(Error::Unauthorized),
         }
     }
 
