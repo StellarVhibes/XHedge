@@ -62,7 +62,7 @@ export function PerformanceAttribution() {
         <CardContent className="pt-6">
           <div className="flex items-center gap-2 text-destructive">
             <Info className="w-4 h-4" />
-            <p className="text-sm font-medium">Error: {error}</p>
+            <p className="text-sm font-medium" aria-live="assertive" role="alert">Error: {error}</p>
           </div>
         </CardContent>
       </Card>

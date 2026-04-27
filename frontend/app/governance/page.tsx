@@ -264,7 +264,7 @@ export default function GovernancePage() {
 
         {loading ? (
           <Card>
-            <CardContent className="py-8 text-muted-foreground">Loading proposals...</CardContent>
+            <CardContent className="py-8 text-muted-foreground" aria-live="polite" aria-busy="true">Loading proposals...</CardContent>
           </Card>
         ) : proposals.length === 0 ? (
           <Card>

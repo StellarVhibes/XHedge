@@ -111,9 +111,9 @@ export default function Home() {
             </p>
           </div>
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading allocation data...</p>
+            <p className="text-sm text-muted-foreground" aria-live="polite" aria-busy="true">Loading allocation data...</p>
           ) : error ? (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" aria-live="assertive" role="alert">{error}</p>
           ) : slices && slices.length > 0 ? (
             <AllocationChart slices={slices} onSliceClick={openStrategyModal} />
           ) : (

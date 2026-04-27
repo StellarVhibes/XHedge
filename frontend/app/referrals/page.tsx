@@ -46,7 +46,7 @@ export default function ReferralsPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw className="w-8 h-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Loading referral data...</span>
+        <span className="ml-2 text-muted-foreground" aria-live="polite" aria-busy="true">Loading referral data...</span>
       </div>
     );
   }

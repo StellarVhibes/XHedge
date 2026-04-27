@@ -51,7 +51,7 @@ export function RewardSummary() {
                         <AlertCircle className="w-6 h-6 text-destructive" />
                     </div>
                     <div>
-                        <p className="text-sm font-semibold text-destructive">{fetchError}</p>
+                        <p className="text-sm font-semibold text-destructive" aria-live="assertive" role="alert">{fetchError}</p>
                         <p className="text-xs text-muted-foreground mt-1">Please check your connection and try again.</p>
                     </div>
                     <button 
@@ -93,7 +93,7 @@ export function RewardSummary() {
                         </div>
 
                         {loading ? (
-                            <div className="text-sm text-center py-4 text-muted-foreground">Loading history...</div>
+                            <div className="text-sm text-center py-4 text-muted-foreground" aria-live="polite" aria-busy="true">Loading history...</div>
                         ) : !data || data.recentRewards.length === 0 ? (
                             <div className="text-sm text-center py-4 text-muted-foreground">No recent rewards</div>
                         ) : (
