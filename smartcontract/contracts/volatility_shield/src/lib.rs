@@ -17,6 +17,8 @@ pub enum Error {
     Unauthorized = 4,
     NoStrategies = 5,
     ContractPaused = 6,
+    InvalidFeePercentage = 7,
+    ArithmeticOverflow = 8,
 }
 
 // ─────────────────────────────────────────────
@@ -103,6 +105,9 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::Strategies, &Vec::<Address>::new(&env));
+        if fee_percentage > 10000 {
+            return Err(Error::InvalidFeePercentage);
+        }
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         env.storage()
             .instance()
@@ -257,6 +262,78 @@ impl VolatilityShield {
         Ok(())
     }
 
+    pub fn set_fee_pct(env: Env, fee_percentage: u32) -> Result<(), Error> {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+
+        if fee_percentage > 10000 {
+            return Err(Error::InvalidFeePercentage);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeePercentage, &fee_percentage);
+        
+        env.events().publish(
+            (symbol_short!("fee_pct"), symbol_short!("updated")),
+            fee_percentage,
+        );
+
+        Ok(())
+    }
+
+    pub fn remove_strategy(env: Env, strategy: Address, force_remove: bool) -> Result<(), Error> {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+
+        let mut strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+        
+        let index = strategies.first_index_of(strategy.clone());
+        if index.is_none() {
+            return Err(Error::NoStrategies);
+        }
+
+        if !force_remove {
+            let _strategy_client = StrategyClient::new(&env, strategy.clone());
+            // Try to query balance, but handle failure
+            let balance_res = env.try_invoke_contract::<i128, Error>(
+                &strategy,
+                &soroban_sdk::Symbol::new(&env, "balance"),
+                soroban_sdk::vec![&env],
+            );
+
+            match balance_res {
+                Ok(Ok(balance)) => {
+                    if balance > 0 {
+                        panic!("Strategy still has funds. Use rebalance first or force_remove=true");
+                    }
+                }
+                _ => {
+                    env.events().publish(
+                        (symbol_short!("Strategy"), symbol_short!("fail_bal")),
+                        strategy.clone(),
+                    );
+                }
+            }
+        }
+
+        strategies.remove(index.unwrap());
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategies, &strategies);
+
+        env.events().publish(
+            (symbol_short!("Strategy"), symbol_short!("removed")),
+            strategy,
+        );
+
+        Ok(())
+    }
+
     pub fn harvest(env: Env) -> Result<i128, Error> {
         let admin = Self::read_admin(&env);
         admin.require_auth();
@@ -274,10 +351,11 @@ impl VolatilityShield {
         }
 
         if total_yield > 0 {
+            let fee_adjusted_yield = Self::take_fees(&env, total_yield)?;
             let current_assets = Self::total_assets(&env);
             Self::set_total_assets(
                 env.clone(),
-                current_assets.checked_add(total_yield).unwrap(),
+                current_assets.checked_add(fee_adjusted_yield).ok_or(Error::ArithmeticOverflow)?,
             );
         }
 
@@ -355,17 +433,32 @@ impl VolatilityShield {
     }
 
     // ── Internal Helpers ──────────────────────
-    pub fn take_fees(env: &Env, amount: i128) -> i128 {
+    pub fn take_fees(env: &Env, amount: i128) -> Result<i128, Error> {
         let fee_pct = Self::fee_percentage(&env);
         if fee_pct == 0 {
-            return amount;
+            return Ok(amount);
         }
         let fee = amount
             .checked_mul(fee_pct as i128)
-            .unwrap()
+            .ok_or(Error::ArithmeticOverflow)?
             .checked_div(10000)
-            .unwrap();
-        amount - fee
+            .ok_or(Error::ArithmeticOverflow)?;
+        
+        if fee > 0 {
+            let treasury = Self::treasury(env);
+            let token = Self::get_asset(env);
+            token::Client::new(env, &token).transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &fee,
+            );
+            env.events().publish(
+                (symbol_short!("fee_col"), treasury),
+                fee,
+            );
+        }
+
+        Ok(amount.checked_sub(fee).ok_or(Error::ArithmeticOverflow)?)
     }
 
     pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
@@ -377,6 +470,11 @@ impl VolatilityShield {
         if total_shares == 0 || total_assets == 0 {
             return amount;
         }
+        
+        // Fee collection during deposit (optional/app-dependent, but take_fees is there)
+        // Note: original code only had take_fees available, but convert_to_shares didn't call it.
+        // I will follow the user's focus on take_fees reliability.
+        
         amount
             .checked_mul(total_shares)
             .unwrap()

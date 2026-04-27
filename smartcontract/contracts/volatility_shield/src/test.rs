@@ -166,22 +166,104 @@ fn test_convert_to_shares_negative() {
     client.convert_to_shares(&-1);
 }
 
-#[test]
-fn test_take_fees() {
-    let env = Env::default();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
+    #[test]
+    fn test_take_fees_accuracy_and_transfer() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
 
-    client.init(&admin, &asset, &oracle, &treasury, &500u32);
+        let token_admin = Address::generate(&env);
+        let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
 
-    let deposit_amount = 1000;
-    let remaining = client.take_fees(&deposit_amount);
-    assert_eq!(remaining, 950);
-}
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        client.init(&admin, &token_id, &oracle, &treasury, &500u32); // 5% fee
+
+        // Mint tokens to vault to simulate yield
+        stellar_asset_client.mint(&contract_id, &1000);
+
+        // Calculate expected: 5% of 1000 = 50. Remaining = 950.
+        let remaining = client.take_fees(&1000);
+        assert_eq!(remaining, 950);
+
+        // Verify treasury received fee
+        assert_eq!(token_client.balance(&treasury), 50);
+    }
+
+    #[test]
+    fn test_take_fees_large_amount_no_overflow() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let token_admin = Address::generate(&env);
+        let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        client.init(&admin, &token_id, &oracle, &treasury, &10000u32); // 100% fee
+
+        // Large amount: 10^18 (Standard 18 decimals)
+        let large_amount = 1_000_000_000_000_000_000_i128;
+        stellar_asset_client.mint(&contract_id, &large_amount);
+
+        let remaining = client.take_fees(&large_amount);
+        assert_eq!(remaining, 0); // 100% taken
+    }
+
+    #[test]
+    fn test_set_fee_pct_validation() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+        // Valid
+        assert!(client.try_set_fee_pct(&500).is_ok());
+        assert_eq!(client.fee_percentage(), 500);
+
+        // Invalid (> 100%)
+        let res = client.try_set_fee_pct(&10001);
+        assert_eq!(res, Err(Ok(Error::InvalidFeePercentage)));
+    }
+
+    #[test]
+    fn test_remove_strategy_logic() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32);
+
+        let strategy = Address::generate(&env);
+        client.add_strategy(&strategy);
+        assert_eq!(client.get_strategies().len(), 1);
+
+        // Success remove
+        client.remove_strategy(&strategy, &false);
+        assert_eq!(client.get_strategies().len(), 0);
+    }
 
 #[test]
 fn test_withdraw_success() {
