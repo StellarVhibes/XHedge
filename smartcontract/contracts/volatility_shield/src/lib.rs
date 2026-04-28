@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
-    Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
+    Address, Env, Map, Vec,
 };
 
 // ─────────────────────────────────────────────
@@ -32,6 +32,10 @@ pub enum Error {
     InvalidAllocationSum = 19,
     NegativeAllocation = 20,
     ZeroAddressStrategy = 21,
+    /// Referral: self-referral or post-deposit registration attempt.
+    InvalidConfig = 22,
+    /// Referral: a referrer is already registered for this depositor.
+    ReferralAlreadySet = 23,
 }
 
 // ─────────────────────────────────────────────
@@ -66,6 +70,15 @@ pub enum DataKey {
     PendingWithdrawals,
     StrategyHealth(Address),
     TimelockDuration,
+    // ── Referral programme (SC-60) ─────────────────
+    /// depositor address → referrer address
+    Referrer(Address),
+    /// u32 — bonus shares as basis points of depositor shares (default 50)
+    ReferralRewardBps,
+    /// i128 — maximum bonus shares a referrer may earn in one epoch
+    ReferralEpochCap,
+    /// i128 — cumulative bonus shares earned by a referrer this epoch
+    ReferralEpochEarnings(Address),
 }
 
 // ─────────────────────────────────────────────
@@ -421,6 +434,11 @@ impl VolatilityShield {
 
         env.events()
             .publish((symbol_short!("Deposit"), from.clone()), amount);
+
+        // Referral bonus is earned on the depositor's very first deposit only.
+        if current_balance == 0 {
+            Self::maybe_reward_referrer(&env, &from, shares_to_mint);
+        }
     }
 
     // ── Withdraw ──────────────────────────────
@@ -1298,6 +1316,56 @@ impl VolatilityShield {
         }
     }
 
+    // ── Referral Registration ─────────────────────────────────────────────
+    /// Register a `referrer` for `depositor` before their first deposit.
+    ///
+    /// Rules:
+    /// - `depositor` must authorise the call.
+    /// - Self-referral is rejected (`Error::InvalidConfig`).
+    /// - The mapping is write-once; a second call returns `Error::ReferralAlreadySet`.
+    /// - Registration after the depositor's first deposit is rejected.
+    pub fn register_referral(env: Env, depositor: Address, referrer: Address) {
+        depositor.require_auth();
+
+        if depositor == referrer {
+            panic_with_error!(&env, Error::InvalidConfig);
+        }
+
+        let referrer_key = DataKey::Referrer(depositor.clone());
+        if env.storage().persistent().has(&referrer_key) {
+            panic_with_error!(&env, Error::ReferralAlreadySet);
+        }
+
+        // Reject if the depositor has already made their first deposit.
+        let balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(depositor.clone()))
+            .unwrap_or(0);
+        if balance > 0 {
+            panic_with_error!(&env, Error::InvalidConfig);
+        }
+
+        env.storage().persistent().set(&referrer_key, &referrer);
+    }
+
+    // ── Referral Config (admin only) ──────────────────────────────────────
+    /// Configure the referral reward parameters.
+    ///
+    /// - `reward_bps`: bonus shares expressed as basis points of the
+    ///   depositor's minted shares (50 = 0.5 %).  Set to 0 to disable.
+    /// - `epoch_cap`: maximum total bonus shares a single referrer may
+    ///   accumulate before an admin resets their epoch earnings.
+    pub fn set_referral_config(env: Env, reward_bps: u32, epoch_cap: i128) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::ReferralRewardBps, &reward_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::ReferralEpochCap, &epoch_cap);
+    }
+
     // ─────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────
@@ -1316,6 +1384,95 @@ impl VolatilityShield {
     /// Oracle-initiated calls should be routed through a thin oracle contract
     /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
     /// contract as the top-level caller).  In tests, use mock_all_auths().
+    /// Credit the referrer with bonus shares on a depositor's *first* deposit.
+    ///
+    /// Called from [`deposit`] when `current_balance == 0`.
+    ///
+    /// Does nothing when:
+    /// - No referrer is registered for the depositor.
+    /// - `ReferralRewardBps` is 0 (feature disabled).
+    /// - The referrer has already hit their epoch cap.
+    ///
+    /// Complexity: O(1) space and time — four persistent reads, two writes.
+    fn maybe_reward_referrer(env: &Env, depositor: &Address, depositor_shares: i128) {
+        // Look up the referrer; bail out if none is registered.
+        let referrer_key = DataKey::Referrer(depositor.clone());
+        let referrer: Address = match env.storage().persistent().get(&referrer_key) {
+            Some(r) => r,
+            None => return,
+        };
+
+        let reward_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReferralRewardBps)
+            .unwrap_or(50);
+        if reward_bps == 0 {
+            return;
+        }
+
+        let epoch_cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReferralEpochCap)
+            .unwrap_or(i128::MAX);
+
+        let epoch_key = DataKey::ReferralEpochEarnings(referrer.clone());
+        let already_earned: i128 = env
+            .storage()
+            .persistent()
+            .get(&epoch_key)
+            .unwrap_or(0);
+
+        let remaining_cap = epoch_cap.saturating_sub(already_earned);
+        if remaining_cap == 0 {
+            return;
+        }
+
+        // bonus = floor(depositor_shares * reward_bps / 10_000), capped by epoch.
+        let gross_bonus = depositor_shares
+            .checked_mul(reward_bps as i128)
+            .unwrap()
+            .checked_div(10_000)
+            .unwrap();
+
+        let bonus_shares = gross_bonus.min(remaining_cap);
+        if bonus_shares == 0 {
+            return;
+        }
+
+        // Credit referrer's share balance.
+        let referrer_balance_key = DataKey::Balance(referrer.clone());
+        let referrer_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&referrer_balance_key)
+            .unwrap_or(0);
+        env.storage().persistent().set(
+            &referrer_balance_key,
+            &referrer_balance.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Mint bonus into total supply (no new assets — pure share dilution).
+        let total_shares = Self::total_shares(env);
+        Self::set_total_shares(
+            env.clone(),
+            total_shares.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Accumulate epoch earnings.
+        env.storage().persistent().set(
+            &epoch_key,
+            &already_earned.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Emit ReferralRewarded { referrer, depositor, bonus_shares }.
+        env.events().publish(
+            (symbol_short!("RefReward"), referrer.clone()),
+            (depositor.clone(), bonus_shares),
+        );
+    }
+
     fn require_admin_or_oracle(_env: &Env, admin: &Address, oracle: &Address) {
         // Try admin first. If the transaction was signed by the oracle, the
         // oracle is expected to call this contract directly, and the oracle's

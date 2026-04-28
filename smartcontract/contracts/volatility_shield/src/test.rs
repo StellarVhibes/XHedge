@@ -1380,3 +1380,169 @@ fn test_multiple_negative_allocations_rejected() {
     let result = client.try_set_oracle_data(&allocations, &1000);
     assert_eq!(result, Err(Ok(Error::NegativeAllocation)));
 }
+
+// ── SC-60: Referral Reward Distribution ──────────────────────────────────────
+
+/// Shared setup: initialised vault with a real token contract.
+fn setup_vault_with_token(
+    env: &Env,
+) -> (
+    Address,
+    Address,
+    VolatilityShieldClient,
+    StellarAssetClient,
+    TokenClient,
+) {
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(env);
+    let (token_id, stellar_asset_client, token_client) =
+        create_token_contract(env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let oracle = Address::generate(env);
+    let treasury = Address::generate(env);
+
+    let guardians = soroban_sdk::vec![env, admin.clone()];
+    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    (admin, contract_id, client, stellar_asset_client, token_client)
+}
+
+/// No referrer registered → deposit mints no bonus shares.
+#[test]
+fn test_referral_no_referrer_no_bonus() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let referrer = Address::generate(&env);
+    let depositor = Address::generate(&env);
+
+    // Deposit without any referral registration.
+    stellar_asset_client.mint(&depositor, &10_000i128);
+    client.deposit(&depositor, &10_000i128);
+
+    // Referrer holds no shares and total supply equals the depositor's shares.
+    assert_eq!(client.balance(&referrer), 0);
+    assert_eq!(client.total_shares(), 10_000);
+}
+
+/// Valid referral: referrer receives `reward_bps / 10_000` of depositor shares.
+#[test]
+fn test_referral_valid_bonus_minted_to_referrer() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let referrer = Address::generate(&env);
+    let depositor = Address::generate(&env);
+
+    client.register_referral(&depositor, &referrer);
+
+    stellar_asset_client.mint(&depositor, &10_000i128);
+    client.deposit(&depositor, &10_000i128);
+
+    // Default reward_bps = 50 → bonus = 10_000 * 50 / 10_000 = 50 shares.
+    let expected_bonus = 50i128;
+    assert_eq!(client.balance(&referrer), expected_bonus);
+    assert_eq!(client.balance(&depositor), 10_000);
+    assert_eq!(client.total_shares(), 10_000 + expected_bonus);
+    // Total assets unchanged — bonus is pure share dilution, no new assets.
+    assert_eq!(client.total_assets(), 10_000);
+}
+
+/// Epoch cap: bonus is clipped to the remaining cap; further referrals yield nothing.
+#[test]
+fn test_referral_epoch_cap_enforcement() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let referrer = Address::generate(&env);
+
+    // 50 bps reward, epoch cap of 30 shares.
+    // First depositor generates gross_bonus = 10_000 * 50 / 10_000 = 50,
+    // which exceeds the cap → referrer receives exactly 30.
+    client.set_referral_config(&50u32, &30i128);
+
+    let depositor1 = Address::generate(&env);
+    client.register_referral(&depositor1, &referrer);
+    stellar_asset_client.mint(&depositor1, &10_000i128);
+    client.deposit(&depositor1, &10_000i128);
+
+    assert_eq!(client.balance(&referrer), 30);
+
+    // Second depositor pointing to the same referrer — epoch cap exhausted.
+    let depositor2 = Address::generate(&env);
+    client.register_referral(&depositor2, &referrer);
+    stellar_asset_client.mint(&depositor2, &10_000i128);
+    client.deposit(&depositor2, &10_000i128);
+
+    assert_eq!(client.balance(&referrer), 30); // unchanged
+}
+
+/// Self-referral must be rejected with Error::InvalidConfig.
+#[test]
+fn test_referral_self_referral_rejected() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, _stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let user = Address::generate(&env);
+    // try_ wraps panic_with_error! as Err(_); confirm the call fails.
+    let result = client.try_register_referral(&user, &user);
+    assert!(result.is_err());
+}
+
+/// Setting reward_bps = 0 disables the feature; no bonus shares are minted.
+#[test]
+fn test_referral_zero_reward_bps_disables_feature() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let referrer = Address::generate(&env);
+    let depositor = Address::generate(&env);
+
+    let no_cap = i128::MAX;
+    client.set_referral_config(&0u32, &no_cap);
+    client.register_referral(&depositor, &referrer);
+
+    stellar_asset_client.mint(&depositor, &10_000i128);
+    client.deposit(&depositor, &10_000i128);
+
+    assert_eq!(client.balance(&referrer), 0);
+    assert_eq!(client.total_shares(), 10_000);
+}
+
+/// Referral bonus is minted only on the depositor's first deposit.
+#[test]
+fn test_referral_bonus_only_on_first_deposit() {
+    let env = Env::default();
+    let (_admin, _contract_id, client, stellar_asset_client, _token_client) =
+        setup_vault_with_token(&env);
+
+    let referrer = Address::generate(&env);
+    let depositor = Address::generate(&env);
+
+    client.register_referral(&depositor, &referrer);
+
+    stellar_asset_client.mint(&depositor, &20_000i128);
+
+    // First deposit → bonus minted to referrer.
+    client.deposit(&depositor, &10_000i128);
+    let bonus_after_first = client.balance(&referrer);
+    assert!(bonus_after_first > 0, "bonus must be positive after first deposit");
+
+    // Second deposit → referrer balance must not change.
+    client.deposit(&depositor, &10_000i128);
+    assert_eq!(
+        client.balance(&referrer),
+        bonus_after_first,
+        "referrer balance must not change on subsequent deposits"
+    );
+}
