@@ -79,6 +79,10 @@ pub enum Error {
     InvalidConfig = 32,
     /// Deposit amount is below the configured minimum deposit floor.
     BelowMinDeposit = 33,
+    /// SC-42: yield-snapshot history is in a corrupted state — typically an
+    /// odd number of snapshots, breaking the (before, after) pairing
+    /// invariant that `get_strategy_apy` relies on.
+    InvalidSnapshotState = 34,
 }
 
 impl Error {
@@ -116,6 +120,7 @@ impl Error {
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
             Error::InvalidConfig => Symbol::new(env, "invalid_config"),
             Error::BelowMinDeposit => Symbol::new(env, "below_min_deposit"),
+            Error::InvalidSnapshotState => Symbol::new(env, "invalid_snapshot_state"),
         }
     }
 }
@@ -2885,71 +2890,106 @@ impl VolatilityShield {
     ///
     /// @param strategy The strategy address to calculate APY for.
     /// @param periods Number of harvest periods to include in calculation.
-    /// @return APY in basis points.
-    pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> i128 {
+    /// @return APY in basis points, or `Error::InvalidSnapshotState` if the
+    ///         stored snapshot history is corrupted (odd number of entries
+    ///         or computed indices fall outside the snapshot vector).
+    ///
+    /// SC-42: snapshots are written in (before, after) pairs by `harvest()`.
+    /// The pre-fix arithmetic computed `start_idx = (count - periods_to_use) * 2`
+    /// and silently returned `0` on out-of-bounds, so an odd snapshot count
+    /// (e.g. an interrupted harvest, a migration, or storage corruption)
+    /// produced a misaligned start/end pair and was indistinguishable from
+    /// "no yield this window" — both returned 0.
+    ///
+    /// **Invariant:** snapshot pairs MUST be written atomically. `harvest()`
+    /// pushes the before-snapshot for every strategy in one loop and the
+    /// after-snapshot for every strategy in a second loop, both inside the
+    /// same transaction; a panic in either loop rolls back the whole call,
+    /// preserving the parity. New code that writes to
+    /// `DataKey::StrategyYieldSnapshot` must do the same — never push a
+    /// single snapshot in isolation.
+    pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> Result<i128, Error> {
         let history_key = DataKey::StrategyYieldSnapshot(strategy.clone());
         let history: Option<YieldHistory> = env.storage().instance().get(&history_key);
 
-        match history {
-            Some(h) if h.snapshots.len() >= 2 => {
-                let snapshots = h.snapshots;
-                let count = snapshots.len() as u32;
-                let periods_to_use = if periods == 0 || periods > count {
-                    count
-                } else {
-                    periods
-                };
+        let snapshots = match history {
+            Some(h) => h.snapshots,
+            None => return Ok(0),
+        };
 
-                // Use the earliest and latest snapshots within the specified periods
-                // Snapshots are stored in pairs (before, after) for each harvest
-                // We use the before-harvest snapshots to calculate growth
-                let start_idx = ((count - periods_to_use) * 2) as u32;
-                let end_idx = (count - 1) as u32;
-
-                if start_idx >= end_idx || end_idx >= snapshots.len() as u32 {
-                    return 0;
-                }
-
-                let start_snapshot = snapshots.get(start_idx).unwrap();
-                let end_snapshot = snapshots.get(end_idx).unwrap();
-
-                let start_balance = start_snapshot.balance;
-                let end_balance = end_snapshot.balance;
-
-                if start_balance <= 0 {
-                    return 0;
-                }
-
-                // Calculate ledger difference (proxy for time)
-                let ledger_diff = end_snapshot.ledger.saturating_sub(start_snapshot.ledger);
-                if ledger_diff == 0 {
-                    return 0;
-                }
-
-                // Calculate growth rate
-                let growth = end_balance
-                    .checked_mul(10_000)
-                    .unwrap()
-                    .checked_div(start_balance)
-                    .unwrap();
-                let growth_bps = growth.saturating_sub(10_000);
-
-                // Annualize: assume ~10 ledgers per second on Stellar testnet
-                // This is a simplification; in production use actual timestamp
-                let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
-                let periods_per_year = ledgers_per_year / ledger_diff as i128;
-
-                if periods_per_year <= 0 {
-                    return growth_bps;
-                }
-
-                // Compound annual growth: (1 + rate)^periods - 1
-                // Using simple multiplication for basis points approximation
-                let apy = growth_bps.checked_mul(periods_per_year).unwrap();
-                apy
-            }
-            _ => 0,
+        let snapshot_count = snapshots.len();
+        if snapshot_count < 2 {
+            // No completed harvest cycle yet — not corruption, just no data.
+            return Ok(0);
         }
+
+        // Invariant check: snapshots are stored as (before, after) pairs.
+        // An odd count means at least one harvest left the history half-written;
+        // we refuse to compute APY on misaligned data instead of silently
+        // pairing the wrong snapshots.
+        if snapshot_count % 2 != 0 {
+            return Self::emit_and_err(&env, Error::InvalidSnapshotState);
+        }
+
+        // After the parity check, work in *harvest periods* (each period = 2
+        // snapshots) so the index arithmetic is unambiguous.
+        let harvest_count = snapshot_count / 2;
+        let periods_to_use = if periods == 0 || periods > harvest_count {
+            harvest_count
+        } else {
+            periods
+        };
+
+        // Window of the last `periods_to_use` harvests:
+        //   start_idx = first "before" snapshot in the window
+        //   end_idx   = last  "after"  snapshot in the window
+        // Pre-fix: `(count - periods_to_use) * 2` confused snapshot count with
+        // harvest count and could exceed `snapshots.len()` for any odd count
+        // or for `periods` that exceeded `harvest_count`.
+        let start_idx = (harvest_count - periods_to_use) * 2;
+        let end_idx = snapshot_count - 1;
+
+        if start_idx >= end_idx || end_idx >= snapshot_count {
+            return Self::emit_and_err(&env, Error::InvalidSnapshotState);
+        }
+
+        let start_snapshot = snapshots.get(start_idx).unwrap();
+        let end_snapshot = snapshots.get(end_idx).unwrap();
+
+        let start_balance = start_snapshot.balance;
+        let end_balance = end_snapshot.balance;
+
+        if start_balance <= 0 {
+            return Ok(0);
+        }
+
+        // Calculate ledger difference (proxy for time)
+        let ledger_diff = end_snapshot.ledger.saturating_sub(start_snapshot.ledger);
+        if ledger_diff == 0 {
+            return Ok(0);
+        }
+
+        // Calculate growth rate
+        let growth = end_balance
+            .checked_mul(10_000)
+            .unwrap()
+            .checked_div(start_balance)
+            .unwrap();
+        let growth_bps = growth.saturating_sub(10_000);
+
+        // Annualize: assume ~10 ledgers per second on Stellar testnet
+        // This is a simplification; in production use actual timestamp
+        let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
+        let periods_per_year = ledgers_per_year / ledger_diff as i128;
+
+        if periods_per_year <= 0 {
+            return Ok(growth_bps);
+        }
+
+        // Compound annual growth: (1 + rate)^periods - 1
+        // Using simple multiplication for basis points approximation
+        let apy = growth_bps.checked_mul(periods_per_year).unwrap();
+        Ok(apy)
     }
 
     /// Get the best performing strategy based on recent APY.
@@ -2968,7 +3008,13 @@ impl VolatilityShield {
         let mut best_apy: i128 = -1; // Initialize to -1 so even 0 APY will be selected
 
         for strategy in strategies.iter() {
-            let apy = Self::get_strategy_apy(env.clone(), strategy.clone(), 4);
+            // SC-42: a strategy with a corrupted snapshot history must not
+            // disqualify the rest of the comparison. Skip it so the other
+            // strategies still get ranked.
+            let apy = match Self::get_strategy_apy(env.clone(), strategy.clone(), 4) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
             if apy > best_apy {
                 best_apy = apy;
                 best_strategy = Some(strategy.clone());
