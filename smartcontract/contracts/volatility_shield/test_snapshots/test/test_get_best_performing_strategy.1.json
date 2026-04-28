@@ -346,7 +346,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 7500
+                            "lo": 5000
                           }
                         }
                       },
@@ -857,7 +857,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 1000
+                                            "lo": 0
                                           }
                                         }
                                       },
@@ -880,7 +880,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 1500
+                                            "lo": 500
                                           }
                                         }
                                       },
@@ -903,7 +903,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 1500
+                                            "lo": 0
                                           }
                                         }
                                       },
@@ -974,7 +974,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 1500
+                                            "lo": 0
                                           }
                                         }
                                       },
@@ -997,7 +997,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 3500
+                                            "lo": 2000
                                           }
                                         }
                                       },
@@ -1020,7 +1020,7 @@
                                         "val": {
                                           "i128": {
                                             "hi": 0,
-                                            "lo": 3500
+                                            "lo": 0
                                           }
                                         }
                                       },
@@ -1103,7 +1103,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 7500
+                            "lo": 5000
                           }
                         }
                       },
@@ -1409,7 +1409,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1500
+                            "lo": 0
                           }
                         }
                       },
@@ -1481,7 +1481,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 3500
+                            "lo": 0
                           }
                         }
                       },
@@ -1529,6 +1529,79 @@
                   "symbol": "Balance"
                 },
                 {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Balance"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 5000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "authorized"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "clawback"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518510
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Balance"
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
                 }
               ]
@@ -1563,7 +1636,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 1500
+                          "lo": 0
                         }
                       }
                     },
@@ -1636,7 +1709,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 3500
+                          "lo": 0
                         }
                       }
                     },
