@@ -11,6 +11,7 @@ import { ArrowUpFromLine, ArrowDownToLine, Loader2, FileText, Shield } from "luc
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork } from "@/app/context/NetworkContext";
 import { buildDepositXdr, buildWithdrawXdr, simulateAndAssembleTransaction, submitTransaction, fetchVaultData, VaultMetrics, getNetworkPassphrase, estimateTransactionFee } from "@/lib/stellar";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import VaultAPYChart from "@/components/VaultAPYChart";
 import TimeframeFilter, { Timeframe } from "@/components/TimeframeFilter";
 import { fetchApyData, DataPoint } from "@/lib/chart-data";
@@ -317,7 +318,9 @@ export default function VaultPage() {
                   <CardTitle className="text-sm">{t('yourBalance')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{userBalance.toFixed(2)} XLM</div>
+                  <div className="text-2xl font-bold">
+                    <AnimatedNumber value={userBalance} format={(n) => `${n.toFixed(2)} XLM`} />
+                  </div>
                 </CardContent>
               </Card>
               <Card>
@@ -325,7 +328,9 @@ export default function VaultPage() {
                   <CardTitle className="text-sm">{t('yourShares')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{userShares.toFixed(2)}</div>
+                  <div className="text-2xl font-bold">
+                    <AnimatedNumber value={userShares} format={(n) => n.toFixed(2)} />
+                  </div>
                 </CardContent>
               </Card>
               <Card>
@@ -334,7 +339,10 @@ export default function VaultPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {metrics ? (parseFloat(metrics.sharePrice) * 100).toFixed(2) : "0.00"}%
+                    <AnimatedNumber
+                      value={metrics ? parseFloat(metrics.sharePrice) * 100 : 0}
+                      format={(n) => `${n.toFixed(2)}%`}
+                    />
                   </div>
                 </CardContent>
               </Card>
