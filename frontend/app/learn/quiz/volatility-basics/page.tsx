@@ -399,7 +399,7 @@ export default function QuizPage() {
       <div className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex sm:items-center gap-4 max-sm:flex-col">
+            <div className="flex items-center gap-4">
               <Link href="/learn">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="h-4 w-4 mr-2" />
@@ -468,7 +468,7 @@ export default function QuizPage() {
                     } ${showResult ? "cursor-not-allowed" : ""}`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center ${
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
                         isSelected
                           ? "border-blue-500 bg-blue-500"
                           : "border-gray-300"

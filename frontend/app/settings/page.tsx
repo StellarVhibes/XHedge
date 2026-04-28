@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { Settings, Bell, Palette, Monitor, Sun, Moon, Save, Check } from "lucide-react";
+import { Settings, Bell, Palette, Monitor, Sun, Moon, Save, Check, Shield } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
+import { getAnalyticsPreference, setAnalyticsPreference, trackSettingsChanged } from "@/lib/analytics";
 
 const NOTIFICATIONS_KEY = "xhedge-notifications";
 
@@ -37,10 +38,14 @@ const CURRENCY_OPTIONS = [
   { value: Currency.NGN, label: "Nigerian Naira", symbol: "₦", description: "Nigerian Naira" },
 ] as const;
 
+import { useTranslations } from "@/lib/i18n-context";
+
 export default function SettingsPage() {
+  const t = useTranslations("Settings");
   const { theme, setTheme } = useTheme();
   const { currency, setCurrency } = useCurrency();
   const [notifications, setNotifications] = useState<NotificationPreferences>(DEFAULT_NOTIFICATIONS);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
   const [saved, setSaved] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -62,6 +67,11 @@ export default function SettingsPage() {
     }
   }, []);
 
+  // Load analytics preference from localStorage
+  useEffect(() => {
+    setAnalyticsEnabled(getAnalyticsPreference());
+  }, []);
+
   const handleNotificationChange = (key: keyof NotificationPreferences, value: boolean) => {
     setNotifications((prev) => {
       const updated = { ...prev, [key]: value };
@@ -74,6 +84,12 @@ export default function SettingsPage() {
     });
   };
 
+  const handleAnalyticsChange = (enabled: boolean) => {
+    setAnalyticsEnabled(enabled);
+    setAnalyticsPreference(enabled);
+    trackSettingsChanged('analytics', enabled);
+  };
+
   const handleSave = () => {
     try {
       localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
@@ -84,6 +100,11 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const translatedThemeOptions = THEME_OPTIONS.map(opt => ({
+    ...opt,
+    label: t(`themes.${opt.value}`)
+  }));
+
   return (
     <div className="min-h-screen p-8">
       <div className="mx-auto max-w-3xl space-y-8">
@@ -93,9 +114,9 @@ export default function SettingsPage() {
             <Settings className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+            <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
             <p className="text-sm text-muted-foreground">
-              Manage your notification and display preferences
+              {t('description')}
             </p>
           </div>
         </div>
@@ -105,18 +126,18 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Palette className="h-4 w-4 text-primary" />
-              <CardTitle className="text-lg">Display Preferences</CardTitle>
+              <CardTitle className="text-lg">{t('displayPreferences')}</CardTitle>
             </div>
             <CardDescription>
-              Customize how XHedge looks and formats data for you.
+              {t('displayDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Theme Selection */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium text-foreground">Theme</Label>
+              <Label className="text-sm font-medium text-foreground">{t('theme')}</Label>
               <div className="grid grid-cols-3 gap-3">
-                {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                {translatedThemeOptions.map(({ value, label, icon: Icon }) => (
                   <button
                     key={value}
                     onClick={() => setTheme(value)}
@@ -136,7 +157,7 @@ export default function SettingsPage() {
 
             {/* Currency Format */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium text-foreground">Currency Format</Label>
+              <Label className="text-sm font-medium text-foreground">{t('currencyFormat')}</Label>
               <div className="grid grid-cols-2 gap-3">
                 {CURRENCY_OPTIONS.map(({ value, label, symbol, description }) => (
                   <button
@@ -182,10 +203,10 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-primary" />
-              <CardTitle className="text-lg">Notification Preferences</CardTitle>
+              <CardTitle className="text-lg">{t('notifications')}</CardTitle>
             </div>
             <CardDescription>
-              Control which alerts and updates you receive.
+              {t('notificationsDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-1">
@@ -219,18 +240,44 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Privacy & Analytics */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <CardTitle className="text-lg">Privacy & Analytics</CardTitle>
+            </div>
+            <CardDescription>
+              Help us improve XHedge by sharing usage insights. We never collect personal data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <NotificationRow
+              label="Analytics"
+              description="Allow us to collect anonymized usage data to improve the app. No personal information is collected."
+              checked={analyticsEnabled}
+              onCheckedChange={handleAnalyticsChange}
+            />
+            <div className="mt-4 rounded-sm bg-muted/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                We respect your browser's "Do Not Track" preference. If enabled, analytics will not be sent regardless of this setting.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Save Button */}
         <div className="flex justify-end">
           <Button onClick={handleSave} className="gap-2 px-6">
             {saved ? (
               <>
                 <Check className="h-4 w-4" />
-                Saved
+                {t('saved')}
               </>
             ) : (
               <>
                 <Save className="h-4 w-4" />
-                Save Preferences
+                {t('save')}
               </>
             )}
           </Button>
@@ -251,13 +298,21 @@ function NotificationRow({
   checked: boolean;
   onCheckedChange: (val: boolean) => void;
 }) {
+  const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div className="flex items-center justify-between py-4">
       <div className="space-y-0.5">
-        <Label className="text-sm font-medium text-foreground">{label}</Label>
+        <Label htmlFor={id} className="text-sm font-medium text-foreground">
+          {label}
+        </Label>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        id={id}
+        aria-label={`Toggle ${label} notifications`}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   );
 }

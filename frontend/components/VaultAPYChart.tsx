@@ -19,16 +19,27 @@ type DataPoint = {
 interface VaultAPYChartProps {
     data: DataPoint[];
     loading?: boolean;
+    error?: string | null;
 }
 
-export default function VaultAPYChart({ data, loading = false }: VaultAPYChartProps) {
+export default function VaultAPYChart({ data, loading = false, error = null }: VaultAPYChartProps) {
     if (loading) {
         return (
             <div className="w-full h-72 flex items-center justify-center">
                 <div className="flex flex-col items-center gap-2">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    <p className="text-sm text-muted-foreground">Loading chart data...</p>
+                    <p className="text-sm text-muted-foreground" aria-live="polite" aria-atomic="true">Loading chart data...</p>
                 </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed bg-card/50 text-muted-foreground">
+                <p className="text-sm text-destructive" aria-live="assertive" role="alert">
+                    Failed to load APY history
+                </p>
             </div>
         );
     }

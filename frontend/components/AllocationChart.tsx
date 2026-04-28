@@ -1,5 +1,39 @@
 "use client";
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef, useState } from 'react';
+
+export function AllocationChartEmptyState() {
+  const size = 220;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 4;
+
+  return (
+    <div className="flex flex-col items-center relative py-4" style={{ userSelect: 'none' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+          className="text-muted/40"
+        />
+        <text
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="text-[13px] font-medium fill-muted-foreground"
+        >
+          No allocations yet
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 
 export type Slice = {
   name: string;
@@ -37,8 +71,19 @@ function getRiskLabel(score: number): { label: string; color: string } {
 const TOOLTIP_WIDTH = 180;
 const TOOLTIP_OFFSET = 12;
 
-const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slice[] }) {
+const AllocationChart = memo(function AllocationChart({
+  slices,
+  onSliceClick,
+}: {
+  slices: Slice[];
+  onSliceClick?: (slice: Slice) => Promise<void> | void;
+}) {
+  if (!slices || slices.length === 0) {
+    return <AllocationChartEmptyState />;
+  }
+
   const total = slices.reduce((s, c) => s + c.value, 0) || 1;
+
   const size = 220;
   const cx = size / 2;
   const cy = size / 2;
@@ -48,6 +93,27 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, x: 0, y: 0, slice: null, pct: 0 });
   const [hovered, setHovered] = useState<number | null>(null);
+  // #425 — track which slice is loading to prevent duplicate fetches
+  const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleSliceClick = useCallback(async (slice: Slice) => {
+    if (!onSliceClick) return;
+    // Ignore clicks while the same strategy is already loading
+    if (loadingStrategy === slice.name) return;
+    // Cancel any in-flight request for a different slice
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoadingStrategy(slice.name);
+    try {
+      await onSliceClick(slice);
+    } finally {
+      if (!controller.signal.aborted) {
+        setLoadingStrategy(null);
+      }
+    }
+  }, [onSliceClick, loadingStrategy]);
 
   const showTooltip = useCallback((e: React.MouseEvent, slice: Slice, pct: number) => {
     const container = containerRef.current;
@@ -88,23 +154,38 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
           const isHovered = hovered === i;
           const pct = Math.round((slice.value / total) * 100);
 
+          const isLoading = loadingStrategy === slice.name;
+
           return (
             <path
               key={i}
               d={path}
-              fill={color}
+              fill={isLoading ? `${color}99` : color}
               stroke="#ffffff"
+              role="button"
+              tabIndex={0}
+              aria-label={`View strategy details for ${slice.name}`}
+              aria-busy={isLoading}
+              data-testid={`allocation-slice-${i}`}
               strokeWidth={isHovered ? 2 : 1}
               style={{
                 transform: isHovered ? `scale(1.04)` : 'scale(1)',
                 transformOrigin: `${cx}px ${cy}px`,
                 transition: 'transform 0.15s ease, filter 0.15s ease',
                 filter: isHovered ? 'brightness(1.15) drop-shadow(0 2px 6px rgba(0,0,0,0.18))' : 'none',
-                cursor: 'pointer',
+                cursor: isLoading || loadingStrategy !== null ? 'wait' : 'pointer',
+                pointerEvents: loadingStrategy !== null && !isLoading ? 'none' : 'auto',
               }}
               onMouseEnter={(e) => { setHovered(i); showTooltip(e, slice, pct); }}
               onMouseMove={(e) => showTooltip(e, slice, pct)}
               onMouseLeave={hideTooltip}
+              onClick={() => handleSliceClick(slice)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleSliceClick(slice);
+                }
+              }}
             />
           );
         })}
@@ -154,8 +235,8 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
         </div>
       )}
 
-      {/* Legend */}
-      <div className="mt-3 w-56">
+      {/* Legend — full-width on narrow screens, fixed 224px on sm+ (#426) */}
+      <div className="mt-3 w-full sm:w-56">
         {slices.map((s, i) => (
           <div
             key={i}
@@ -165,7 +246,7 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
               padding: '2px 4px',
             }}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <span
                 style={{
                   width: 12,
@@ -176,7 +257,7 @@ const AllocationChart = memo(function AllocationChart({ slices }: { slices: Slic
                   flexShrink: 0,
                 }}
               />
-              <span className="truncate">{s.name}</span>
+              <span className="break-words">{s.name}</span>
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <span>{s.value}</span>
