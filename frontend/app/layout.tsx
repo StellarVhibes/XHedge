@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-import type { Metadata } from "next";
-import "./globals.css";
-import { Providers } from "./providers";
-import { DashboardLayout } from "@/components/dashboard-layout";
-=======
+
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -11,16 +6,12 @@ import { Providers } from "./providers";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PwaServiceWorker } from "./components/PwaServiceWorker";
->>>>>>> upstream/main
+
 
 export const metadata: Metadata = {
   title: "XHedge - Volatility Shield",
   description: "Stablecoin Volatility Shield for Weak Currencies",
-<<<<<<< HEAD
-};
 
-export default function RootLayout({
-=======
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -48,18 +39,12 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({
->>>>>>> upstream/main
+
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-<<<<<<< HEAD
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body>
-        <Providers>
-          <DashboardLayout>{children}</DashboardLayout>
-=======
+
   // Read the nonce injected by middleware for CSP nonce-based script loading
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
@@ -75,7 +60,7 @@ export default async function RootLayout({
           <ErrorBoundary>
             <DashboardLayout>{children}</DashboardLayout>
           </ErrorBoundary>
->>>>>>> upstream/main
+
         </Providers>
       </body>
     </html>

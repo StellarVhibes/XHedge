@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+
     "lint": "eslint . --max-warnings=0",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
@@ -53,5 +54,6 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.0.0",
     "vitest": "^2.1.9"
+
   }
 }
