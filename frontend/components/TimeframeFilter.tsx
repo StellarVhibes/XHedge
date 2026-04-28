@@ -4,7 +4,7 @@ import React from 'react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
-export type Timeframe = '1D' | '1W' | '1M' | '1Y';
+export type Timeframe = '1D' | '1W' | '1M' | '3M' | '1Y';
 
 interface TimeframeFilterProps {
   selectedTimeframe: Timeframe;
@@ -16,6 +16,7 @@ const timeframes: { value: Timeframe; label: string }[] = [
   { value: '1D', label: '1D' },
   { value: '1W', label: '1W' },
   { value: '1M', label: '1M' },
+  { value: '3M', label: '3M' },
   { value: '1Y', label: '1Y' },
 ];
 

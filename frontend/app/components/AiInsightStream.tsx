@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw, Info, AlertTriangle, Activity } from "lucide-react";
+import { useAiInsights } from "@/hooks/use-ai-insights";
 
 export type InsightType = "rebalance" | "info" | "warning";
 
@@ -10,57 +11,6 @@ export interface InsightEntry {
   type: InsightType;
   message: string;
 }
-
-const MOCK_ENTRIES: InsightEntry[] = [
-  {
-    id: "1",
-    timestamp: new Date("2026-02-23T01:00:00"),
-    type: "info",
-    message: "AI engine initialised. Monitoring FX feeds.",
-  },
-  {
-    id: "2",
-    timestamp: new Date("2026-02-23T01:00:15"),
-    type: "info",
-    message: "FX feed updated: XLM/USD 0.1124",
-  },
-  {
-    id: "3",
-    timestamp: new Date("2026-02-23T01:00:30"),
-    type: "rebalance",
-    message: "Rebalance Triggered - USDC to XLM: 45% allocation threshold exceeded",
-  },
-  {
-    id: "4",
-    timestamp: new Date("2026-02-23T01:01:00"),
-    type: "info",
-    message: "Vault APY recalculated: 7.42%",
-  },
-  {
-    id: "5",
-    timestamp: new Date("2026-02-23T01:01:20"),
-    type: "warning",
-    message: "Volatility spike detected - risk level elevated to HIGH",
-  },
-  {
-    id: "6",
-    timestamp: new Date("2026-02-23T01:01:45"),
-    type: "rebalance",
-    message: "Rebalance Triggered - defensive shift: XLM to USDC: 60% stable allocation",
-  },
-  {
-    id: "7",
-    timestamp: new Date("2026-02-23T01:02:10"),
-    type: "info",
-    message: "Volatility normalised. Risk level returned to MEDIUM.",
-  },
-  {
-    id: "8",
-    timestamp: new Date("2026-02-23T01:02:40"),
-    type: "rebalance",
-    message: "Rebalance Triggered - portfolio drift correction applied",
-  },
-];
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString("en-GB", {
@@ -121,7 +71,26 @@ function renderEntries(entries: InsightEntry[], duplicate = false) {
   ));
 }
 
-export function AiInsightStream({ entries = MOCK_ENTRIES }: AiInsightStreamProps) {
+function InsightSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex animate-pulse items-center gap-2 rounded-md border border-transparent bg-muted/20 px-3 py-3">
+          <div className="h-3 w-12 rounded bg-muted-foreground/20" />
+          <div className="h-4 w-4 rounded-full bg-muted-foreground/20" />
+          <div className="h-3 w-full rounded bg-muted-foreground/20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function AiInsightStream({ entries: propEntries }: AiInsightStreamProps) {
+  const { entries: hookEntries, isLoading } = useAiInsights();
+  
+  const entries = propEntries || hookEntries;
+  const showLiveBadge = !isLoading && entries.length > 0;
+
   return (
     <section aria-label="AI Insight Stream" className="w-full rounded-lg border bg-card shadow-sm">
       <header className="flex items-center justify-between border-b px-6 py-4">
@@ -129,15 +98,22 @@ export function AiInsightStream({ entries = MOCK_ENTRIES }: AiInsightStreamProps
           <Activity className="h-6 w-6 text-primary" />
           <h2 className="text-xl font-semibold text-foreground">AI Insight Stream</h2>
         </div>
-        <span className="flex items-center gap-1.5 text-sm font-medium text-primary">
-          <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
-          Live
-        </span>
+        {showLiveBadge && (
+          <span className="flex items-center gap-1.5 text-sm font-medium text-primary">
+            <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" />
+            Live
+          </span>
+        )}
       </header>
 
       <div className="relative h-[28rem] overflow-hidden px-6 py-4">
-        {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No AI insights yet.</p>
+        {isLoading ? (
+          <InsightSkeleton />
+        ) : entries.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <Activity className="h-10 w-10 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">No AI insights yet.</p>
+          </div>
         ) : (
           <div className="ai-log-track" role="log" aria-live="polite" aria-label="AI decision log">
             <div className="flex flex-col gap-2">{renderEntries(entries)}</div>
@@ -150,3 +126,4 @@ export function AiInsightStream({ entries = MOCK_ENTRIES }: AiInsightStreamProps
     </section>
   );
 }
+

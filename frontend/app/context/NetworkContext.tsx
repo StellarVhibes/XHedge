@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { safeLocalStorage } from "@/lib/safe-local-storage";
 
 export enum NetworkType {
   MAINNET = "mainnet",
@@ -44,7 +45,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [network, setNetworkState] = useState<NetworkType>(NetworkType.TESTNET);
 
   useEffect(() => {
-    const savedNetwork = localStorage.getItem("xhedge-network") as NetworkType;
+    const savedNetwork = safeLocalStorage.get("xhedge-network") as NetworkType;
     if (savedNetwork && Object.values(NetworkType).includes(savedNetwork)) {
       setNetworkState(savedNetwork);
     }
@@ -52,7 +53,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const setNetwork = useCallback((newNetwork: NetworkType) => {
     setNetworkState(newNetwork);
-    localStorage.setItem("xhedge-network", newNetwork);
+    safeLocalStorage.set("xhedge-network", newNetwork);
   }, []);
 
   const value = {

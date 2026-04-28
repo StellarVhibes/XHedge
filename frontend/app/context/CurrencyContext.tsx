@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { safeLocalStorage } from "@/lib/safe-local-storage";
 
 export enum Currency {
   USD = "USD",
@@ -22,7 +23,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [currency, setCurrencyState] = useState<Currency>(Currency.USD);
 
   useEffect(() => {
-    const saved = localStorage.getItem("xh_currency") as Currency;
+    const saved = safeLocalStorage.get("xh_currency") as Currency;
     if (saved && Object.values(Currency).includes(saved)) {
       setCurrencyState(saved);
     }
@@ -30,7 +31,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
   const setCurrency = (c: Currency) => {
     setCurrencyState(c);
-    localStorage.setItem("xh_currency", c);
+    safeLocalStorage.set("xh_currency", c);
   };
 
   const convert = (amount: number) => {

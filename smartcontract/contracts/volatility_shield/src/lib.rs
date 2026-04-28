@@ -1088,87 +1088,17 @@ impl VolatilityShield {
             total_bps = total_bps.checked_add(allocation).unwrap_or(i128::MAX);
         }
 
-        // Guard 3: non-empty allocations must sum exactly to 100% (10 000 bps).
-        // An empty map (total_bps == 0) is allowed for initialization / reset.
-        if total_bps != 0 && total_bps != 10_000 {
-            return Err(Error::InvalidAllocationSum);
+        if fee_percentage > 10000 {
+            return Err(Error::InvalidFeePercentage);
         }
 
-        Ok(())
-    }
-
-    /// Calculate the difference between current and target balances.
-    pub fn calc_rebalance_delta(current: i128, target: i128) -> i128 {
-        target
-            .checked_sub(current)
-            .expect("arithmetic overflow in rebalance delta")
-    }
-
-    // ── Strategy Management ───────────────────
-    fn internal_add_strategy(env: &Env, strategy: Address) -> Result<(), Error> {
-        Self::check_version(env, 1);
-        Self::require_admin(env);
-
-        let mut strategies: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Strategies)
-            .unwrap_or(Vec::new(&env));
-        if strategies.contains(strategy.clone()) {
-            return Err(Error::AlreadyInitialized);
-        }
-        strategies.push_back(strategy.clone());
         env.storage()
             .instance()
-            .set(&DataKey::Strategies, &strategies);
-
-        // Initialize health state
-        let health_key = DataKey::StrategyHealth(strategy.clone());
-        let default_health = StrategyHealth {
-            last_known_balance: 0,
-            last_check_timestamp: env.ledger().timestamp(),
-            is_healthy: true,
-        };
-        env.storage().instance().set(&health_key, &default_health);
-
-        env.events()
-            .publish((soroban_sdk::Symbol::new(&env, "StrategyAdded"),), strategy);
-
-        Ok(())
-    }
-
-    /// Harvest yields from all strategies and move them to the treasury.
-    ///
-    /// @return The total amount of yield harvested.
-    pub fn harvest(env: Env) -> Result<i128, Error> {
-        Self::check_version(&env, 1);
-        Self::require_admin(&env);
-
-        let strategies = Self::get_strategies(&env);
-        if strategies.is_empty() {
-            return Err(Error::NoStrategies);
-        }
-
-        let mut total_yield: i128 = 0;
-        for strategy_addr in strategies.iter() {
-            let strategy = StrategyClient::new(&env, strategy_addr);
-            let yield_amount = strategy.balance();
-            total_yield = total_yield.checked_add(yield_amount).unwrap();
-        }
-
-        if total_yield > 0 {
-            let current_assets = Self::total_assets(&env);
-            Self::set_total_assets(
-                env.clone(),
-                current_assets.checked_add(total_yield).unwrap(),
-            );
-        }
-
-        let total_assets_after = Self::total_assets(&env);
-        let total_shares_after = Self::total_shares(&env);
+            .set(&DataKey::FeePercentage, &fee_percentage);
+        
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "Harvest"),),
-            (total_yield, total_assets_after, total_shares_after),
+            (symbol_short!("fee_pct"), symbol_short!("updated")),
+            fee_percentage,
         );
         Ok(total_yield)
     }
@@ -1210,58 +1140,14 @@ impl VolatilityShield {
                 .checked_div(10_000)
                 .unwrap_or(0);
 
-            // Get current health data
-            let health_key = DataKey::StrategyHealth(strategy_addr.clone());
-            let current_health =
-                env.storage()
-                    .instance()
-                    .get(&health_key)
-                    .unwrap_or(StrategyHealth {
-                        last_known_balance: expected_balance,
-                        last_check_timestamp: current_time,
-                        is_healthy: true,
-                    });
-
-            // Check if strategy is unhealthy (significant deviation from expected)
-            let balance_deviation = if expected_balance > 0 {
-                // Allow 10% deviation before flagging as unhealthy
-                let deviation_threshold = expected_balance.checked_div(10).unwrap_or(0);
-                (actual_balance as i128 - expected_balance).abs() > deviation_threshold
-            } else {
-                // If expected is 0, any positive actual balance is considered healthy
-                false
-            };
-
-            let is_healthy = !balance_deviation;
-
-            // Update health data if changed
-            if is_healthy != current_health.is_healthy
-                || actual_balance != current_health.last_known_balance
-            {
-                let new_health = StrategyHealth {
-                    last_known_balance: actual_balance,
-                    last_check_timestamp: current_time,
-                    is_healthy,
-                };
-                env.storage().instance().set(&health_key, &new_health);
-            }
-
-            // If unhealthy, add to list for flagging
-            if !is_healthy {
-                unhealthy_strategies.push_back(strategy_addr.clone());
-            }
-        }
-
-        Ok(unhealthy_strategies)
+        Ok(())
     }
 
-    /// Manually flag a strategy as unhealthy.
-    ///
+    /// Set the deposit cap for a specific strategy.
     /// Only the admin can call this.
-    /// @param strategy The address of the strategy to flag.
-    pub fn flag_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+    pub fn set_strategy_cap(env: Env, strategy: Address, cap: i128) {
         Self::require_admin(&env);
-
+        
         // Verify strategy exists
         let strategies = Self::get_strategies(&env);
         if !strategies.contains(strategy.clone()) {
@@ -1611,86 +1497,13 @@ impl VolatilityShield {
         if new_version <= current_version {
             panic!("new version must be greater than current version");
         }
-
-        // Execute any necessary state migrations here if migrating from specific versions
-        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
-
+        
         env.storage()
             .instance()
-            .set(&DataKey::ContractVersion, &new_version);
+            .set(&DataKey::StrategyDepositCap(strategy), &cap);
+        
         env.events().publish(
             (symbol_short!("upgrade"), symbol_short!("migrate")),
             new_version,
         );
     }
-
-    pub fn version(env: &Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::ContractVersion)
-            .unwrap_or(0)
-    }
-
-    pub fn check_version(env: &Env, expected_version: u32) {
-        let current = Self::version(env);
-        if current != expected_version {
-            panic!(
-                "VersionMismatch: Expected contract version {} but found {}",
-                expected_version, current
-            );
-        }
-    }
-
-    pub fn is_paused(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-    }
-
-    fn assert_not_paused(env: &Env) {
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
-            panic!("ContractPaused");
-        }
-    }
-
-    // ─────────────────────────────────────────
-    // Private helpers
-    // ─────────────────────────────────────────
-
-    /// Require that either `admin` or `oracle` has authorised this call.
-    ///
-    /// Require that either `admin` or `oracle` has authorised this call.
-    ///
-    /// Soroban OR-auth: the client must place an `InvokerContractAuthEntry`
-    /// for one of the two roles.  We use `require_auth()` on admin first; if
-    /// the tx was built with oracle auth instead, the oracle address should be
-    /// passed as the `admin` role by the off-chain builder, or — more commonly
-    /// — the oracle contract calls this vault as a sub-invocation.
-    ///
-    /// For simplicity: admin.require_auth() covers the admin case.
-    /// Oracle-initiated calls should be routed through a thin oracle contract
-    /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
-    /// contract as the top-level caller).  In tests, use mock_all_auths().
-    fn require_admin_or_oracle(_env: &Env, admin: &Address, oracle: &Address) {
-        // Try admin first. If the transaction was signed by the oracle, the
-        // oracle is expected to call this contract directly, and the oracle's
-        // address is checked here as a fallback.
-        if *admin == *oracle {
-            admin.require_auth();
-        } else {
-            // Both are required to be checked; the signed party will pass.
-            // In Soroban the host simply verifies whichever has an auth entry.
-            admin.require_auth();
-        }
-    }
-}
-
-#[cfg(test)]
-mod invariants;
-mod test;

@@ -4,7 +4,10 @@ const config: Config = {
   darkMode: ["class"],
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+<<<<<<< HEAD
+=======
     "./app/components/**/*.{js,ts,jsx,tsx}",
+>>>>>>> upstream/main
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
@@ -61,6 +64,10 @@ const config: Config = {
       },
     },
   },
+<<<<<<< HEAD
+  plugins: [],
+=======
   plugins: [require("tailwindcss-animate")],
+>>>>>>> upstream/main
 };
 export default config;
