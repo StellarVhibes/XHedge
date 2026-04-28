@@ -10,6 +10,7 @@ import { TrendingUp, TrendingDown, Wallet, PieChart, Activity, AlertCircle, Refr
 import { formatNumber } from "@/lib/utils";
 import { fetchUserBasis } from "@/lib/stellar";
 import { getVolatilityShieldAddress } from "@/lib/contracts.config";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 /**
  * PortfolioBreakdownCard
@@ -144,7 +145,11 @@ export function PortfolioBreakdownCard() {
         {/* Shares and Vault % */}
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground flex items-center gap-2">
-            <Wallet className="w-3 h-3" /> Shares Held
+            <Wallet className="w-3 h-3" />
+            <MetricTooltip
+              label="Shares Held"
+              tip="The number of vault shares (XHS) you own. Your share of vault assets grows as the share price increases."
+            />
           </p>
           <p className="text-2xl font-bold">{formatNumber(stats.userShares)} XHS</p>
           <p className="text-xs text-muted-foreground">
@@ -157,7 +162,11 @@ export function PortfolioBreakdownCard() {
         {/* Unrealized P&L — #427: show error state instead of silent 0 */}
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground flex items-center gap-2">
-            <Activity className="w-3 h-3" /> P&L (Unrealized)
+            <Activity className="w-3 h-3" />
+            <MetricTooltip
+              label="P&L (Unrealized)"
+              tip="The gain or loss on your position since your average entry price, not yet realised by withdrawing."
+            />
           </p>
           {basisError ? (
             <div data-testid="basis-error-state">
@@ -190,7 +199,10 @@ export function PortfolioBreakdownCard() {
         {/* Current Estimated Value */}
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground flex items-center gap-2">
-            Estimated USD Value
+            <MetricTooltip
+              label="Estimated Value"
+              tip="Your current position value in USD, calculated as shares held multiplied by the current share price."
+            />
           </p>
           <p className="text-2xl font-bold text-primary">{format(stats.currentValue)}</p>
           <p className="text-xs text-muted-foreground">at {format(stats.currentSharePrice)} / share</p>

@@ -19,6 +19,7 @@ import PrivacyModal from "@/components/PrivacyModal";
 import { Modal } from "@/components/ui/modal";
 import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
 import { SUPPORTED_ASSETS, VAULT_CONTRACT_ID } from "@/contracts.config";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 type TabType = "deposit" | "withdraw";
 
@@ -49,6 +50,12 @@ export default function VaultPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [showLegalWarning, setShowLegalWarning] = useState(false);
+
+  // Large withdrawal confirmation
+  const LARGE_WITHDRAW_THRESHOLD = parseFloat(
+    process.env.NEXT_PUBLIC_LARGE_WITHDRAW_THRESHOLD_PCT ?? "50"
+  ) / 100;
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
 
   // Check for existing legal acceptance on mount
   useEffect(() => {
@@ -226,6 +233,17 @@ export default function VaultPage() {
       return;
     }
 
+    // Show confirmation modal for large withdrawals
+    if (userShares > 0 && withdrawAmount / userShares > LARGE_WITHDRAW_THRESHOLD) {
+      setShowWithdrawConfirm(true);
+      return;
+    }
+
+    await executeWithdraw();
+  }, [connected, address, amount, userShares, LARGE_WITHDRAW_THRESHOLD]);
+
+  const executeWithdraw = useCallback(async () => {
+    setShowWithdrawConfirm(false);
     setLoading(true);
     const toastId = toast.loading("Processing withdrawal...");
     try {
@@ -302,30 +320,69 @@ export default function VaultPage() {
       <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
 
       <div className="rounded-lg border bg-card">
-        <div className="flex border-b">
+        {/* Accessible ARIA tablist — arrow keys navigate, Enter/Space activate */}
+        <div
+          role="tablist"
+          aria-label="Vault actions"
+          className="flex border-b"
+          onKeyDown={(e) => {
+            const tabs: TabType[] = ["deposit", "withdraw"];
+            const idx = tabs.indexOf(activeTab);
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveTab(tabs[(idx + 1) % tabs.length]);
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length]);
+            } else if (e.key === "Home") {
+              e.preventDefault();
+              setActiveTab(tabs[0]);
+            } else if (e.key === "End") {
+              e.preventDefault();
+              setActiveTab(tabs[tabs.length - 1]);
+            }
+          }}
+        >
           <button
+            role="tab"
+            id="tab-deposit"
+            aria-controls="tabpanel-deposit"
+            aria-selected={activeTab === "deposit"}
+            tabIndex={activeTab === "deposit" ? 0 : -1}
             onClick={() => setActiveTab("deposit")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "deposit"
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+              activeTab === "deposit"
                 ? "bg-background text-foreground border-b-2 border-primary"
                 : "text-muted-foreground hover:text-foreground"
-              }`}
+            }`}
           >
             <ArrowUpFromLine className="h-4 w-4" />
             {t('deposit')}
           </button>
           <button
+            role="tab"
+            id="tab-withdraw"
+            aria-controls="tabpanel-withdraw"
+            aria-selected={activeTab === "withdraw"}
+            tabIndex={activeTab === "withdraw" ? 0 : -1}
             onClick={() => setActiveTab("withdraw")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors ${activeTab === "withdraw"
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+              activeTab === "withdraw"
                 ? "bg-background text-foreground border-b-2 border-primary"
                 : "text-muted-foreground hover:text-foreground"
-              }`}
+            }`}
           >
             <ArrowDownToLine className="h-4 w-4" />
             {t('withdraw')}
           </button>
         </div>
 
-        <div className="p-6">
+        <div
+          role="tabpanel"
+          id={`tabpanel-${activeTab}`}
+          aria-labelledby={`tab-${activeTab}`}
+          className="p-6"
+        >
           {/* Asset selection */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Asset</label>
@@ -354,7 +411,9 @@ export default function VaultPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">{t('yourBalance')}</CardTitle>
+                  <CardTitle className="text-sm">
+                    <MetricTooltip label={t('yourBalance')} tip="Your current asset balance in the vault, reflecting deposited funds at the current share price." />
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{userBalance.toFixed(2)} XLM</div>
@@ -362,7 +421,9 @@ export default function VaultPage() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">{t('yourShares')}</CardTitle>
+                  <CardTitle className="text-sm">
+                    <MetricTooltip label={t('yourShares')} tip="The number of vault shares (XHS) you hold. Redeeming shares returns the equivalent asset value at the current share price." />
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{userShares.toFixed(2)}</div>
@@ -370,7 +431,9 @@ export default function VaultPage() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">{t('currentAPY')}</CardTitle>
+                  <CardTitle className="text-sm">
+                    <MetricTooltip label={t('currentAPY')} tip="Annualised percentage yield earned by the vault, derived from the current share price growth rate." />
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
@@ -456,6 +519,73 @@ export default function VaultPage() {
 
         </div>
       </div>
+
+      {/* Large Withdrawal Confirmation Modal */}
+      {showWithdrawConfirm && (
+        <Modal
+          isOpen={showWithdrawConfirm}
+          onClose={() => setShowWithdrawConfirm(false)}
+          title="Confirm Large Withdrawal"
+          size="md"
+        >
+          <div className="space-y-4" data-testid="withdraw-confirm-modal">
+            <Alert>
+              <AlertDescription>
+                You are withdrawing more than {Math.round(LARGE_WITHDRAW_THRESHOLD * 100)}% of your share balance. Please review the details below before proceeding.
+              </AlertDescription>
+            </Alert>
+            <div className="rounded-lg border divide-y text-sm">
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-muted-foreground">Shares to redeem</span>
+                <span className="font-medium" data-testid="withdraw-confirm-shares">{parseFloat(amount).toFixed(4)} XHS</span>
+              </div>
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-muted-foreground">Current share price</span>
+                <span className="font-medium" data-testid="withdraw-confirm-share-price">
+                  {metrics ? parseFloat(metrics.sharePrice).toFixed(6) : "—"} {selectedAssetSymbol}/share
+                </span>
+              </div>
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-muted-foreground">Expected assets back</span>
+                <span className="font-medium" data-testid="withdraw-confirm-assets">
+                  {metrics
+                    ? (parseFloat(amount) * parseFloat(metrics.sharePrice)).toFixed(4)
+                    : "—"}{" "}
+                  {selectedAssetSymbol}
+                </span>
+              </div>
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-muted-foreground">% of your balance</span>
+                <span className="font-medium text-yellow-600" data-testid="withdraw-confirm-pct">
+                  {userShares > 0 ? ((parseFloat(amount) / userShares) * 100).toFixed(1) : "0"}%
+                </span>
+              </div>
+            </div>
+            {metrics && parseFloat(metrics.sharePrice) < 1 && (
+              <Alert>
+                <AlertDescription className="text-yellow-700">
+                  Share price is below 1.0. You may receive fewer assets than deposited due to vault performance or slippage.
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className="flex gap-3 justify-end pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowWithdrawConfirm(false)}
+                data-testid="withdraw-confirm-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={executeWithdraw}
+                data-testid="withdraw-confirm-proceed"
+              >
+                Confirm Withdrawal
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {connected && (
         <div className="mt-8 rounded-lg border bg-card p-6">
