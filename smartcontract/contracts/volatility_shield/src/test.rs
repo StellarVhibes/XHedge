@@ -4101,3 +4101,156 @@ fn test_proposal_auto_pruning_and_filtering() {
     let proposals = client.list_proposals(&0u32, &10u32, &false);
     assert_eq!(proposals.len(), 1);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SC-41: Queue cancel → re-queue cooldown
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Scenario shared by the SC-41 tests: a vault with a queue threshold low
+/// enough that any non-trivial withdrawal is queued, plus a single user with
+/// a balance large enough to queue twice.
+fn setup_cooldown_vault<'a>() -> (
+    Env,
+    Address,                                       // admin
+    Address,                                       // user
+    Address,                                       // contract_id
+    VolatilityShieldClient<'a>,
+    Address,                                       // token_id
+) {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+    client.set_withdraw_queue_threshold(&1000);
+
+    let user = Address::generate(&env);
+    client.set_total_shares(&1000);
+    client.set_total_assets(&5000);
+    client.set_balance(&user, &1000);
+    stellar_asset_client.mint(&contract_id, &5000);
+
+    // Anchor the ledger so cooldown arithmetic isn't fighting starting near 0.
+    env.ledger().with_mut(|li| li.sequence_number = 10_000);
+
+    let client_clone = VolatilityShieldClient::new(&env, &contract_id);
+    (env, admin, user, contract_id, client_clone, token_id)
+}
+
+/// Cooldown getter exposes the constant (1440 ledgers ≈ 2 hours) and the
+/// per-user record starts at zero.
+#[test]
+fn test_queue_cancel_cooldown_initial_state() {
+    let (_env, _admin, user, _cid, client, _tok) = setup_cooldown_vault();
+    assert_eq!(client.get_queue_cancel_cooldown(), 1440);
+    assert_eq!(client.get_last_cancel_ledger(&user), 0);
+}
+
+/// Cancellation stamps `last_cancel_ledger` with the current ledger sequence.
+#[test]
+fn test_cancel_records_last_cancel_ledger() {
+    let (env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    // Queue and cancel once.
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    let cancel_at = env.ledger().sequence();
+    client.cancel_queued_withdrawal(&user);
+
+    assert_eq!(client.get_last_cancel_ledger(&user), cancel_at);
+}
+
+/// Re-queueing immediately after a cancel inside the cooldown window panics
+/// with the SC-41 error symbol and emits the cooldown event.
+#[test]
+#[should_panic(expected = "QueueCancelCooldownActive")]
+fn test_requeue_within_cooldown_fails() {
+    let (_env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    client.cancel_queued_withdrawal(&user);
+
+    // Same ledger → cooldown is still active → must panic.
+    client.queue_withdraw(&user, &user, &token_id, &500);
+}
+
+/// One ledger before the cooldown elapses still fails (boundary check).
+#[test]
+#[should_panic(expected = "QueueCancelCooldownActive")]
+fn test_requeue_one_ledger_before_cooldown_elapses_fails() {
+    let (env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    client.cancel_queued_withdrawal(&user);
+    let cancel_at = env.ledger().sequence();
+
+    // One ledger short of the unlock point.
+    env.ledger().with_mut(|li| {
+        li.sequence_number = cancel_at + 1440 - 1;
+    });
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+}
+
+/// Once `current_ledger >= last_cancel + QUEUE_CANCEL_COOLDOWN_LEDGERS`,
+/// re-queueing succeeds.
+#[test]
+fn test_requeue_after_cooldown_succeeds() {
+    let (env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    client.cancel_queued_withdrawal(&user);
+    let cancel_at = env.ledger().sequence();
+
+    // Advance exactly to the unlock point — the strict `<` check should
+    // permit re-queueing here.
+    env.ledger().with_mut(|li| {
+        li.sequence_number = cancel_at + 1440;
+    });
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+
+    // Pending queue now has the second entry; user balance reflects that the
+    // shares were debited again.
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+    assert_eq!(client.balance(&user), 500);
+}
+
+/// The cooldown also gates the indirect queue path: a `withdraw` that is
+/// large enough to fall into the queue should trip the cooldown check, not
+/// silently succeed. Without this guard a bot could cycle
+/// cancel → withdraw-into-queue and bypass the rate limit.
+#[test]
+#[should_panic(expected = "QueueCancelCooldownActive")]
+fn test_withdraw_queue_path_respects_cooldown() {
+    let (_env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    client.cancel_queued_withdrawal(&user);
+
+    // 500 shares × (5000 / 1000) = 2500 assets > queue threshold of 1000,
+    // so this falls into `internal_queue_withdraw` from inside `withdraw`.
+    client.withdraw(&user, &user, &token_id, &500);
+}
+
+/// A user who has *never* cancelled is not gated by the cooldown — the
+/// stored `last_cancel_ledger` of `0` must not be treated as "now - 1440".
+#[test]
+fn test_first_queue_is_not_blocked_by_cooldown() {
+    let (_env, _admin, user, _cid, client, token_id) = setup_cooldown_vault();
+
+    // No prior cancel → should succeed even at very low ledger sequences.
+    client.queue_withdraw(&user, &user, &token_id, &500);
+    assert_eq!(client.get_pending_withdrawals().len(), 1);
+}
+

@@ -10,6 +10,11 @@ const BALANCE_TTL_THRESHOLD: u32 = DEFAULT_PROPOSAL_TTL_LEDGERS;
 const BALANCE_TTL_BUMP: u32 = BALANCE_TTL_THRESHOLD + DAY_IN_LEDGERS;
 const DEFAULT_PROPOSAL_TTL_SECONDS: u64 = 2_592_000; // 30 days = 518,400 * 5s
 const SHARE_PRICE_HISTORY_CAP: u32 = 365;
+/// SC-41: minimum number of ledgers between cancelling a queued withdrawal
+/// and re-queueing one. At ~5 s/ledger the default is ~2 hours, enough to
+/// stop a bot from spamming queue/cancel cycles to bloat the queue without
+/// being onerous for legitimate users adjusting their exit.
+const QUEUE_CANCEL_COOLDOWN_LEDGERS: u32 = 1_440;
 // ─────────────────────────────────────────────
 // Error types
 // ─────────────────────────────────────────────
@@ -79,6 +84,9 @@ pub enum Error {
     InvalidConfig = 32,
     /// Deposit amount is below the configured minimum deposit floor.
     BelowMinDeposit = 33,
+    /// Re-queue attempted while the per-user cancel-cooldown is still
+    /// active (SC-41).
+    QueueCancelCooldownActive = 34,
 }
 
 impl Error {
@@ -116,6 +124,7 @@ impl Error {
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
             Error::InvalidConfig => Symbol::new(env, "invalid_config"),
             Error::BelowMinDeposit => Symbol::new(env, "below_min_deposit"),
+            Error::QueueCancelCooldownActive => Symbol::new(env, "queue_cancel_cooldown"),
         }
     }
 }
@@ -537,6 +546,35 @@ impl VolatilityShield {
     fn write_delegate(env: &Env, owner: &Address, delegate: &Address) {
         let delegate_key = DataKey::Delegate(owner.clone());
         Self::set_persistent(env, &delegate_key, delegate);
+    }
+
+    // ── SC-41: queue cancel cooldown helpers ─────────────────────────────────
+    // The cancel-ledger record is keyed per-address. The DataKey enum is
+    // already at the contracttype XDR length cap (a new variant fails to
+    // build with `LengthExceedsMax`, see SC-40 wind-down work), so the map is
+    // stored under a Symbol key in instance storage instead.
+    fn last_cancel_ledger_key(env: &Env) -> Symbol {
+        Symbol::new(env, "LastQCancelLdg")
+    }
+
+    fn read_last_cancel_ledger(env: &Env, user: &Address) -> u32 {
+        let map: Map<Address, u32> = env
+            .storage()
+            .instance()
+            .get(&Self::last_cancel_ledger_key(env))
+            .unwrap_or(Map::new(env));
+        map.get(user.clone()).unwrap_or(0)
+    }
+
+    fn write_last_cancel_ledger(env: &Env, user: &Address, ledger: u32) {
+        let key = Self::last_cancel_ledger_key(env);
+        let mut map: Map<Address, u32> = env
+            .storage()
+            .instance()
+            .get(&key)
+            .unwrap_or(Map::new(env));
+        map.set(user.clone(), ledger);
+        env.storage().instance().set(&key, &map);
     }
 
     pub fn enter_guard(env: &Env) {
@@ -1794,6 +1832,30 @@ impl VolatilityShield {
             panic!("insufficient shares for withdrawal");
         }
 
+        // SC-41: enforce cancel→re-queue cooldown.
+        //
+        // Placed in the internal helper (rather than only in the public
+        // `queue_withdraw` entry point) so that the indirect path —
+        // `withdraw` falling back to the queue when the asset amount exceeds
+        // `WithdrawQueueThreshold` — is also protected. Without this, a bot
+        // could cycle cancel → withdraw-into-queue and bypass the cooldown.
+        let last_cancel = Self::read_last_cancel_ledger(&env, &from);
+        if last_cancel > 0 {
+            let current_ledger = env.ledger().sequence();
+            let unlock_at = last_cancel.saturating_add(QUEUE_CANCEL_COOLDOWN_LEDGERS);
+            if current_ledger < unlock_at {
+                env.events().publish(
+                    (
+                        soroban_sdk::Symbol::new(&env, "QueueCancelCooldownActive"),
+                        from.clone(),
+                    ),
+                    (last_cancel, unlock_at, current_ledger),
+                );
+                Self::emit_error(&env, Error::QueueCancelCooldownActive);
+                panic!("QueueCancelCooldownActive");
+            }
+        }
+
         // Reject if the user already has a pending queued withdrawal.
         let existing: Vec<QueuedWithdrawal> = env
             .storage()
@@ -2010,10 +2072,32 @@ impl VolatilityShield {
             .instance()
             .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
 
-        env.events()
-            .publish((symbol_short!("WdrwCncl"),), (from, w.shares));
+        // SC-41: stamp the cancel ledger so a subsequent re-queue is gated by
+        // the per-user cooldown (see `internal_queue_withdraw`).
+        let cancel_ledger = env.ledger().sequence();
+        Self::write_last_cancel_ledger(&env, &from, cancel_ledger);
+
+        env.events().publish(
+            (symbol_short!("WdrwCncl"), from.clone()),
+            (w.shares, cancel_ledger),
+        );
 
         Ok(())
+    }
+
+    /// SC-41: read-only accessor for off-chain monitors / dashboards.
+    /// Returns the ledger sequence at which `user` last cancelled a queued
+    /// withdrawal (`0` if they have never cancelled). Re-queueing is allowed
+    /// once `current_ledger >= return_value + QUEUE_CANCEL_COOLDOWN_LEDGERS`.
+    pub fn get_last_cancel_ledger(env: Env, user: Address) -> u32 {
+        Self::read_last_cancel_ledger(&env, &user)
+    }
+
+    /// SC-41: configuration getter for the cancel-to-re-queue cooldown
+    /// (in ledgers). Constant for now; lifted out so the frontend doesn't
+    /// have to hard-code the value.
+    pub fn get_queue_cancel_cooldown(_env: Env) -> u32 {
+        QUEUE_CANCEL_COOLDOWN_LEDGERS
     }
 
     /// Get the current withdrawal queue threshold
