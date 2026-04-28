@@ -188,7 +188,7 @@
               "function_name": "set_threshold",
               "args": [
                 {
-                  "u32": 7
+                  "u32": 4
                 }
               ]
             }
@@ -255,6 +255,24 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AssetTotalAssets"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
                         }
                       },
                       {
@@ -433,7 +451,7 @@
                           ]
                         },
                         "val": {
-                          "u32": 7
+                          "u32": 4
                         }
                       },
                       {

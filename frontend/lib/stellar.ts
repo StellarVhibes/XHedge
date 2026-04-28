@@ -353,6 +353,7 @@ export async function fetchTransactionHistory(
 export async function buildDepositXdr(
   contractId: string,
   userAddress: string,
+  assetContractId: string,
   amount: string,
 <<<<<<< HEAD
   network: NetworkType = "testnet"
@@ -388,6 +389,7 @@ export async function buildDepositXdr(
 >>>>>>> upstream/main
   const depositParams = [
     new Address(userAddress).toScVal(),
+    new Address(assetContractId).toScVal(),
     nativeToScVal(amountBigInt, { type: "i128" })
   ];
 
@@ -405,6 +407,7 @@ export async function buildDepositXdr(
 export async function buildWithdrawXdr(
   contractId: string,
   userAddress: string,
+  assetContractId: string,
   shares: string,
 <<<<<<< HEAD
   network: NetworkType = "testnet"
@@ -440,6 +443,7 @@ export async function buildWithdrawXdr(
 >>>>>>> upstream/main
   const withdrawParams = [
     new Address(userAddress).toScVal(),
+    new Address(assetContractId).toScVal(),
     nativeToScVal(sharesBigInt, { type: "i128" })
   ];
 

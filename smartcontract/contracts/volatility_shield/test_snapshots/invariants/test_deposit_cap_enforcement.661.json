@@ -37,7 +37,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 1669
+                    "lo": 1173
                   }
                 },
                 {
@@ -69,7 +69,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 17433
+                    "lo": 5349
                   }
                 }
               ]
@@ -285,6 +285,24 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AssetTotalAssets"
+                            },
+                            {
+                              "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ContractVersion"
                             }
                           ]
@@ -344,7 +362,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 1669
+                            "lo": 1173
                           }
                         }
                       },
@@ -616,7 +634,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 17433
+                          "lo": 5349
                         }
                       }
                     },

@@ -12,4 +12,5 @@ soroban-sdk = { workspace = true }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 mock_strategy = { path = "../mock_strategy" }
+mock_oracle = { path = "../mock_oracle" }
 proptest = "1.10.0"
