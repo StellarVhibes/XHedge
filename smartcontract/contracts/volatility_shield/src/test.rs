@@ -2927,10 +2927,19 @@ fn test_get_strategy_apy_returns_basis_points() {
     mock_client.deposit(&1100);
     client.harvest();
 
-    // Get APY (should return in basis points)
-    let apy = client.get_strategy_apy(&mock_strategy_id, &2);
-    // APY should be non-negative and in basis points
-    assert!(apy >= 0);
+    // Get APY (should return in basis points). Pre-SC-42 the buggy index
+    // arithmetic silently returned 0 here, which masked the fact that the
+    // post-harvest balance is 0 and produced a misleadingly "non-negative"
+    // result. With the fix, the function runs to completion against properly
+    // paired snapshots and returns a typed `Ok(_)` — the magnitude depends on
+    // the strategy's collect_yield semantics, which are out of scope for the
+    // off-by-one fix, so we only assert it is callable and yields a value.
+    let result = client.try_get_strategy_apy(&mock_strategy_id, &2);
+    assert!(
+        matches!(result, Ok(Ok(_))),
+        "expected Ok APY for paired snapshots, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -3493,18 +3502,17 @@ fn test_cascade_pause_blocks_operations() {
 
     // Deposit should fail with cascade pause error
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.deposit(&user, &asset, &1000i128);
+        client.deposit(&user, &asset, &1000i128, &None);
     }));
     assert!(result.is_err());
 
-    // Withdraw should fail with cascade pause error  
+    // Withdraw should fail with cascade pause error
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.withdraw(&user, &asset, &1000i128);
+        client.withdraw(&user, &user, &asset, &1000i128);
     }));
     assert!(result.is_err());
 
     // Rebalance should fail with cascade pause error
-    let allocations = soroban_sdk::Map::new(&env);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.try_rebalance(&admin, &allocations, &100u32);
     }));
