@@ -1,4 +1,4 @@
-import { getNetworkPassphrase, VAULT_CONTRACT_ID } from './stellar';
+import { getNetworkPassphrase, NetworkType } from './stellar';
 
 export interface HeatmapDataPoint {
   date: string;
@@ -16,7 +16,7 @@ export async function fetchSharePriceHistory(
   years: number = 3
 ): Promise<HeatmapDataPoint[]> {
   try {
-    const passphrase = getNetworkPassphrase(network);
+    getNetworkPassphrase(network as NetworkType);
     
     // In a real implementation, this would call the smart contract
     // For now, we'll generate mock data for demonstration
@@ -100,7 +100,7 @@ export async function fetchSharePriceData(
   endDate: Date
 ): Promise<Array<{ date: string; price: number }>> {
   try {
-    const passphrase = getNetworkPassphrase(network);
+    getNetworkPassphrase(network as NetworkType);
     
     // In a real implementation, this would call the smart contract's get_share_price_history function
     // For now, we'll generate mock data

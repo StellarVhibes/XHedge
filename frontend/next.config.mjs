@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-/** @type {import('next').NextConfig} */
-const nextConfig = {};
 
-export default nextConfig;
-=======
 import withPWAInit from "next-pwa";
 
 const withPWA = withPWAInit({
@@ -98,4 +93,4 @@ const nextConfig = {
 };
 
 export default withPWA(nextConfig);
->>>>>>> upstream/main
+

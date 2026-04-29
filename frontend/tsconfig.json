@@ -36,12 +36,10 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-<<<<<<< HEAD
-    "node_modules"
-=======
+
     "node_modules",
     "playwright.config.ts",
     "tests"
->>>>>>> upstream/main
+
   ]
 }

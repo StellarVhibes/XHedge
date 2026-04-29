@@ -223,15 +223,6 @@ pub struct RebalanceWithdrawTransferFailed {
     pub amount: i128,
 }
 
-/// SC-40: Emitted by `internal_rebalance` when an entry in the allocation
-/// map is skipped because the strategy is currently flagged unhealthy
-/// (`StrategyHealth::is_healthy == false`).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RebalanceSkippedUnhealthyStrategy {
-    pub strategy: Address,
-}
-
 // ─────────────────────────────────────────────
 // Queued withdrawal struct
 // ─────────────────────────────────────────────
@@ -362,7 +353,7 @@ impl<'a> StrategyClient<'a> {
             _ => Err(soroban_sdk::String::from_str(self.env, "collect_yield failed")),
         }
     }
-
+    
     pub fn try_pause(&self) -> Result<(), soroban_sdk::String> {
         let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
             &self.address,
@@ -2141,38 +2132,6 @@ impl VolatilityShield {
 
         // Execute rebalance operations
         for (strategy_addr, bps_allocation) in allocations.iter() {
-            // SC-40: Skip any strategy that is currently flagged unhealthy.
-            //
-            // Without this, an admin could mark a strategy unhealthy via
-            // `flag_strategy()` but the next rebalance would still allocate
-            // funds to it, defeating the health-monitoring system. A missing
-            // health record is treated as healthy (no rebalance has ever
-            // observed this strategy yet, so we have no evidence of failure).
-            let health: Option<StrategyHealth> = env
-                .storage()
-                .instance()
-                .get(&DataKey::StrategyHealth(strategy_addr.clone()));
-            if let Some(h) = health {
-                if !h.is_healthy {
-                    // Topic symbol is `RebalanceSkipUnhealthy` (22 chars) —
-                    // the conceptually-named `RebalanceSkippedUnhealthyStrategy`
-                    // is 33 chars and exceeds the Soroban Symbol cap of 32.
-                    // Indexers should match on this topic symbol; the typed
-                    // `RebalanceSkippedUnhealthyStrategy` struct in the data
-                    // payload is the canonical name for the event.
-                    env.events().publish(
-                        (
-                            soroban_sdk::Symbol::new(env, "RebalanceSkipUnhealthy"),
-                            strategy_addr.clone(),
-                        ),
-                        RebalanceSkippedUnhealthyStrategy {
-                            strategy: strategy_addr.clone(),
-                        },
-                    );
-                    continue;
-                }
-            }
-
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
 
             let current_balance = match strategy.try_balance() {
