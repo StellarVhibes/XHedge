@@ -2,12 +2,18 @@ use soroban_sdk::{contracttype, Env, String};
 
 use crate::{DataKey, Error};
 
+pub const MAX_DOCS_URL_LEN: u32 = 512;
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct VaultMetadata {
+    /// Human-readable vault name. Maximum length: 64 characters.
     pub name: String,
+    /// Human-readable vault description. Maximum length: 256 characters.
     pub description: String,
+    /// Vault risk rating from 1 through 5.
     pub risk_rating: u8,
+    /// Optional documentation URL. Empty is allowed; non-empty values are capped at 512 characters.
     pub docs_url: String,
 }
 
@@ -25,6 +31,11 @@ pub fn set_vault_metadata(env: &Env, metadata: VaultMetadata) -> Result<(), Erro
     // Validate risk_rating in 1–5
     if metadata.risk_rating < 1 || metadata.risk_rating > 5 {
         return Err(Error::InvalidRiskRating);
+    }
+
+    // Validate docs_url <= 512 chars; empty docs_url is allowed.
+    if metadata.docs_url.len() > MAX_DOCS_URL_LEN {
+        return Err(Error::InvalidConfig);
     }
 
     env.storage()
