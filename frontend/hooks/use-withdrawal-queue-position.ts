@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Address, scValToNative } from "@stellar/stellar-sdk";
+import { Account, Contract, Networks, scValToNative, TransactionBuilder } from "@stellar/stellar-sdk";
 import { rpc } from "@stellar/stellar-sdk";
 import { getVolatilityShieldAddress } from "@/lib/contracts.config";
 import { useNetwork } from "@/app/context/NetworkContext";
@@ -52,13 +52,13 @@ export function useWithdrawalQueuePosition(
           : "https://rpc.testnet.stellar.org";
 
       const server = new rpc.Server(rpcUrl);
-      const contract = new rpc.Contract(contractAddress);
+      const contract = new Contract(contractAddress);
 
       // Call get_pending_withdrawals to get the full queue
       const pendingWithdrawalsCall = contract.call("get_pending_withdrawals");
-      const sourceAccount = await server.loadAccount(actualUserAddress);
+      const sourceAccount = new Account(actualUserAddress, "0");
 
-      const transaction = new rpc.TransactionBuilder(sourceAccount, {
+      const transaction = new TransactionBuilder(sourceAccount, {
         fee: "100",
         networkPassphrase:
           network === "mainnet"

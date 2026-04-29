@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Maximize2, Loader2 } from 'lucide-react';
 import { useWallet } from '@/hooks/use-wallet';
 import { useNetwork } from '@/app/context/NetworkContext';
-import { fetchVaultData, VaultMetrics } from '@/lib/stellar';
+import { fetchVaultData } from '@/lib/stellar';
 import { useTranslations } from '@/lib/i18n-context';
+import { VAULT_CONTRACT_ID } from '@/contracts.config';
 
 interface MaxAmountButtonProps {
   type: 'deposit' | 'withdraw';
@@ -36,16 +37,16 @@ export default function MaxAmountButton({
     setError(null);
 
     try {
-      const vaultData = await fetchVaultData(network, address);
+      const vaultData = await fetchVaultData(VAULT_CONTRACT_ID, address, network);
       
       let maxAmount: number;
       
       if (type === 'deposit') {
         // For deposit, use the user's wallet balance
-        maxAmount = vaultData.userBalance;
+        maxAmount = parseFloat(vaultData.userBalance) / 1e7;
       } else {
         // For withdraw, use the user's shares converted to assets
-        maxAmount = vaultData.userShares * vaultData.sharePrice;
+        maxAmount = (parseFloat(vaultData.userShares) / 1e7) * parseFloat(vaultData.sharePrice);
       }
 
       // Format the amount with appropriate decimal places

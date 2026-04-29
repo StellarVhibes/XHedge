@@ -321,6 +321,1220 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::FeePercentage, &fee_percentage);
+        
+        env.events().publish(
+            (symbol_short!("fee_pct"), symbol_short!("updated")),
+            fee_percentage,
+        );
+
+        Ok(())
+    }
+
+    pub fn remove_strategy(env: Env, strategy: Address, force_remove: bool) -> Result<(), Error> {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+
+        let mut strategies: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(&env));
+        
+        let index = strategies.first_index_of(strategy.clone());
+        if index.is_none() {
+            return Err(Error::NoStrategies);
+        }
+
+        if !force_remove {
+            let strategy_client = StrategyClient::new(&env, strategy.clone());
+            match strategy_client.try_balance() {
+                Ok(balance) => {
+                    if balance > 0 {
+                        panic!("Strategy still has funds. Use rebalance first or force_remove=true");
+                    }
+                }
+                _ => {
+                    env.events().publish(
+                        (symbol_short!("Strategy"), symbol_short!("fail_bal")),
+                        strategy.clone(),
+                    );
+                }
+            }
+        }
+
+        strategies.remove(index.unwrap());
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategies, &strategies);
+
+        env.events().publish(
+            (symbol_short!("Strategy"), symbol_short!("removed")),
+            strategy,
+        );
+
+        Ok(())
+    }
+
+    pub fn set_harvest_interval(env: Env, ledgers: u32) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::HarvestInterval, &ledgers);
+
+        let last: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastHarvestLedger)
+            .unwrap_or(0);
+        let current = env.ledger().sequence();
+        if last == 0 && ledgers > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::LastHarvestLedger, &current);
+        }
+
+        let next_eligible = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::LastHarvestLedger)
+            .unwrap_or(current)
+            .saturating_add(ledgers);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "HarvestScheduled"),),
+            next_eligible,
+        );
+    }
+
+    pub fn can_harvest(env: Env) -> bool {
+        let interval: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::HarvestInterval)
+            .unwrap_or(0);
+        if interval == 0 {
+            return false;
+        }
+        let last: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastHarvestLedger)
+            .unwrap_or(0);
+        let seq = env.ledger().sequence();
+        seq >= last.saturating_add(interval)
+    }
+
+    /// Harvest yields from all strategies and move them to the treasury.
+    ///
+    /// Records yield snapshots before and after collection for APY calculation.
+    /// @return The total amount of yield harvested.
+    pub fn harvest(env: Env) -> Result<i128, Error> {
+        Self::check_version(&env, 1);
+
+        let interval: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::HarvestInterval)
+            .unwrap_or(0);
+        if interval > 0 {
+            if !Self::can_harvest(env.clone()) {
+                return Self::emit_and_err(&env, Error::HarvestTooEarly);
+            }
+            let current = env.ledger().sequence();
+            env.storage()
+                .instance()
+                .set(&DataKey::LastHarvestLedger, &current);
+            let next_eligible = current.saturating_add(interval);
+            env.events().publish(
+                (soroban_sdk::Symbol::new(&env, "HarvestScheduled"),),
+                next_eligible,
+            );
+        } else {
+            Self::require_admin(&env);
+        }
+
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return Self::emit_and_err(&env, Error::NoStrategies);
+        }
+
+        let current_ledger = env.ledger().sequence();
+
+        // Record before-harvest snapshots
+        for strategy_addr in strategies.iter() {
+            let addr = strategy_addr.clone();
+            let strategy = StrategyClient::new(&env, addr.clone());
+            let before_balance = strategy.balance();
+            let snapshot = YieldSnapshot {
+                balance: before_balance,
+                ledger: current_ledger,
+            };
+
+            let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
+            history.snapshots.push_back(snapshot);
+            env.storage().instance().set(&history_key, &history);
+        }
+
+        let asset_addr = Self::get_asset(&env);
+        let vault = env.current_contract_address();
+
+        let mut total_yield: i128 = 0;
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            let vault_balance_before = env.try_invoke_contract::<i128, soroban_sdk::Error>(
+                &asset_addr,
+                &soroban_sdk::Symbol::new(&env, "balance"),
+                soroban_sdk::vec![&env, vault.clone().into_val(&env)],
+            );
+
+            let reported_yield = match strategy.try_collect_yield() {
+                Ok(amount) => amount,
+                Err(reason) => {
+                    let _ = Self::flag_strategy(env.clone(), strategy_addr.clone());
+                    env.events().publish(
+                        (
+                            soroban_sdk::Symbol::new(&env, "HarvestPartialFailure"),
+                            strategy_addr.clone(),
+                        ),
+                        reason,
+                    );
+                    continue;
+                }
+            };
+
+            let vault_balance_after = env.try_invoke_contract::<i128, soroban_sdk::Error>(
+                &asset_addr,
+                &soroban_sdk::Symbol::new(&env, "balance"),
+                soroban_sdk::vec![&env, vault.clone().into_val(&env)],
+            );
+            let collected_yield = match (vault_balance_before, vault_balance_after) {
+                (Ok(Ok(before)), Ok(Ok(after))) => after.saturating_sub(before),
+                _ => {
+                    if reported_yield > 0 {
+                        reported_yield
+                    } else {
+                        0
+                    }
+                }
+            };
+            total_yield = total_yield
+                .checked_add(collected_yield)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+
+        if total_yield > 0 {
+            let fee_adjusted_yield = Self::take_fees(&env, total_yield)?;
+            let current_assets = Self::total_assets(&env);
+            Self::set_total_assets(
+                env.clone(),
+                current_assets.checked_add(fee_adjusted_yield).ok_or(Error::ArithmeticOverflow)?,
+            );
+        }
+
+        // Record after-harvest snapshots (balance should be 0 after harvest)
+        for strategy_addr in strategies.iter() {
+            let addr = strategy_addr.clone();
+            let strategy = StrategyClient::new(&env, addr.clone());
+            let after_balance = strategy.balance();
+            let snapshot = YieldSnapshot {
+                balance: after_balance,
+                ledger: current_ledger,
+            };
+
+            let history_key = DataKey::StrategyYieldSnapshot(addr.clone());
+            let mut history: YieldHistory =
+                env.storage()
+                    .instance()
+                    .get(&history_key)
+                    .unwrap_or(YieldHistory {
+                        snapshots: Vec::new(&env),
+                    });
+            history.snapshots.push_back(snapshot);
+            env.storage().instance().set(&history_key, &history);
+        }
+
+        let total_assets_after = Self::total_assets(&env);
+        let total_shares_after = Self::total_shares(&env);
+        Self::record_share_price_snapshot(&env);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "Harvest"),),
+            (total_yield, total_assets_after, total_shares_after),
+        );
+        Ok(total_yield)
+    }
+
+    // ── Strategy Health Monitoring ───────────────────
+    /// Check the health of all registered strategies.
+    ///
+    /// Strategies are considered unhealthy if their actual balance deviates significantly from the expected balance.
+    /// @return A list of addresses for strategies detected as unhealthy.
+    pub fn check_strategy_health(env: Env) -> Result<Vec<Address>, Error> {
+        Self::require_admin(&env);
+
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return Self::emit_and_err(&env, Error::NoStrategies);
+        }
+
+        let mut unhealthy_strategies = Vec::new(&env);
+        let current_time = env.ledger().timestamp();
+
+        // Get expected allocations from oracle data
+        let expected_allocations: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TargetAllocations)
+            .unwrap_or(Map::new(&env));
+
+        let total_assets = Self::total_assets(&env);
+
+        for strategy_addr in strategies.iter() {
+            let strategy = StrategyClient::new(&env, strategy_addr.clone());
+            let actual_balance = strategy.balance();
+
+            // Get expected balance from allocations
+            let bps_allocation = expected_allocations.get(strategy_addr.clone()).unwrap_or(0);
+            let expected_balance = total_assets
+                .checked_mul(bps_allocation)
+                .unwrap_or(0)
+                .checked_div(10_000)
+                .unwrap_or(0);
+
+            // Get current health data
+            let health_key = DataKey::StrategyHealth(strategy_addr.clone());
+            let mut current_health: StrategyHealth = env
+                .storage()
+                .instance()
+                .get(&health_key)
+                .unwrap_or(StrategyHealth {
+                    last_known_balance: expected_balance,
+                    last_check_timestamp: current_time,
+                    is_healthy: true,
+                    consecutive_failures: 0,
+                });
+
+            // Get max consecutive failures threshold
+            let max_failures: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::MaxConsecutiveFailures)
+                .unwrap_or(3);
+
+            // Check if strategy is unhealthy (significant deviation from expected)
+            let balance_deviation = if expected_balance > 0 {
+                // Allow 10% deviation before flagging as unhealthy
+                let deviation_threshold = expected_balance.checked_div(10).unwrap_or(0);
+                Self::balance_deviation_amount(actual_balance, expected_balance)
+                    > deviation_threshold
+            } else {
+                // If expected is 0, any positive actual balance is considered healthy
+                false
+            };
+
+            let currently_failed = balance_deviation;
+            let mut consecutive_failures = current_health.consecutive_failures;
+            let mut is_healthy = current_health.is_healthy;
+
+            if currently_failed {
+                consecutive_failures += 1;
+                if consecutive_failures >= max_failures {
+                    is_healthy = false;
+                    // Auto-flag event
+                    env.events().publish(
+                        (symbol_short!("StrategyF"), strategy_addr.clone()),
+                        current_time,
+                    );
+                }
+            } else {
+                consecutive_failures = 0;
+                // Note: We don't automatically set is_healthy = true here if it was false.
+                // Re-enabling a strategy usually requires manual administrative review
+                // or a specific recovery process. But as per requirements:
+                // "Reset counter to 0 on a successful balance check"
+                // "A single recovery resets the counter"
+            }
+
+            // Update health data if changed
+            if is_healthy != current_health.is_healthy
+                || consecutive_failures != current_health.consecutive_failures
+                || actual_balance != current_health.last_known_balance
+            {
+                current_health = StrategyHealth {
+                    last_known_balance: actual_balance,
+                    last_check_timestamp: current_time,
+                    is_healthy,
+                    consecutive_failures,
+                };
+                env.storage().instance().set(&health_key, &current_health);
+            }
+
+            if !is_healthy {
+                unhealthy_strategies.push_back(strategy_addr.clone());
+            }
+        }
+
+        Ok(unhealthy_strategies)
+    }
+
+    /// Manually flag a strategy as unhealthy.
+    ///
+    /// Only the admin can call this.
+    /// @param strategy The address of the strategy to flag.
+    pub fn flag_strategy(env: Env, strategy: Address) -> Result<(), Error> {
+        Self::require_admin(&env);
+
+        // Verify strategy exists
+        let strategies = Self::get_strategies(&env);
+        if !strategies.contains(strategy.clone()) {
+            return Self::emit_and_err(&env, Error::NotInitialized);
+        }
+
+        let health_key = DataKey::StrategyHealth(strategy.clone());
+        let current_time = env.ledger().timestamp();
+
+        // Update health to unhealthy, preserving the existing counter
+        let existing: StrategyHealth =
+            env.storage()
+                .instance()
+                .get(&health_key)
+                .unwrap_or(StrategyHealth {
+                    last_known_balance: 0,
+                    last_check_timestamp: current_time,
+                    is_healthy: true,
+                    consecutive_failures: 0,
+                });
+        let updated_health = StrategyHealth {
+            last_known_balance: existing.last_known_balance,
+            last_check_timestamp: current_time,
+            is_healthy: false,
+            consecutive_failures: 0,
+        };
+
+        env.storage().instance().set(&health_key, &updated_health);
+
+        // Emit StrategyFlagged event
+        env.events()
+            .publish((symbol_short!("StrategyF"), strategy.clone()), current_time);
+
+        Ok(())
+    }
+
+    /// Remove a strategy from the vault and withdraw all funds from it.
+
+    /// Get health information for a specific strategy.
+    pub fn get_strategy_health(env: Env, strategy: Address) -> Option<StrategyHealth> {
+        env.storage()
+            .instance()
+            .get(&DataKey::StrategyHealth(strategy))
+    }
+
+    /// Set the number of consecutive failed balance checks before a strategy is
+    /// auto-flagged as unhealthy.  Defaults to 3 when not configured.
+    /// Only the admin can call this.
+    pub fn set_max_consecutive_failures(env: Env, threshold: u32) -> Result<(), Error> {
+        Self::require_admin(&env);
+        if threshold == 0 {
+            return Err(Error::NegativeAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxConsecutiveFailures, &threshold);
+        env.events().publish((symbol_short!("MaxFail"),), threshold);
+        Ok(())
+    }
+
+    /// Return the currently configured consecutive-failure threshold (default: 3).
+    pub fn get_max_consecutive_failures(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxConsecutiveFailures)
+            .unwrap_or(3)
+    }
+
+    /// Calculate annualized percentage yield (APY) for a strategy.
+    ///
+    /// APY is calculated from yield snapshots over the specified number of periods.
+    /// Returns APY in basis points (1 bps = 0.01%).
+    /// Formula: APY = ((final_balance / initial_balance)^(365/days) - 1) * 10000
+    ///
+    /// @param strategy The strategy address to calculate APY for.
+    /// @param periods Number of harvest periods to include in calculation.
+    /// @return APY in basis points.
+    pub fn get_strategy_apy(env: Env, strategy: Address, periods: u32) -> i128 {
+        let history_key = DataKey::StrategyYieldSnapshot(strategy.clone());
+        let history: Option<YieldHistory> = env.storage().instance().get(&history_key);
+
+        match history {
+            Some(h) if h.snapshots.len() >= 2 => {
+                let snapshots = h.snapshots;
+                let count = snapshots.len() as u32;
+                let periods_to_use = if periods == 0 || periods > count {
+                    count
+                } else {
+                    periods
+                };
+
+                // Use the earliest and latest snapshots within the specified periods
+                // Snapshots are stored in pairs (before, after) for each harvest
+                // We use the before-harvest snapshots to calculate growth
+                let start_idx = ((count - periods_to_use) * 2) as u32;
+                let end_idx = (count - 1) as u32;
+
+                if start_idx >= end_idx || end_idx >= snapshots.len() as u32 {
+                    return 0;
+                }
+
+                let start_snapshot = snapshots.get(start_idx).unwrap();
+                let end_snapshot = snapshots.get(end_idx).unwrap();
+
+                let start_balance = start_snapshot.balance;
+                let end_balance = end_snapshot.balance;
+
+                if start_balance <= 0 {
+                    return 0;
+                }
+
+                // Calculate ledger difference (proxy for time)
+                let ledger_diff = end_snapshot.ledger.saturating_sub(start_snapshot.ledger);
+                if ledger_diff == 0 {
+                    return 0;
+                }
+
+                // Calculate growth rate
+                let growth = end_balance
+                    .checked_mul(10_000)
+                    .unwrap()
+                    .checked_div(start_balance)
+                    .unwrap();
+                let growth_bps = growth.saturating_sub(10_000);
+
+                // Annualize: assume ~10 ledgers per second on Stellar testnet
+                // This is a simplification; in production use actual timestamp
+                let ledgers_per_year = 10 * 60 * 60 * 24 * 365; // ~315 million
+                let periods_per_year = ledgers_per_year / ledger_diff as i128;
+
+                if periods_per_year <= 0 {
+                    return growth_bps;
+                }
+
+                // Compound annual growth: (1 + rate)^periods - 1
+                // Using simple multiplication for basis points approximation
+                let apy = growth_bps.checked_mul(periods_per_year).unwrap();
+                apy
+            }
+            _ => 0,
+        }
+    }
+
+    /// Get the best performing strategy based on recent APY.
+    ///
+    /// Returns the strategy address with the highest APY over the last 4 harvest periods.
+    /// Returns None if no strategies have sufficient history.
+    ///
+    /// @return The address of the best performing strategy, or None.
+    pub fn get_best_performing_strategy(env: Env) -> Option<Address> {
+        let strategies = Self::get_strategies(&env);
+        if strategies.is_empty() {
+            return None;
+        }
+
+        let mut best_strategy: Option<Address> = None;
+        let mut best_apy: i128 = -1; // Initialize to -1 so even 0 APY will be selected
+
+        for strategy in strategies.iter() {
+            let apy = Self::get_strategy_apy(env.clone(), strategy.clone(), 4);
+            if apy > best_apy {
+                best_apy = apy;
+                best_strategy = Some(strategy.clone());
+            }
+        }
+
+        best_strategy
+    }
+
+    // ── View helpers ──────────────────────────
+    pub fn has_admin(env: &Env) -> bool {
+        env.storage().instance().has(&DataKey::Admin)
+    }
+
+    pub fn read_admin(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized")
+    }
+
+    /// Total assets managed by the vault: vault token balance + sum of strategy balances.
+    /// Get the total assets managed by the vault (cash + strategy balances).
+    pub fn total_assets(env: &Env) -> i128 {
+        let supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(env));
+        let mut total_value: i128 = 0;
+        for asset in supported.iter() {
+            let asset_quantity: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::AssetTotalAssets(asset.clone()))
+                .unwrap_or(0);
+            let price = Self::get_asset_price(env.clone(), asset.clone());
+            let value = asset_quantity
+                .checked_mul(price)
+                .unwrap_or(0)
+                .checked_div(1_000_000_000)
+                .unwrap_or(0);
+            total_value = total_value.checked_add(value).unwrap_or(total_value);
+        }
+        total_value
+    }
+
+    pub fn total_shares(env: &Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalShares)
+            .unwrap_or(0)
+    }
+
+    /// Get the address of the price oracle.
+    pub fn get_oracle(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Oracle)
+            .expect("Not initialized")
+    }
+
+    /// Get the address of the underlying asset (e.g., USDC).
+    pub fn get_asset(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Asset)
+            .expect("Not initialized")
+    }
+
+    /// Check if the asset is an accepted underlying asset.
+    pub fn is_accepted_asset(env: Env, asset: Address) -> bool {
+        asset == Self::get_asset(&env)
+    }
+
+    pub fn get_asset_price(env: Env, asset: Address) -> i128 {
+        if asset == Self::get_asset(&env) {
+            return 1_000_000_000;
+        }
+        let oracle = Self::get_oracle(&env);
+        env.invoke_contract::<i128>(
+            &oracle,
+            &soroban_sdk::Symbol::new(&env, "price"),
+            soroban_sdk::vec![&env, asset.into_val(&env)],
+        )
+    }
+
+    /// Add an asset to the supported/whitelisted list for deposits.
+    pub fn add_supported_asset(env: Env, asset: Address) {
+        Self::require_admin(&env);
+        let mut supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(&env));
+        if !supported.contains(asset.clone()) {
+            supported.push_back(asset.clone());
+            env.storage()
+                .instance()
+                .set(&DataKey::SupportedAssets, &supported);
+            env.events().publish((symbol_short!("AssetAdd"),), asset);
+        }
+    }
+
+    pub fn is_supported_asset(env: Env, asset: Address) -> bool {
+        let supported: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(&env));
+        supported.contains(asset)
+    }
+
+    /// Get the list of all registered strategy addresses.
+    pub fn get_strategies(env: &Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Strategies)
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Activate the oracle circuit breaker.
+    ///
+    /// When activated, the vault will use the last validated allocation instead of
+    /// requiring fresh oracle data. Only the admin can call this.
+    pub fn activate_oracle_circuit_breaker(env: Env) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleCircuitBreakerActive, &true);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(
+                &env,
+                "OracleCircuitBreakerActivated",
+            ),),
+            env.ledger().timestamp(),
+        );
+    }
+
+    /// Reset the oracle circuit breaker.
+    ///
+    /// Deactivates the circuit breaker, returning to normal oracle staleness checks.
+    /// Only the admin can call this.
+    pub fn reset_oracle_circuit_breaker(env: Env) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleCircuitBreakerActive, &false);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "OracleCircuitBreakerReset"),),
+            env.ledger().timestamp(),
+        );
+    }
+
+    /// Check if the oracle circuit breaker is currently active.
+    pub fn is_circuit_breaker_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::OracleCircuitBreakerActive)
+            .unwrap_or(false)
+    }
+
+    // ── Compliance: Blocklist and Allowlist ──────────────────────────
+    /// Check if a user is allowed to deposit based on blocklist/allowlist rules.
+    fn check_compliance(env: &Env, user: &Address) -> Result<(), Error> {
+        let blocklist_mode: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::BlocklistMode)
+            .unwrap_or(false);
+        let allowlist_mode: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllowlistMode)
+            .unwrap_or(false);
+
+        // If neither mode is active, allow all deposits
+        if !blocklist_mode && !allowlist_mode {
+            return Ok(());
+        }
+
+        let blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(env));
+        let allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(env));
+
+        if blocklist_mode && blocklist.contains(user.clone()) {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
+            return Self::emit_and_err(env, Error::UserBlocked);
+        }
+
+        if allowlist_mode && !allowlist.contains(user.clone()) {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "UserBlocked"),), user);
+            return Self::emit_and_err(env, Error::UserBlocked);
+        }
+
+        Ok(())
+    }
+
+    /// Add a user to the blocklist.
+    /// Only the admin can call this.
+    pub fn add_to_blocklist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env));
+        if !blocklist.contains(user.clone()) {
+            blocklist.push_back(user.clone());
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
+            env.events()
+                .publish((soroban_sdk::Symbol::new(&env, "UserBlocked"),), user);
+        }
+    }
+
+    /// Remove a user from the blocklist.
+    /// Only the admin can call this.
+    pub fn remove_from_blocklist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut blocklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env));
+        if let Some(index) = blocklist.iter().position(|x| x == user) {
+            blocklist.remove(index as u32);
+            env.storage()
+                .instance()
+                .set(&DataKey::Blocklist, &blocklist);
+        }
+    }
+
+    /// Add a user to the allowlist.
+    /// Only the admin can call this.
+    pub fn add_to_allowlist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env));
+        if !allowlist.contains(user.clone()) {
+            allowlist.push_back(user.clone());
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
+            env.events()
+                .publish((soroban_sdk::Symbol::new(&env, "UserAllowlisted"),), user);
+        }
+    }
+
+    /// Remove a user from the allowlist.
+    /// Only the admin can call this.
+    pub fn remove_from_allowlist(env: Env, user: Address) {
+        Self::require_admin(&env);
+        let mut allowlist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env));
+        if let Some(index) = allowlist.iter().position(|x| x == user) {
+            allowlist.remove(index as u32);
+            env.storage()
+                .instance()
+                .set(&DataKey::Allowlist, &allowlist);
+        }
+    }
+
+    /// Enable or disable blocklist mode.
+    /// When enabled, blocked users cannot deposit. Only the admin can call this.
+    pub fn set_blocklist_mode(env: Env, active: bool) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::BlocklistMode, &active);
+    }
+
+    /// Enable or disable allowlist mode.
+    /// When enabled, only allowlisted users can deposit. Only the admin can call this.
+    pub fn set_allowlist_mode(env: Env, active: bool) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistMode, &active);
+    }
+
+    /// Get the current blocklist.
+    pub fn get_blocklist(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Blocklist)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get the current allowlist.
+    pub fn get_allowlist(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Allowlist)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Check if blocklist mode is active.
+    pub fn is_blocklist_mode_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::BlocklistMode)
+            .unwrap_or(false)
+    }
+
+    /// Check if allowlist mode is active.
+    pub fn is_allowlist_mode_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::AllowlistMode)
+            .unwrap_or(false)
+    }
+
+    /// Get the address of the fee treasury.
+    pub fn treasury(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .expect("Not initialized")
+    }
+
+    /// Get the management fee percentage in basis points.
+    pub fn fee_percentage(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeePercentage)
+            .unwrap_or(0)
+    }
+
+    /// Get the share balance of a specific user.
+    pub fn balance(env: Env, user: Address) -> i128 {
+        Self::read_user_balance(&env, &user)
+    }
+
+    // ── Internal Helpers ──────────────────────
+    pub fn take_fees(env: &Env, amount: i128) -> Result<i128, Error> {
+        let fee_pct = Self::fee_percentage(&env);
+        if fee_pct == 0 {
+            return Ok(amount);
+        }
+        let fee = amount
+            .checked_mul(fee_pct as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            .checked_div(10000)
+            .ok_or(Error::ArithmeticOverflow)?;
+        
+        if fee > 0 {
+            let treasury = Self::treasury(env);
+            let token = Self::get_asset(env);
+            token::Client::new(env, &token).transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &fee,
+            );
+            env.events().publish(
+                (symbol_short!("fee_col"), treasury),
+                fee,
+            );
+        }
+
+        Ok(amount.checked_sub(fee).ok_or(Error::ArithmeticOverflow)?)
+    }
+
+    /// Get the list of all guardians in the multisig governance.
+    pub fn get_guardians(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get the required number of approvals for governance actions.
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1)
+    }
+
+    pub fn set_proposal_ttl_ledgers(env: Env, ledgers: u32) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalTtlLedgers, &ledgers);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "ProposalTtlLedgers"),),
+            ledgers,
+        );
+    }
+
+    pub fn get_proposal_ttl_ledgers(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProposalTtlLedgers)
+            .unwrap_or(DEFAULT_PROPOSAL_TTL_LEDGERS)
+    }
+
+    pub fn prune_old_proposals(env: Env) -> u32 {
+        Self::require_admin(&env);
+        Self::prune_old_proposals_internal(&env)
+    }
+
+    pub fn list_proposals(env: Env, offset: u32, limit: u32, include_expired: bool) -> Vec<Proposal> {
+        if limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(&env));
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(&env));
+
+        let mut listed = Vec::new(&env);
+        let mut skipped = 0;
+        let mut included = 0;
+
+        let now = env.ledger().timestamp();
+
+        for proposal_id in proposal_ids.iter() {
+            let id = proposal_id.clone();
+            if let Some(proposal) = proposals.get(id) {
+                if !include_expired {
+                    // Filter out ALL executed proposals by default
+                    if proposal.executed {
+                        continue;
+                    }
+
+                    // Filter out unexecuted but expired proposals
+                    let elapsed = now.saturating_sub(proposal.proposed_at);
+                    if elapsed >= DEFAULT_PROPOSAL_TTL_SECONDS {
+                        continue;
+                    }
+                }
+
+                if skipped < offset {
+                    skipped += 1;
+                    continue;
+                }
+
+                listed.push_back(proposal);
+                included += 1;
+
+                if included >= limit {
+                    break;
+                }
+            }
+        }
+        listed
+    }
+
+    pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
+        let proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(&env));
+        proposals.get(proposal_id)
+    }
+
+    pub fn get_share_price(env: &Env) -> i128 {
+        let total_assets = Self::total_assets(env);
+        let total_shares = Self::total_shares(env);
+        if total_shares == 0 {
+            return 1_000_000_000; // 1.0 with 9 decimals
+        }
+        total_assets
+            .checked_mul(1_000_000_000)
+            .unwrap()
+            .checked_div(total_shares)
+            .unwrap()
+    }
+
+    pub fn convert_to_shares(env: Env, amount: i128) -> i128 {
+        if amount < 0 {
+            panic!("negative amount");
+        }
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+        if total_shares == 0 || total_assets == 0 {
+            return amount;
+        }
+        amount
+            .checked_mul(total_shares)
+            .unwrap()
+            .checked_div(total_assets)
+            .unwrap()
+    }
+
+    pub fn convert_to_assets(env: Env, shares: i128) -> i128 {
+        if shares < 0 {
+            panic!("negative amount");
+        }
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+        if total_shares == 0 {
+            return shares;
+        }
+        shares
+            .checked_mul(total_assets)
+            .unwrap()
+            .checked_div(total_shares)
+            .unwrap()
+    }
+
+    pub fn set_total_assets(env: Env, amount: i128) {
+        env.storage().instance().set(&DataKey::TotalAssets, &amount);
+        let asset = Self::get_asset(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::AssetTotalAssets(asset), &amount);
+    }
+
+    pub fn set_total_shares(env: Env, amount: i128) {
+        env.storage().instance().set(&DataKey::TotalShares, &amount);
+    }
+
+    pub fn set_balance(env: Env, user: Address, amount: i128) {
+        Self::write_user_balance(&env, &user, amount);
+    }
+
+    pub fn set_token(env: Env, token: Address) {
+        env.storage().instance().set(&DataKey::Token, &token);
+    }
+
+    fn require_admin(env: &Env) {
+        let admin = Self::read_admin(env);
+        admin.require_auth();
+    }
+
+    /// Check if the caller is either the owner or an authorized delegate.
+    /// Returns an error if the caller is not authorized.
+    fn require_owner_or_delegate(env: &Env, owner: &Address, caller: &Address) -> Result<(), Error> {
+        // If caller is the owner, allow
+        if caller == owner {
+            return Ok(());
+        }
+
+        // Check if caller is an authorized delegate
+        if let Some(delegate) = Self::read_delegate(env, owner) {
+            if &delegate == caller {
+                return Ok(());
+            }
+        }
+
+        // Not authorized
+        Err(Error::Unauthorized)
+    }
+
+    fn proposal_ttl_ledgers(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProposalTtlLedgers)
+            .unwrap_or(DEFAULT_PROPOSAL_TTL_LEDGERS)
+    }
+
+    fn prune_old_proposals_internal(env: &Env) -> u32 {
+        let mut proposals: Map<u64, Proposal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposals)
+            .unwrap_or(Map::new(env));
+        let proposal_ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalIds)
+            .unwrap_or(Vec::new(env));
+        let ttl = Self::proposal_ttl_ledgers(env);
+        let current_ledger = env.ledger().sequence();
+        let mut retained_ids = Vec::new(env);
+        let mut pruned = 0_u32;
+
+        for proposal_id in proposal_ids.iter() {
+            if let Some(proposal) = proposals.get(proposal_id) {
+                let now = env.ledger().timestamp();
+                let is_executed_expired = proposal.executed
+                    && proposal.executed_ledger > 0
+                    && current_ledger.saturating_sub(proposal.executed_ledger) >= ttl;
+                let is_unexecuted_expired = !proposal.executed
+                    && now.saturating_sub(proposal.proposed_at) >= DEFAULT_PROPOSAL_TTL_SECONDS;
+
+                if is_executed_expired || is_unexecuted_expired {
+                    proposals.remove(proposal_id);
+                    pruned = pruned.saturating_add(1);
+                } else {
+                    retained_ids.push_back(proposal_id);
+                }
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposals, &proposals);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalIds, &retained_ids);
+
+        if pruned > 0 {
+            env.events()
+                .publish((soroban_sdk::Symbol::new(env, "ProposalsPruned"),), pruned);
+        }
+
+        pruned
+    }
+
+    fn record_pause_change(env: &Env, caller: Address, state: bool) {
+        env.storage().instance().set(&DataKey::Paused, &state);
+        let timestamp = env.ledger().timestamp();
+        let mut history: Vec<(u64, Address, bool)> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PauseHistory)
+            .unwrap_or(Vec::new(env));
+        history.push_back((timestamp, caller.clone(), state));
+        env.storage()
+            .instance()
+            .set(&DataKey::PauseHistory, &history);
+
+        let event_name = if state {
+            "VaultPaused"
+        } else {
+            "VaultUnpaused"
+        };
+        env.events().publish(
+            (soroban_sdk::Symbol::new(env, event_name),),
+            (caller, timestamp),
+        );
+    }
+
+    fn record_share_price_snapshot(env: &Env) {
+        let mut history: Vec<(u64, i128)> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SharePriceHistory)
+            .unwrap_or(Vec::new(env));
+        if history.len() >= SHARE_PRICE_HISTORY_CAP {
+            history.remove(0);
+        }
+        history.push_back((env.ledger().timestamp(), Self::get_share_price(env)));
+        env.storage()
+            .instance()
+            .set(&DataKey::SharePriceHistory, &history);
+    }
+
+    // ── Emergency Pause ──────────────────────────
+    pub fn set_paused(env: Env, state: bool) {
+        let admin = Self::read_admin(&env);
+        admin.require_auth();
+        Self::record_pause_change(&env, admin, state);
+    }
+
+    pub fn emergency_shutdown(env: Env, admin: Address) {
+        admin.require_auth();
+
+        if admin != Self::read_admin(&env) {
+            panic!("Unauthorized");
+        }
+
+        if Self::emergency_shutdown_active(&env) {
+            return;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeePercentage, &fee_percentage);
         env.storage().instance().set(&DataKey::Token, &asset);
 
         // Initialize vault state to zero
@@ -546,36 +1760,188 @@ impl VolatilityShield {
     pub fn process_queued_withdrawals(env: Env, limit: u32) -> u32 {
         Self::require_admin(&env);
         
+        // Emit DelegateSet event
         env.events().publish(
-            (symbol_short!("fee_pct"), symbol_short!("updated")),
-            fee_percentage,
+            (soroban_sdk::Symbol::new(&env, "DelegateSet"),),
+            (caller, delegate),
+        );
+    }
+
+    /// Revoke the current withdraw delegate for the caller.
+    pub fn revoke_withdraw_delegate(env: Env, caller: Address) {
+        caller.require_auth();
+        Self::write_delegate(&env, &caller, &caller); // Set delegate to self (no delegation)
+        
+        // Emit DelegateRevoked event
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DelegateRevoked"),),
+            caller,
+        );
+    }
+
+    /// Get the current delegate address for a given owner.
+    pub fn get_withdraw_delegate(env: Env, owner: Address) -> Address {
+        Self::read_delegate(&env, &owner).unwrap_or_else(|| owner.clone())
+    }
+
+    pub fn emergency_withdraw(env: Env, from: Address) {
+        let _guard = Guard::new(&env);
+        Self::check_version(&env, 1);
+
+        if !Self::emergency_shutdown_active(&env) {
+            panic!("EmergencyShutdownNotActive");
+        }
+
+        from.require_auth();
+
+        let current_balance = Self::read_user_balance(&env, &from);
+
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+
+        let mut queued_shares = 0_i128;
+        let mut queued_index: Option<u32> = None;
+        for i in 0..pending_withdrawals.len() {
+            let w = pending_withdrawals.get(i).unwrap();
+            if w.user == from {
+                queued_shares = w.shares;
+                queued_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(index) = queued_index {
+            pending_withdrawals.remove(index);
+            env.storage()
+                .instance()
+                .set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+        }
+
+        let shares_to_withdraw = current_balance.checked_add(queued_shares).unwrap();
+        if shares_to_withdraw <= 0 {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares_to_withdraw);
+
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        let new_total_shares = total_shares.checked_sub(shares_to_withdraw).unwrap();
+        let new_total_assets = total_assets.checked_sub(assets_to_withdraw).unwrap();
+
+        Self::set_total_shares(env.clone(), new_total_shares);
+        Self::set_total_assets(env.clone(), new_total_assets);
+        Self::write_user_balance(&env, &from, 0_i128);
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &from,
+            &assets_to_withdraw,
         );
 
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "EmergencyWithdraw"), from),
+            (
+                shares_to_withdraw,
+                assets_to_withdraw,
+                env.ledger().timestamp(),
+            ),
+        );
+    }
+
+    // ── Deposit / Withdrawal Caps ──────────────────────────
+    pub fn set_deposit_cap(env: Env, per_user: i128, global: i128) -> Result<(), Error> {
+        Self::check_version(&env, 1);
+        Self::require_admin(&env);
+
+        if per_user <= 0 || global <= 0 || per_user > global {
+            return Self::emit_and_err(&env, Error::InvalidConfig);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxDepositPerUser, &per_user);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxTotalAssets, &global);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "DepositCapsUpdated"),),
+            DepositCapsUpdated { per_user, global },
+        );
         Ok(())
     }
 
-    /// Set the deposit cap for a specific strategy.
-    /// Only the admin can call this.
-    pub fn set_strategy_cap(env: Env, strategy: Address, cap: i128) {
+    pub fn set_withdraw_cap(env: Env, per_tx: i128) {
         Self::require_admin(&env);
-        
-        // Verify strategy exists
-        let strategies = Self::get_strategies(&env);
-        if !strategies.contains(strategy.clone()) {
-            panic!("Strategy not registered");
-        }
-        
-        if cap < 0 {
-            panic!("cap must be non-negative");
-        }
-        
         env.storage()
             .instance()
-            .set(&DataKey::StrategyDepositCap(strategy), &cap);
-        
+            .set(&DataKey::MaxWithdrawPerTx, &per_tx);
         env.events().publish(
-            (symbol_short!("StrategyCap"),),
-            (strategy, cap),
+            (
+                soroban_sdk::Symbol::new(&env, "CapsSet"),
+                soroban_sdk::Symbol::new(&env, "Withdraw"),
+            ),
+            per_tx,
+        );
+    }
+
+    pub fn set_max_staleness(env: Env, seconds: u64) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxStaleness, &seconds);
+        env.events().publish((symbol_short!("Staleness"),), seconds);
+    }
+
+    pub fn set_timelock_duration(env: Env, duration: u64) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::TimelockDuration, &duration);
+        env.events()
+            .publish((symbol_short!("TimelockD"),), duration);
+    }
+
+    pub fn max_staleness(env: &Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxStaleness)
+            .unwrap_or(3600)
+    }
+
+    // ── Contract Upgrade & Migration ──────────────────
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::require_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.events()
+            .publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+    }
+
+    pub fn migrate(env: Env, new_version: u32) {
+        Self::require_admin(&env);
+        let current_version = Self::version(&env);
+        if new_version <= current_version {
+            panic!("new version must be greater than current version");
+        }
+
+        // Execute any necessary state migrations here if migrating from specific versions
+        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ContractVersion, &new_version);
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("migrate")),
+            new_version,
         );
     }
 

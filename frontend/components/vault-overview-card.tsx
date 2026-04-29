@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Shield, TrendingUp, RefreshCw, Wallet, Clock } from "lucide-react";
+
+import { Shield, TrendingUp, TrendingDown, RefreshCw, Wallet, Clock } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { MetricTooltip } from "@/components/MetricTooltip";
@@ -12,7 +13,10 @@ import { StaleBadge } from "@/components/StaleBadge";
 import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
 import { useRealtimeVault } from "@/hooks/use-realtime-vault";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
+import { VaultHealthBanner } from "@/components/VaultHealthBanner";
 import type { VaultMetrics } from "@/lib/stellar";
+import SharePriceSparkline from "@/components/SharePriceSparkline";
+
 
 export function VaultOverviewCard() {
   const { connected, address } = useWallet();
@@ -45,14 +49,26 @@ export function VaultOverviewCard() {
   const totalShares = parseFloat(metrics?.totalShares || "0") / 1e7;
   const sharePrice = parseFloat(metrics?.sharePrice || "1.0000000");
   const userBalance = optimisticBalance;
+  const displayedShares = optimisticShares;
+  const unhealthyStrategiesCount = 0;
+  const vaultPaused = false;
+  const cascadeHalt = false;
+
 
   return (
     <div className="rounded-lg border bg-card p-6 shadow-sm">
+      <VaultHealthBanner
+        unhealthyStrategiesCount={unhealthyStrategiesCount}
+        vaultPaused={vaultPaused}
+        cascadeHalt={cascadeHalt}
+      />
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Shield className="w-6 h-6 text-primary" />
           <h2 className="text-xl font-semibold">Vault Overview</h2>
         </div>
+
+
         <div className="flex items-center gap-2">
           <ConnectionStatusIndicator status={status} reconnectAttempts={reconnectAttempts} />
           <StaleBadge
@@ -70,32 +86,39 @@ export function VaultOverviewCard() {
             <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
+
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total Assets"
-          tooltip="The total value of all assets currently deposited and managed by this vault."
+
           value={format(totalAssets)}
           subtitle={metrics?.assetSymbol || "USDC"}
           icon={<TrendingUp className="w-4 h-4 text-green-500" />}
         />
+
+
         <MetricCard
           title="Total Shares"
           tooltip="The total number of vault shares (XHS) issued to all depositors. Each share represents a proportional claim on vault assets."
           value={formatNumber(totalShares)}
           subtitle="XHS"
           icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
+
           pending={hasPending}
         />
         <MetricCard
           title="Share Price"
           tooltip="The current value of one vault share in the deposit asset. Share price rises as the vault earns yield."
           value={format(sharePrice)}
+
           subtitle={`${metrics?.assetSymbol || "USDC"} per share`}
           icon={<TrendingUp className="w-4 h-4 text-primary" />}
           highlight
         />
+
+
         <MetricCard
           title="Your Balance"
           tooltip="Your current estimated asset value in the vault, based on your shares multiplied by the current share price."
@@ -121,6 +144,7 @@ export function VaultOverviewCard() {
         </div>
       )}
 
+
       {!connected && (
         <div className="mt-4 p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
           Connect your Freighter wallet to see your personal vault statistics.
@@ -132,11 +156,12 @@ export function VaultOverviewCard() {
 
 interface MetricCardProps {
   title: string;
-  tooltip: string;
+  tooltip?: string;
   value: string;
   subtitle: string;
   icon: React.ReactNode;
   highlight?: boolean;
+
   pending?: boolean;
 }
 
@@ -146,14 +171,18 @@ function MetricCard({ title, tooltip, value, subtitle, icon, highlight, pending 
       {pending && <div className="absolute inset-x-0 bottom-0 h-1 bg-yellow-500/30 animate-pulse" />}
       <div className="flex items-center gap-2 text-muted-foreground">
         {icon}
-        <MetricTooltip label={title} tip={tooltip} className="text-sm" />
+        <MetricTooltip label={title} tip={tooltip ?? title} className="text-sm" />
         {pending && <Clock className="w-3 h-3 text-yellow-600 animate-pulse" />}
       </div>
       <div className={`text-2xl font-bold ${highlight ? "text-primary" : "text-foreground"}`}>
         {value}
         {pending && <span className="text-xs text-yellow-600 ml-1 font-normal">*</span>}
+
       </div>
       <span className="text-xs text-muted-foreground">{subtitle}</span>
+      {title === "Share Price" && <SharePriceSparkline />}
+
     </div>
   );
+
 }
