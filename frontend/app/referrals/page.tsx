@@ -31,9 +31,16 @@ export default function ReferralsPage() {
     loadData();
   }, [loadData]);
 
-  const referralLink = address
-    ? `${window.location.origin}?ref=${address}`
-    : t('connectToGenerate');
+  const [referralLink, setReferralLink] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const link = address
+        ? `${window.location.origin}?ref=${address}`
+        : t('connectToGenerate');
+      setReferralLink(link);
+    }
+  }, [address, t]);
 
   const copyToClipboard = () => {
     if (!address) return;
@@ -81,8 +88,10 @@ export default function ReferralsPage() {
             {t('linkDescription')}
           </p>
 
-          <div className="flex items-center gap-2 p-3 rounded-md bg-muted border font-mono text-sm overflow-hidden">
-            <span className="flex-1 truncate w-12 md:max-w-full">{referralLink}</span>
+          <div className="flex items-center gap-2 p-3 rounded-md bg-muted border font-mono text-sm overflow-hidden min-h-[44px]">
+            <span className="flex-1 truncate w-12 md:max-w-full">
+              {referralLink || t('generating') || '...'}
+            </span>
             <button
               onClick={copyToClipboard}
               className="p-2 rounded-md hover:bg-background transition-colors"
