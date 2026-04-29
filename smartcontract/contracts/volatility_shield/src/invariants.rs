@@ -21,7 +21,7 @@ fn setup_test_env() -> (Env, VolatilityShieldClient<'static>, Address, Address) 
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     (env, client, admin, asset)
 }
@@ -39,7 +39,7 @@ proptest! {
 
         for amount in amounts {
             let user = Address::generate(&env);
-            users.push_back(user.clone());
+            users.push(user.clone());
             client.set_total_assets(&(client.total_assets() + amount));
             let shares = client.convert_to_shares(&amount);
             client.set_balance(&user, &shares);
