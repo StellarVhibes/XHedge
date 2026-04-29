@@ -79,8 +79,6 @@ pub enum Error {
     InvalidConfig = 32,
     /// Deposit amount is below the configured minimum deposit floor.
     BelowMinDeposit = 33,
-    /// Operation is blocked because the vault is winding down (SC-40).
-    WindDownActive = 34,
 }
 
 impl Error {
@@ -118,7 +116,6 @@ impl Error {
             Error::ArithmeticOverflow => Symbol::new(env, "arith_overflow"),
             Error::InvalidConfig => Symbol::new(env, "invalid_config"),
             Error::BelowMinDeposit => Symbol::new(env, "below_min_deposit"),
-            Error::WindDownActive => Symbol::new(env, "wind_down_active"),
         }
     }
 }
@@ -246,19 +243,6 @@ pub enum ActionType {
     Rebalance(u32),
     SetThreshold(u32),
     AddSupportedAsset(Address),
-    /// SC-40: Initiate orderly wind-down (stop deposits, harvest, drain queue).
-    InitiateWindDown,
-}
-
-/// SC-40: Event payload emitted when wind-down is initiated.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WindDownInitiated {
-    pub initiator: Address,
-    pub timestamp: u64,
-    pub queued_processed: u32,
-    pub total_assets_after: i128,
-    pub total_shares_after: i128,
 }
 
 #[contracttype]
@@ -369,7 +353,7 @@ impl<'a> StrategyClient<'a> {
             _ => Err(soroban_sdk::String::from_str(self.env, "collect_yield failed")),
         }
     }
-
+    
     pub fn try_pause(&self) -> Result<(), soroban_sdk::String> {
         let res = self.env.try_invoke_contract::<(), soroban_sdk::Error>(
             &self.address,
@@ -898,9 +882,6 @@ impl VolatilityShield {
             ActionType::AddSupportedAsset(asset) => {
                 Self::add_supported_asset(env.clone(), asset.clone());
             }
-            ActionType::InitiateWindDown => {
-                Self::internal_initiate_wind_down(env, _caller)?;
-            }
         }
 
         // Emit TimelockExecuted event
@@ -1057,10 +1038,6 @@ impl VolatilityShield {
         Self::check_version(&env, 1);
         Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
-        // SC-40: reject new deposits while the vault is winding down.
-        if Self::wind_down_active(&env) {
-            return Self::emit_and_err(&env, Error::WindDownActive);
-        }
         if amount <= 0 {
             panic!("deposit amount must be positive");
         }
@@ -1215,11 +1192,6 @@ impl VolatilityShield {
         Self::check_version(&env, 1);
         Self::assert_not_emergency_shutdown(&env);
         Self::assert_not_paused(&env);
-        // SC-40: reject batch deposits while the vault is winding down.
-        if Self::wind_down_active(&env) {
-            Self::emit_error(&env, Error::WindDownActive);
-            panic!("WindDownActive");
-        }
         caller.require_auth();
 
         if !Self::is_supported_asset(env.clone(), asset.clone()) {
@@ -1943,30 +1915,25 @@ impl VolatilityShield {
     /// @return The number of withdrawals actually processed.
     pub fn process_queued_withdrawals(env: Env, limit: u32) -> u32 {
         Self::require_admin(&env);
-        Self::internal_process_queued_withdrawals(&env, limit)
-    }
 
-    /// Internal queue-drain helper. Skips admin auth so it can be reused by
-    /// governance-driven flows like the wind-down (SC-40).
-    fn internal_process_queued_withdrawals(env: &Env, limit: u32) -> u32 {
         let pending_withdrawals: Vec<QueuedWithdrawal> = env
             .storage()
             .instance()
             .get(&DataKey::PendingWithdrawals)
-            .unwrap_or(Vec::new(env));
+            .unwrap_or(Vec::new(&env));
 
-        let mut processed = 0u32;
-        let mut remaining_withdrawals = Vec::new(env);
+        let mut processed = 0;
+        let mut remaining_withdrawals = Vec::new(&env);
 
-        let mut total_shares = Self::total_shares(env);
-        let mut total_assets = Self::total_assets(env);
+        let mut total_shares = Self::total_shares(&env);
+        let mut total_assets = Self::total_assets(&env);
 
         let token: Address = env
             .storage()
             .instance()
             .get(&DataKey::Token)
             .expect("Token not initialized");
-        let token_client = token::Client::new(env, &token);
+        let token_client = token::Client::new(&env, &token);
 
         for queued_withdrawal in pending_withdrawals.iter() {
             if processed >= limit {
@@ -2004,101 +1971,6 @@ impl VolatilityShield {
             .set(&DataKey::PendingWithdrawals, &remaining_withdrawals);
 
         processed
-    }
-
-    // ── SC-40: Orderly Wind-Down ──────────────────────────────────────────────
-    /// Returns true if the vault is currently in wind-down mode.
-    pub fn is_wind_down_active(env: Env) -> bool {
-        Self::wind_down_active(&env)
-    }
-
-    fn wind_down_active(env: &Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&soroban_sdk::Symbol::new(env, "WindDownActive"))
-            .unwrap_or(false)
-    }
-
-    /// Initiate the orderly wind-down procedure.
-    ///
-    /// This is the entry point used by the multi-sig governance system:
-    /// guardians must propose `ActionType::InitiateWindDown` via
-    /// `propose_action` and reach the configured approval threshold. Once the
-    /// threshold is met, `execute_action` calls `internal_initiate_wind_down`
-    /// (below), which:
-    ///
-    ///   1. Sets `DataKey::WindDownActive = true`, blocking all new deposits.
-    ///   2. Best-effort `harvest()` so any uncollected yield is realised
-    ///      before the queue is drained (skipped silently if there are no
-    ///      strategies, the harvest interval has not elapsed, or harvest
-    ///      otherwise fails — wind-down must not be blocked by yield issues).
-    ///   3. Drains the entire pending-withdrawal queue with
-    ///      `process_queued_withdrawals(u32::MAX)`.
-    ///   4. Emits `WindDownInitiated`.
-    ///
-    /// Direct callers (admin/guardian) can also invoke this without going
-    /// through the proposal flow as a break-glass; in that case the call is
-    /// admin-gated.
-    pub fn initiate_wind_down(env: Env, caller: Address) -> Result<(), Error> {
-        caller.require_auth();
-
-        // Caller must be admin or a guardian. The proposal-driven path goes
-        // through `execute_action` and bypasses this check via the internal
-        // helper, so this guard only matters when called directly.
-        let admin = Self::read_admin(&env);
-        let guardians: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Guardians)
-            .unwrap_or(Vec::new(&env));
-        if caller != admin && !guardians.contains(caller.clone()) {
-            return Self::emit_and_err(&env, Error::Unauthorized);
-        }
-
-        Self::internal_initiate_wind_down(&env, &caller)
-    }
-
-    /// Core wind-down logic. Must only be called from `execute_action` (after
-    /// guardian approval) or from the admin/guardian-gated public wrapper.
-    fn internal_initiate_wind_down(env: &Env, initiator: &Address) -> Result<(), Error> {
-        // Idempotent: if wind-down is already active, do nothing.
-        if Self::wind_down_active(env) {
-            return Ok(());
-        }
-
-        // 1. Activate wind-down — this immediately blocks new deposits.
-        // Stored under a Symbol key (mirroring CascadePauseActive) instead of
-        // adding a DataKey variant: at 50 variants the contracttype macro's
-        // SCSpecUDTUnionV0 already serialises near the XDR length cap, and an
-        // extra variant tips it over `LengthExceedsMax`.
-        env.storage()
-            .instance()
-            .set(&soroban_sdk::Symbol::new(env, "WindDownActive"), &true);
-
-        // 2. Best-effort harvest. We do not propagate errors: a vault with no
-        //    strategies, an interval not yet elapsed, or any other harvest
-        //    failure must not prevent users from exiting.
-        let _ = Self::harvest(env.clone());
-
-        // 3. Drain the entire withdrawal queue.
-        let processed = Self::internal_process_queued_withdrawals(env, u32::MAX);
-
-        // 4. Emit WindDownInitiated.
-        let total_assets_after = Self::total_assets(env);
-        let total_shares_after = Self::total_shares(env);
-        let timestamp = env.ledger().timestamp();
-        env.events().publish(
-            (soroban_sdk::Symbol::new(env, "WindDownInitiated"),),
-            WindDownInitiated {
-                initiator: initiator.clone(),
-                timestamp,
-                queued_processed: processed,
-                total_assets_after,
-                total_shares_after,
-            },
-        );
-
-        Ok(())
     }
 
     /// Cancel a queued withdrawal and return shares to the user.
