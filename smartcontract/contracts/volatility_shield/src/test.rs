@@ -29,8 +29,7 @@ fn test_init_stores_roles() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32,
-    );
+        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32, &9u32 );
 
     assert_eq!(client.read_admin(), admin);
     assert_eq!(client.get_oracle(), oracle);
@@ -62,8 +61,7 @@ fn test_init_already_initialized() {
         &treasury,
         &500u32,
         &soroban_sdk::vec![&env, admin.clone()],
-        &1u32,
-    );
+        &1u32, &9u32 );
     assert!(result.is_ok());
 
     let result = client.try_init(
@@ -73,8 +71,7 @@ fn test_init_already_initialized() {
         &treasury,
         &500u32,
         &soroban_sdk::vec![&env, admin.clone()],
-        &1u32,
-    );
+        &1u32, &9u32 );
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
@@ -88,7 +85,7 @@ fn test_convert_to_assets() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // 1. Test 1:1 conversion when total_shares is 0
     assert_eq!(client.convert_to_assets(&100), 100);
@@ -128,7 +125,7 @@ fn test_convert_to_shares() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // 1. Initial Deposit (total_shares = 0)
     assert_eq!(client.convert_to_shares(&100), 100);
@@ -164,7 +161,7 @@ fn test_strategy_registry() {
     let strategy = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
     assert_eq!(client.read_admin(), admin);
 
     client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
@@ -200,8 +197,7 @@ fn test_take_fees() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32,
-    );
+        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32, &9u32 );
 
     let deposit_amount = 1000;
     let remaining = client.take_fees(&deposit_amount);
@@ -225,8 +221,7 @@ fn test_deposit_success() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     let user = Address::generate(&env);
     let deposit_amount = 1000;
@@ -256,8 +251,7 @@ fn test_withdraw_success() {
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
     client.set_total_shares(&1000);
     client.set_total_assets(&5000);
 
@@ -288,7 +282,7 @@ fn test_rebalance_admin_auth_accepted() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
@@ -310,7 +304,7 @@ fn test_rebalance_oracle_auth_accepted() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
     env.ledger().set_timestamp(12345);
     let allocations: Map<Address, i128> = Map::new(&env);
     client.set_oracle_data(&allocations, &env.ledger().timestamp());
@@ -333,7 +327,7 @@ fn test_multisig_set_paused() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32, &9u32);
 
     let id = client.propose_action(&admin, &ActionType::SetPaused(true));
 
@@ -359,7 +353,7 @@ fn test_multisig_add_strategy() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy = Address::generate(&env);
     // threshold 1 -> immediate
@@ -385,8 +379,7 @@ fn test_multisig_unauthorized_propose() {
         &Address::generate(&env),
         &0,
         &guardians,
-        &1,
-    );
+        &1, &9u32 );
 
     let stranger = Address::generate(&env);
     let result = client.try_propose_action(&stranger, &ActionType::Rebalance(50u32));
@@ -407,7 +400,7 @@ fn test_guardian_crud() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let guardian_2 = Address::generate(&env);
     client.add_guardian(&guardian_2);
@@ -446,7 +439,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
@@ -481,7 +474,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
@@ -517,7 +510,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
@@ -544,7 +537,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let nonexistent_strategy = Address::generate(&env);
         let result = client.try_flag_strategy(&nonexistent_strategy);
@@ -569,8 +562,7 @@ mod strategy_health_tests {
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(
-            &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-        );
+            &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
         // Set timelock to 0 for immediate execution in tests
         client.set_timelock_duration(&0u64);
@@ -611,7 +603,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
@@ -637,7 +629,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let nonexistent_strategy = Address::generate(&env);
         let result = client.try_remove_strategy(&nonexistent_strategy);
@@ -657,7 +649,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
         client.set_timelock_duration(&0u64);
@@ -688,7 +680,7 @@ mod strategy_health_tests {
         let oracle = Address::generate(&env);
         let treasury = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         // Try to check health with no strategies — should return NoStrategies error
         let result = client.try_check_strategy_health();
@@ -711,7 +703,7 @@ fn test_timelock_duration_setting() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
@@ -732,7 +724,7 @@ fn test_timelock_prevents_premature_execution() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
@@ -760,7 +752,7 @@ fn test_timelock_blocks_immediate_execution() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
@@ -787,7 +779,7 @@ fn test_timelock_with_multisig_approval() {
     let asset = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &2u32, &9u32);
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
@@ -823,7 +815,7 @@ fn test_timelock_zero_duration_allows_immediate_execution() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set timelock duration to 0 (no timelock)
     client.set_timelock_duration(&0);
@@ -846,7 +838,7 @@ fn test_timelock_events_emitted() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set timelock duration to 100 seconds
     client.set_timelock_duration(&100);
@@ -881,7 +873,7 @@ fn test_withdraw_queue_threshold_setting() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Set withdrawal queue threshold
     client.set_withdraw_queue_threshold(&1000);
@@ -903,8 +895,7 @@ fn test_withdraw_below_threshold_processes_immediately() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     // Set queue threshold to 1000
     client.set_withdraw_queue_threshold(&1000);
@@ -941,8 +932,7 @@ fn test_withdraw_above_threshold_queues() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     // Set queue threshold to 1000
     client.set_withdraw_queue_threshold(&1000);
@@ -981,8 +971,7 @@ fn test_process_withdraw_queue() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     // Set queue threshold
     client.set_withdraw_queue_threshold(&1000);
@@ -1024,8 +1013,7 @@ fn test_cancel_withdraw() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     // Set queue threshold
     client.set_withdraw_queue_threshold(&1000);
@@ -1069,8 +1057,7 @@ fn test_cannot_queue_multiple_withdrawals() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1103,7 +1090,7 @@ fn test_process_withdraw_queue_empty() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Process empty queue - should return 0 (no-op, not an error)
     let processed = client.process_queued_withdrawals(&1);
@@ -1123,7 +1110,7 @@ fn test_cancel_withdraw_not_found() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let user = Address::generate(&env);
 
@@ -1148,8 +1135,7 @@ fn test_withdrawal_queue_fifo_order() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1197,8 +1183,7 @@ fn test_withdrawal_queue_full_lifecycle() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     client.set_withdraw_queue_threshold(&1000);
 
@@ -1259,7 +1244,7 @@ fn test_valid_allocation_sum_to_100_percent() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Register all three strategies before submitting oracle data.
     let strategy1 = register_strategy(&env, &client, &admin);
@@ -1290,7 +1275,7 @@ fn test_empty_allocation_accepted() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // An empty map has no addresses to register — the sum is 0, which is allowed.
     let allocations: Map<Address, i128> = Map::new(&env);
@@ -1314,7 +1299,7 @@ fn test_allocation_sum_less_than_100_percent_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy1 = register_strategy(&env, &client, &admin);
     let strategy2 = register_strategy(&env, &client, &admin);
@@ -1342,7 +1327,7 @@ fn test_allocation_sum_greater_than_100_percent_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy1 = register_strategy(&env, &client, &admin);
     let strategy2 = register_strategy(&env, &client, &admin);
@@ -1372,7 +1357,7 @@ fn test_negative_allocation_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy1 = register_strategy(&env, &client, &admin);
     let strategy2 = register_strategy(&env, &client, &admin);
@@ -1400,7 +1385,7 @@ fn test_single_strategy_100_percent_allocation() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy1 = register_strategy(&env, &client, &admin);
 
@@ -1426,7 +1411,7 @@ fn test_multiple_negative_allocations_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let strategy1 = register_strategy(&env, &client, &admin);
     let strategy2 = register_strategy(&env, &client, &admin);
@@ -1458,7 +1443,7 @@ fn test_unregistered_strategy_address_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // Intentionally do NOT register this address — simulates a rogue/zero address.
     let rogue = Address::generate(&env);
@@ -1487,7 +1472,7 @@ fn test_partially_unregistered_allocation_rejected() {
     let treasury = Address::generate(&env);
 
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     let valid_strategy = register_strategy(&env, &client, &admin);
     let rogue_strategy = Address::generate(&env); // not registered
@@ -1519,8 +1504,7 @@ fn test_queue_withdraw_prevents_double_spending() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -1556,8 +1540,7 @@ fn test_cancel_queued_withdrawal_restores_balance() {
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
     client.init(
-        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
-    );
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32 );
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -1589,7 +1572,7 @@ fn test_unauthorized_rebalance_rejected() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     // require_admin_or_oracle should be tested here via rebalance call if it was public
 }
@@ -1608,7 +1591,7 @@ fn test_deposit_while_paused_fails() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     client.set_paused(&true);
     let user = Address::generate(&env);
@@ -1627,7 +1610,7 @@ fn test_deposit_zero_fails() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     client.deposit(&Address::generate(&env), &asset, &0);
 }
@@ -1644,7 +1627,7 @@ fn test_withdraw_cap_exceeded() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     client.set_withdraw_cap(&100);
     client.set_total_shares(&1000);
@@ -1667,7 +1650,7 @@ fn test_stale_oracle_data_rejected() {
     let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone(), oracle.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     client.set_max_staleness(&60); // 1 minute
     env.ledger().set_timestamp(1000);
@@ -1699,8 +1682,7 @@ fn test_multisig_already_approved_rejected() {
         &Address::generate(&env),
         &0,
         &guardians,
-        &2,
-    );
+        &2, &9u32 );
 
     let id = client.propose_action(&admin, &ActionType::SetPaused(true));
     let result = client.try_approve_action(&admin, &id);
@@ -1722,9 +1704,40 @@ fn test_multisig_proposal_not_found() {
         &Address::generate(&env),
         &0,
         &guardians,
-        &1,
-    );
+        &1, &9u32 );
 
     let result = client.try_approve_action(&admin, &999);
     assert_eq!(result, Err(Ok(Error::ProposalNotFound)));
+}
+
+#[test]
+fn test_usdc_share_price_precision() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+
+    // Initialize with 6 decimals instead of 9
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &6u32);
+
+    // Initial state with 0 shares should return 1.0 share with 6 decimals (1_000_000)
+    assert_eq!(client.get_share_price(), 1_000_000);
+
+    // After 1:1 deposit
+    client.set_total_assets(&10_000_000); // 10 USDC
+    client.set_total_shares(&10_000_000); // 10 Shares
+    
+    // Share price should still be 1.0 with 6 decimals
+    assert_eq!(client.get_share_price(), 1_000_000);
+    
+    // Simulate 10% profit
+    client.set_total_assets(&11_000_000); // 11 USDC
+    
+    // Share price should be 1.1 with 6 decimals = 1_100_000
+    assert_eq!(client.get_share_price(), 1_100_000);
 }

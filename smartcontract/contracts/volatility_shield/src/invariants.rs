@@ -19,7 +19,7 @@ fn setup_test_env() -> (Env, VolatilityShieldClient<'static>, Address, Address) 
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     (env, client, admin, asset)
 }
@@ -91,7 +91,7 @@ proptest! {
         let (token_id, stellar_asset_client, _token_client) = create_token_contract(&env, &token_admin);
 
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
         let user = Address::generate(&env);
         stellar_asset_client.mint(&user, &amount);

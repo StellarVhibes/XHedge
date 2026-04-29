@@ -69,6 +69,7 @@ pub enum DataKey {
     AcceptedAssets,
     AssetBalance(Address, Address), // (asset, user)
     AssetTotalAssets(Address),      // total assets per asset type
+    AssetDecimals,
 }
 
 // ─────────────────────────────────────────────
@@ -486,6 +487,7 @@ impl VolatilityShield {
         fee_percentage: u32,
         guardians: Vec<Address>,
         threshold: u32,
+        asset_decimals: u32,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
@@ -544,6 +546,10 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::AssetTotalAssets(asset), &0_i128);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::AssetDecimals, &asset_decimals);
 
         Ok(())
     }
@@ -1489,6 +1495,14 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(env))
     }
 
+    /// Get the decimals of the underlying asset.
+    pub fn get_asset_decimals(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::AssetDecimals)
+            .unwrap_or(9)
+    }
+
     /// Get the address of the fee treasury.
     pub fn treasury(env: &Env) -> Address {
         env.storage()
@@ -1546,11 +1560,14 @@ impl VolatilityShield {
     pub fn get_share_price(env: &Env) -> i128 {
         let total_assets = Self::total_assets(env);
         let total_shares = Self::total_shares(env);
+        let asset_decimals: u32 = env.storage().instance().get(&DataKey::AssetDecimals).unwrap_or(9);
+        let precision = 10_i128.pow(asset_decimals);
+        
         if total_shares == 0 {
-            return 1_000_000_000; // 1.0 with 9 decimals
+            return precision;
         }
         total_assets
-            .checked_mul(1_000_000_000)
+            .checked_mul(precision)
             .unwrap()
             .checked_div(total_shares)
             .unwrap()
