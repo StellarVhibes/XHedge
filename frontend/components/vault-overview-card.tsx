@@ -50,6 +50,9 @@ export function VaultOverviewCard() {
   const sharePrice = parseFloat(metrics?.sharePrice || "1.0000000");
   const userBalance = optimisticBalance;
   const displayedShares = optimisticShares;
+  const unhealthyStrategiesCount = 0;
+  const vaultPaused = false;
+  const cascadeHalt = false;
 
 
   return (
@@ -153,7 +156,7 @@ export function VaultOverviewCard() {
 
 interface MetricCardProps {
   title: string;
-  tooltip: string;
+  tooltip?: string;
   value: string;
   subtitle: string;
   icon: React.ReactNode;
@@ -168,7 +171,7 @@ function MetricCard({ title, tooltip, value, subtitle, icon, highlight, pending 
       {pending && <div className="absolute inset-x-0 bottom-0 h-1 bg-yellow-500/30 animate-pulse" />}
       <div className="flex items-center gap-2 text-muted-foreground">
         {icon}
-        <MetricTooltip label={title} tip={tooltip} className="text-sm" />
+        <MetricTooltip label={title} tip={tooltip ?? title} className="text-sm" />
         {pending && <Clock className="w-3 h-3 text-yellow-600 animate-pulse" />}
       </div>
       <div className={`text-2xl font-bold ${highlight ? "text-primary" : "text-foreground"}`}>
@@ -183,4 +186,3 @@ function MetricCard({ title, tooltip, value, subtitle, icon, highlight, pending 
   );
 
 }
-
