@@ -23,7 +23,7 @@ interface ProvidersProps {
 
 export function Providers({ children, nonce }: ProvidersProps) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem nonce={nonce}>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="vault-theme" nonce={nonce}>
       <I18nProvider>
         <FreighterProvider>
           <NetworkProvider>

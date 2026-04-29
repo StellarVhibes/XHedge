@@ -10,7 +10,7 @@ import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
 import { usePrices } from "@/app/context/PriceContext";
 import { NotificationBell } from "./NotificationBell";
-
+import { ThemeToggle } from "./ThemeToggle";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -54,7 +54,8 @@ export function Sidebar() {
         {isOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
       </button>
 
-      <div className="fixed top-4 right-4 z-50 lg:hidden">
+      <div className="fixed top-4 right-4 z-50 lg:hidden flex items-center gap-2">
+        <ThemeToggle className="bg-sidebar border border-sidebar-border shadow-sm" />
         <NotificationBell className="bg-sidebar border border-sidebar-border shadow-sm" />
       </div>
 
@@ -89,7 +90,10 @@ export function Sidebar() {
               <Shield className="w-8 h-8 text-primary" />
               <span className="text-xl font-bold text-foreground">XHedge</span>
             </div>
-            <NotificationBell className="hidden lg:flex" />
+            <div className="hidden lg:flex items-center gap-1">
+              <ThemeToggle />
+              <NotificationBell />
+            </div>
           </div>
 
           <nav aria-label="Primary" className="flex-1 px-3 py-4 space-y-1">
