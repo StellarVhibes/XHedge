@@ -264,7 +264,7 @@ export default function PartnerDashboard() {
                 <XAxis dataKey="date" />
                 <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`} />
                 <Tooltip 
-                  formatter={(value: number) => [formatCurrency(value), "TVL"]}
+                  formatter={(value: any) => [formatCurrency(Number(value)), "TVL"]}
                   labelStyle={{ color: 'hsl(var(--foreground))' }}
                 />
                 <Area 
@@ -302,7 +302,7 @@ export default function PartnerDashboard() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value: number) => [`${value}%`, "Allocation"]} />
+                <Tooltip formatter={(value: any) => [`${value}%`, "Allocation"]} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
