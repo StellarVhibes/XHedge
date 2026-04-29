@@ -38,12 +38,29 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setNotifications(
-          parsed.map((n: any) => ({
-            ...n,
-            timestamp: new Date(n.timestamp),
-          }))
-        );
+        if (Array.isArray(parsed)) {
+          const validatedNotifications = parsed
+            .filter((n: any) => {
+              const isValid = 
+                n &&
+                typeof n.id === "string" &&
+                typeof n.title === "string" &&
+                typeof n.message === "string" &&
+                n.timestamp &&
+                typeof n.read === "boolean" &&
+                ["info", "success", "warning", "error"].includes(n.type);
+              
+              if (!isValid) {
+                console.warn("Discarding malformed notification entry:", n);
+              }
+              return isValid;
+            })
+            .map((n: any) => ({
+              ...n,
+              timestamp: new Date(n.timestamp),
+            }));
+          setNotifications(validatedNotifications);
+        }
       } catch (e) {
         console.error("Failed to parse notifications", e);
       }
