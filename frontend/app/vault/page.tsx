@@ -21,6 +21,8 @@ import { Modal } from "@/components/ui/modal";
 import SigningOverlay, { SigningStep } from "@/components/SigningOverlay";
 import { SUPPORTED_ASSETS, VAULT_CONTRACT_ID } from "@/contracts.config";
 import { MetricTooltip } from "@/components/MetricTooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { usePrices } from "@/app/context/PriceContext";
 
 type TabType = "deposit" | "withdraw";
 
@@ -31,6 +33,7 @@ export default function VaultPage() {
   const commonT = useTranslations("Common");
   const { connected, address, signTransaction } = useWallet();
   const { network } = useNetwork();
+  const { prices } = usePrices();
   const [activeTab, setActiveTab] = useState<TabType>("deposit");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -159,6 +162,31 @@ export default function VaultPage() {
 
   const userBalance = metrics ? parseFloat(metrics.userBalance) / 1e7 : 0;
   const userShares = metrics ? parseFloat(metrics.userShares) / 1e7 : 0;
+  const parsedAmount = parseFloat(amount);
+  const hasPositiveAmount = Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const inputId = `${activeTab}-amount`;
+  const inputDescriptionId = `${activeTab}-amount-feedback`;
+  const inputAriaLabel = activeTab === "deposit" ? "Deposit amount" : "Withdraw amount";
+  const inputHint =
+    activeTab === "deposit"
+      ? `Enter the amount of ${selectedAssetSymbol} to deposit.`
+      : "Enter the number of vault shares to withdraw.";
+  const amountError =
+    amount && !hasPositiveAmount
+      ? "Enter an amount greater than 0."
+      : activeTab === "withdraw" && hasPositiveAmount && parsedAmount > userShares
+        ? `Insufficient balance. You have ${userShares.toFixed(2)} shares.`
+        : null;
+  const sharePrice = metrics ? parseFloat(metrics.sharePrice) : 1;
+  const previewAmount = hasPositiveAmount ? parsedAmount : 0;
+  const preview = {
+    outputValue: activeTab === "deposit" ? previewAmount / sharePrice : previewAmount * sharePrice,
+    sharePrice,
+    feeXlm: estimatedFee ? parseFloat(estimatedFee) : 0,
+  };
+  const outputLabel = activeTab === "deposit" ? "XHS" : selectedAssetSymbol;
+  const feeUsd = preview.feeXlm * prices.XLM;
+  const previewLoading = estimatingFee;
 
   const handleDeposit = useCallback(async () => {
     if (!connected || !address || !amount || parseFloat(amount) <= 0) {
@@ -244,6 +272,11 @@ export default function VaultPage() {
   }, [connected, address, amount, userShares, LARGE_WITHDRAW_THRESHOLD]);
 
   const executeWithdraw = useCallback(async () => {
+    if (!connected || !address || !amount || parseFloat(amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+
     setShowWithdrawConfirm(false);
     setLoading(true);
     const toastId = toast.loading("Processing withdrawal...");

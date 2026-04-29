@@ -83,6 +83,9 @@ export function useWallet() {
   }, [checkConnection]);
 
   const signTx = useCallback(async (xdr: string, networkPassphrase: string) => {
+    const isRecoverableAuthError = (message: string) =>
+      message.includes("not_allowed") || message.includes("user_rejected");
+
     try {
       const result = await signTransaction(xdr, {
         networkPassphrase,
@@ -94,8 +97,38 @@ export function useWallet() {
       
       return { error: "Failed to sign transaction", signedTxXdr: null };
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to sign transaction";
+
+      if (isRecoverableAuthError(message) && typeof window !== "undefined") {
+        const shouldReconnect = window.confirm(
+          "Wallet session expired - click to reconnect"
+        );
+
+        if (!shouldReconnect) {
+          return { error: "Wallet session expired", signedTxXdr: null };
+        }
+
+        try {
+          await requestAccess();
+          const retryResult = await signTransaction(xdr, { networkPassphrase });
+          if (typeof retryResult === "string") {
+            return { error: null, signedTxXdr: retryResult };
+          }
+          return { error: "Failed to sign transaction after reconnect", signedTxXdr: null };
+        } catch (retryError) {
+          return {
+            error:
+              retryError instanceof Error
+                ? retryError.message
+                : "Failed to reconnect wallet",
+            signedTxXdr: null,
+          };
+        }
+      }
+
       return { 
-        error: error instanceof Error ? error.message : "Failed to sign transaction", 
+        error: message, 
         signedTxXdr: null 
       };
     }

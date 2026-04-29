@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { X, Bell, Trash2, CheckCircle2, Clock } from "lucide-react";
-import { useNotifications, Notification } from "@/app/context/NotificationContext";
+import { useNotifications } from "@/app/context/NotificationContext";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ export function NotificationDrawer() {
     markAsRead,
     markAllAsRead,
     clearAll,
-    addNotification,
   } = useNotifications();
 
   const drawerRef = useRef<HTMLDivElement | null>(null);
@@ -215,25 +214,6 @@ export function NotificationDrawer() {
             </div>
           )}
         </ScrollArea>
-        
-        {/* Footer */}
-        <div className="p-4 border-t bg-muted/30">
-          <Button 
-            className="w-full" 
-            variant="outline"
-            onClick={() => {
-              const testNotifs = [
-                { title: "Vault Activated", message: "Your XLM-USDC vault strategy is now active.", type: "success" as const },
-                { title: "Price Alert", message: "Stellar XLM has reached its target price.", type: "info" as const },
-                { title: "Payout Processed", message: "Your monthly reward has been processed.", type: "success" as const },
-              ];
-              const random = testNotifs[Math.floor(Math.random() * testNotifs.length)];
-              addNotification(random);
-            }}
-          >
-            Check for Updates
-          </Button>
-        </div>
       </div>
     </>
   );

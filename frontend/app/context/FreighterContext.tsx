@@ -8,11 +8,10 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-<<<<<<< HEAD
-=======
+
 import { useInactivityLogout } from "../../hooks/use-inactivity-logout";
 import { InactivityWarningModal } from "../components/InactivityWarningModal";
->>>>>>> upstream/main
+
 
 /* ── Freighter API v2 ─────────────────────────────────── */
 import {
@@ -59,10 +58,9 @@ const FreighterContext = createContext<FreighterContextValue | undefined>(
 /* ── Provider ────────────────────────────────────────── */
 export function FreighterProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FreighterState>(initialState);
-<<<<<<< HEAD
-=======
+
   const [isWarningOpen, setIsWarningOpen] = useState(false);
->>>>>>> upstream/main
+
 
   /**
    * Check if Freighter is installed and whether it has previously
@@ -164,13 +162,7 @@ export function FreighterProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       error: null,
     });
-<<<<<<< HEAD
-  }, []);
 
-  return (
-    <FreighterContext.Provider value={{ ...state, connect, disconnect }}>
-      {children}
-=======
     setIsWarningOpen(false);
   }, []);
 
@@ -198,7 +190,7 @@ export function FreighterProvider({ children }: { children: ReactNode }) {
           setIsWarningOpen(false);
         }}
       />
->>>>>>> upstream/main
+
     </FreighterContext.Provider>
   );
 }
