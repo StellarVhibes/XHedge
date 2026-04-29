@@ -36,8 +36,38 @@ import {
 import { usePartnerAuth } from "@/app/context/PartnerAuthContext";
 import { PermissionGate } from "@/components/PartnerGuard";
 
+export interface PerformanceDataPoint {
+  date: string;
+  tvl: number;
+  users: number;
+  volume: number;
+  apy: number;
+}
+
+export interface AssetAllocationItem {
+  name: string;
+  value: number;
+  color: string;
+}
+
+export interface UserGrowthPoint {
+  month: string;
+  new: number;
+  active: number;
+  churn: number;
+}
+
+export interface ActivityItem {
+  id: number;
+  type: string;
+  user: string;
+  amount: number;
+  timestamp: string;
+  status: string;
+}
+
 // Mock data generators
-const generatePerformanceData = () => [
+const generatePerformanceData = (): PerformanceDataPoint[] => [
   { date: "Jan", tvl: 4500000, users: 1200, volume: 2800000, apy: 5.2 },
   { date: "Feb", tvl: 5200000, users: 1450, volume: 3200000, apy: 5.8 },
   { date: "Mar", tvl: 6100000, users: 1680, volume: 4100000, apy: 6.1 },
@@ -46,7 +76,7 @@ const generatePerformanceData = () => [
   { date: "Jun", tvl: 10500000, users: 2750, volume: 8200000, apy: 7.2 },
 ];
 
-const generateAssetAllocation = () => [
+const generateAssetAllocation = (): AssetAllocationItem[] => [
   { name: "Stellar Lumens", value: 35, color: "#00D5FF" },
   { name: "USDC", value: 28, color: "#2775CA" },
   { name: "EURC", value: 18, color: "#2E5266" },
@@ -54,7 +84,7 @@ const generateAssetAllocation = () => [
   { name: "Others", value: 7, color: "#6B7280" },
 ];
 
-const generateUserGrowth = () => [
+const generateUserGrowth = (): UserGrowthPoint[] => [
   { month: "Jan", new: 120, active: 890, churn: 15 },
   { month: "Feb", new: 145, active: 1020, churn: 18 },
   { month: "Mar", new: 168, active: 1170, churn: 22 },
@@ -63,7 +93,7 @@ const generateUserGrowth = () => [
   { month: "Jun", new: 275, active: 1792, churn: 32 },
 ];
 
-const generateRecentActivity = () => [
+const generateRecentActivity = (): ActivityItem[] => [
   { id: 1, type: "deposit", user: "0x1234...5678", amount: 50000, timestamp: "2 mins ago", status: "completed" },
   { id: 2, type: "withdraw", user: "0xabcd...ef12", amount: 25000, timestamp: "5 mins ago", status: "completed" },
   { id: 3, type: "deposit", user: "0x5678...9abc", amount: 100000, timestamp: "12 mins ago", status: "completed" },
@@ -75,10 +105,10 @@ export default function PartnerDashboard() {
   const { partner } = usePartnerAuth();
   const [timeRange, setTimeRange] = useState("6m");
   const [isLoading, setIsLoading] = useState(true);
-  const [performanceData, setPerformanceData] = useState<any[]>([]);
-  const [assetAllocation, setAssetAllocation] = useState<any[]>([]);
-  const [userGrowth, setUserGrowth] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [performanceData, setPerformanceData] = useState<PerformanceDataPoint[]>([]);
+  const [assetAllocation, setAssetAllocation] = useState<AssetAllocationItem[]>([]);
+  const [userGrowth, setUserGrowth] = useState<UserGrowthPoint[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
     // Simulate data loading
@@ -234,7 +264,7 @@ export default function PartnerDashboard() {
                 <XAxis dataKey="date" />
                 <YAxis tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`} />
                 <Tooltip 
-                  formatter={(value: any) => [formatCurrency(value), "TVL"]}
+                  formatter={(value: number) => [formatCurrency(value), "TVL"]}
                   labelStyle={{ color: 'hsl(var(--foreground))' }}
                 />
                 <Area 
@@ -272,7 +302,7 @@ export default function PartnerDashboard() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value: any) => [`${value}%`, "Allocation"]} />
+                <Tooltip formatter={(value: number) => [`${value}%`, "Allocation"]} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
