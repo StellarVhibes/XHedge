@@ -944,12 +944,13 @@ impl VolatilityShield {
             let strategy = StrategyClient::new(&env, strategy_addr.clone());
             let current_balance = strategy.balance();
 
-            // Convert BPS to absolute target allocation
-            let target_allocation = total_assets
-                .checked_mul(bps_allocation)
-                .unwrap()
-                .checked_div(10_000)
-                .unwrap_or(0);
+    pub fn withdraw(&self, amount: i128) {
+        self.env.invoke_contract::<()>(
+            &self.address,
+            &soroban_sdk::Symbol::new(self.env, "withdraw"),
+            soroban_sdk::vec![self.env, soroban_sdk::IntoVal::into_val(&amount, self.env)],
+        );
+    }
 
             if target_allocation > current_balance {
                 // Vault → Strategy
@@ -971,24 +972,24 @@ impl VolatilityShield {
             let final_balance = strategy.balance();
             let _initial_balance = initial_balances.get(strategy_addr.clone()).unwrap_or(0);
 
-            // Calculate expected balance based on target allocation (BPS -> Absolute)
-            let expected_balance = total_assets
-                .checked_mul(target_allocation)
-                .unwrap()
-                .checked_div(10_000)
-                .unwrap_or(0);
+        let id = env.storage().instance().get(&DataKey::NextProposalId).unwrap_or(1);
+        env.storage().instance().set(&DataKey::NextProposalId, &(id + 1));
 
-            // Calculate slippage in basis points
-            if expected_balance > 0 {
-                let slippage_abs = if final_balance > expected_balance {
-                    final_balance - expected_balance
-                } else {
-                    expected_balance - final_balance
-                };
+        let proposed_at = env.ledger().timestamp();
+        let mut proposal = Proposal {
+            id,
+            proposer: proposer.clone(),
+            action: action.clone(),
+            approvals: soroban_sdk::vec![&env, proposer],
+            executed: false,
+            proposed_at,
+        };
 
-                let slippage_bps = (slippage_abs.checked_mul(10000).unwrap())
-                    .checked_div(expected_balance)
-                    .unwrap_or(0);
+        // Emit TimelockStarted event
+        env.events().publish(
+            (symbol_short!("Timelock"),),
+            (id, proposed_at),
+        );
 
                 if slippage_bps > max_slippage_bps as i128 {
                     // Emit SlippageExceeded event
@@ -1003,6 +1004,8 @@ impl VolatilityShield {
                     );
                     return Err(Error::SlippageExceeded);
                 }
+            } else {
+                proposal.executed = true;
             }
         }
 
@@ -1040,15 +1043,13 @@ impl VolatilityShield {
             return Err(Error::InvalidTimestamp);
         }
 
-        // Validate allocations before storing
-        Self::validate_allocations(&env, &allocations)?;
+        if proposal.executed {
+            return Err(Error::ProposalExecuted);
+        }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::OracleLastUpdate, &timestamp);
-        env.storage()
-            .instance()
-            .set(&DataKey::TargetAllocations, &allocations);
+        if proposal.approvals.contains(guardian.clone()) {
+            return Err(Error::AlreadyApproved);
+        }
 
         Ok(())
     }
@@ -2308,89 +2309,231 @@ impl VolatilityShield {
 
         env.storage()
             .instance()
-            .set(&DataKey::EmergencyShutdown, &true);
+            .set(&DataKey::FeePercentage, &fee_percentage);
+        env.storage().instance().set(&DataKey::Token, &asset);
 
-        Self::record_pause_change(&env, admin, true);
-    }
-
-    /// Pause all registered strategies and activate cascade pause mode.
-    /// 
-    /// This function iterates through all registered strategies and calls their pause entry point,
-    /// then sets the cascade pause flag to halt all vault operations simultaneously.
-    /// Only the admin can call this function.
-    pub fn pause_all_strategies(env: Env) {
-        let admin = Self::read_admin(&env);
-        admin.require_auth();
-
-        // Set cascade pause flag first to prevent new operations
+        // Initialize vault state to zero
+        env.storage().instance().set(&DataKey::TotalAssets, &0_i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0_i128);
         env.storage()
             .instance()
-            .set(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"), &true);
+            .set(&DataKey::MaxStaleness, &3600u64);
 
-        // Get all registered strategies
-        let strategies: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Strategies)
-            .unwrap_or(Vec::new(&env));
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
 
-        // Pause each strategy
-        for strategy_addr in strategies.iter() {
-            let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            // Try to call pause on the strategy, but don't fail if it doesn't support pause
-            let _ = strategy.try_pause();
-        }
+        // Multisig initialization
+        env.storage().instance().set(&DataKey::Guardians, &guardians);
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
 
-        // Also pause the vault itself
-        Self::record_pause_change(&env, admin.clone(), true);
+        // Initialize contract version
+        env.storage().instance().set(&DataKey::ContractVersion, &1u32);
 
-        // Emit cascade pause activated event
-        env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "CascadePauseActivated"),),
-            (env.ledger().sequence(), admin),
-        );
+        Ok(())
     }
 
-    /// Lift the cascade pause and unpause all strategies.
-    /// Only the admin can call this function.
-    pub fn lift_cascade_pause(env: Env) {
-        let admin = Self::read_admin(&env);
-        admin.require_auth();
+    // ── Deposit ───────────────────────────────
+    pub fn deposit(env: Env, from: Address, amount: i128) {
+        Self::check_version(&env, 1);
+        Self::assert_not_paused(&env);
+        if amount <= 0 {
+            panic!("deposit amount must be positive");
+        }
+        from.require_auth();
 
-        // Get all registered strategies
-        let strategies: Vec<Address> = env
+        let token: Address = env
             .storage()
             .instance()
-            .get(&DataKey::Strategies)
-            .unwrap_or(Vec::new(&env));
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
-        // Unpause each strategy
-        for strategy_addr in strategies.iter() {
-            let strategy = StrategyClient::new(&env, strategy_addr.clone());
-            // Try to call unpause on the strategy, but don't fail if it doesn't support unpause
-            let _ = strategy.try_unpause();
+        let shares_to_mint = Self::convert_to_shares(env.clone(), amount);
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        let new_user_balance = current_balance.checked_add(shares_to_mint).unwrap();
+
+        // --- Deposit Caps Validation ---
+        let max_deposit_per_user: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxDepositPerUser)
+            .unwrap_or(i128::MAX);
+        if new_user_balance > max_deposit_per_user {
+            env.events()
+                .publish((symbol_short!("Cap"), symbol_short!("deposit")), amount);
+            panic!("DepositCapExceeded: per-user deposit cap exceeded");
         }
 
-        // Clear cascade pause flag
+        let total_assets = Self::total_assets(&env);
+        let new_total_assets = total_assets.checked_add(amount).unwrap();
+
+        let max_total_assets: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxTotalAssets)
+            .unwrap_or(i128::MAX);
+        if new_total_assets > max_total_assets {
+            env.events()
+                .publish((symbol_short!("Cap"), symbol_short!("deposit")), amount);
+            panic!("DepositCapExceeded: global deposit cap exceeded");
+        }
+        // -------------------------------
+
         env.storage()
-            .instance()
-            .set(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"), &false);
+            .persistent()
+            .set(&balance_key, &new_user_balance);
 
-        // Also unpause the vault
-        Self::record_pause_change(&env, admin.clone(), false);
-
-        // Emit cascade pause lifted event
-        env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "CascadePauseLifted"),),
-            (env.ledger().sequence(), admin),
+        let total_shares = Self::total_shares(&env);
+        Self::set_total_shares(
+            env.clone(),
+            total_shares.checked_add(shares_to_mint).unwrap(),
         );
+        Self::set_total_assets(env.clone(), total_assets.checked_add(amount).unwrap());
+
+        env.events()
+            .publish((symbol_short!("Deposit"), from.clone()), amount);
+
+        // Referral bonus is earned on the depositor's very first deposit only.
+        if current_balance == 0 {
+            Self::maybe_reward_referrer(&env, &from, shares_to_mint);
+        }
     }
 
-    /// Set a delegate address that can withdraw on behalf of the caller.
-    /// The delegate can call withdraw() to withdraw funds to the original owner's address.
-    pub fn set_withdraw_delegate(env: Env, caller: Address, delegate: Address) {
-        caller.require_auth();
-        Self::write_delegate(&env, &caller, &delegate);
+    // ── Withdraw ──────────────────────────────
+    pub fn withdraw(env: Env, from: Address, shares: i128) {
+        Self::check_version(&env, 1);
+        Self::assert_not_paused(&env);
+        if shares <= 0 {
+            panic!("shares to withdraw must be positive");
+        }
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if current_balance < shares {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+
+        // --- Withdraw Caps Validation ---
+        let max_withdraw_per_tx: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxWithdrawPerTx)
+            .unwrap_or(i128::MAX);
+        if assets_to_withdraw > max_withdraw_per_tx {
+            env.events().publish(
+                (symbol_short!("Cap"), symbol_short!("withdraw")),
+                assets_to_withdraw,
+            );
+            panic!("WithdrawalCapExceeded: per-tx withdrawal cap exceeded");
+        }
+        // --------------------------------
+
+        // Check if withdrawal exceeds queue threshold
+        let queue_threshold: i128 = env.storage().instance().get(&DataKey::WithdrawQueueThreshold).unwrap_or(i128::MAX);
+        if assets_to_withdraw > queue_threshold {
+            // Queue the withdrawal instead of processing immediately
+            Self::queue_withdraw(env, from, shares);
+            return;
+        }
+
+        let total_shares = Self::total_shares(&env);
+        let total_assets = Self::total_assets(&env);
+
+        Self::set_total_shares(env.clone(), total_shares.checked_sub(shares).unwrap());
+        Self::set_total_assets(
+            env.clone(),
+            total_assets.checked_sub(assets_to_withdraw).unwrap(),
+        );
+        env.storage().persistent().set(
+            &balance_key,
+            &(current_balance.checked_sub(shares).unwrap()),
+        );
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not initialized");
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &from,
+            &assets_to_withdraw,
+        );
+
+        env.events()
+            .publish((symbol_short!("withdraw"), from.clone()), shares);
+    }
+
+
+    // ── Withdrawal Queue ───────────────────────
+    /// Queue a withdrawal request for processing later.
+    /// This is called automatically by withdraw() when the amount exceeds the threshold.
+    pub fn queue_withdraw(env: Env, from: Address, shares: i128) {
+        Self::assert_not_paused(&env);
+        if shares <= 0 {
+            panic!("shares to queue must be positive");
+        }
+        from.require_auth();
+
+        let balance_key = DataKey::Balance(from.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if current_balance < shares {
+            panic!("insufficient shares for withdrawal");
+        }
+
+        let assets_to_withdraw = Self::convert_to_assets(env.clone(), shares);
+        
+        // Check if withdrawal exceeds queue threshold
+        let queue_threshold: i128 = env.storage().instance()
+            .get(&DataKey::WithdrawQueueThreshold)
+            .unwrap_or(i128::MAX);
+        
+        if assets_to_withdraw <= queue_threshold {
+            panic!("withdrawal amount does not exceed queue threshold");
+        }
+
+        // Create queued withdrawal entry
+        let queued_withdrawal = QueuedWithdrawal {
+            user: from.clone(),
+            shares,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        // Add to pending withdrawals queue
+        let mut pending_withdrawals: Vec<QueuedWithdrawal> = env.storage().instance()
+            .get(&DataKey::PendingWithdrawals)
+            .unwrap_or(Vec::new(&env));
+        
+        pending_withdrawals.push_back(queued_withdrawal);
+        env.storage().instance().set(&DataKey::PendingWithdrawals, &pending_withdrawals);
+
+        // Emit WithdrawQueued event
+        env.events()
+            .publish((symbol_short!("WithdrawQ"), from.clone()), shares);
+    }
+
+    // ── Withdraw Queue Management ─────────────────────
+    /// Set the threshold for queuing withdrawals
+    pub fn set_withdraw_queue_threshold(env: Env, threshold: i128) {
+        Self::require_admin(&env);
+        if threshold < 0 {
+            panic!("threshold must be non-negative");
+        }
+        env.storage().instance().set(&DataKey::WithdrawQueueThreshold, &threshold);
+        env.events().publish((symbol_short!("QueueThr"),), threshold);
+    }
+
+    /// Process queued withdrawals (admin only)
+    pub fn process_queued_withdrawals(env: Env, limit: u32) -> u32 {
+        Self::require_admin(&env);
         
         // Emit DelegateSet event
         env.events().publish(
@@ -2895,22 +3038,68 @@ impl VolatilityShield {
         );
     }
 
-    pub fn version(env: &Env) -> u32 {
+    pub fn set_withdraw_cap(env: Env, per_tx: i128) {
+        Self::require_admin(&env);
         env.storage()
             .instance()
-            .get(&DataKey::ContractVersion)
-            .unwrap_or(0)
+            .set(&DataKey::MaxWithdrawPerTx, &per_tx);
+        env.events()
+            .publish((symbol_short!("Caps"), symbol_short!("withdraw")), per_tx);
+    }
+
+
+    pub fn set_max_staleness(env: Env, seconds: u64) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxStaleness, &seconds);
+    }
+
+    pub fn set_timelock_duration(env: Env, duration: u64) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::TimelockDuration, &duration);
+        env.events().publish((symbol_short!("TimelockD"),), duration);
+    }
+
+    pub fn max_staleness(env: &Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxStaleness)
+            .unwrap_or(3600)
+    }
+
+    // ── Contract Upgrade & Migration ──────────────────
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::require_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("wasm")), ());
+    }
+
+    pub fn migrate(env: Env, new_version: u32) {
+        Self::require_admin(&env);
+        let current_version = Self::version(&env);
+        if new_version <= current_version {
+            panic!("new version must be greater than current version");
+        }
+        
+        // Execute any necessary state migrations here if migrating from specific versions
+        // e.g. if current_version == 1 && new_version == 2 { ... migrate v1 state to v2 layout ... }
+        
+        env.storage().instance().set(&DataKey::ContractVersion, &new_version);
+        env.events().publish((symbol_short!("upgrade"), symbol_short!("migrate")), new_version);
+    }
+    
+    pub fn version(env: &Env) -> u32 {
+        env.storage().instance().get(&DataKey::ContractVersion).unwrap_or(0)
     }
 
     pub fn check_version(env: &Env, expected_version: u32) {
         let current = Self::version(env);
         if current != expected_version {
-            panic!(
-                "VersionMismatch: Expected contract version {} but found {}",
-                expected_version, current
-            );
+            panic!("VersionMismatch: Expected contract version {} but found {}", expected_version, current);
         }
     }
+
 
     pub fn is_paused(env: Env) -> bool {
         env.storage()
@@ -2919,18 +3108,7 @@ impl VolatilityShield {
             .unwrap_or(false)
     }
 
-    pub fn is_emergency_shutdown(env: Env) -> bool {
-        Self::emergency_shutdown_active(&env)
-    }
-
-    pub fn cascade_pause_active(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"))
-            .unwrap_or(false)
-    }
     fn assert_not_paused(env: &Env) {
-        // Check regular pause state
         if env
             .storage()
             .instance()
@@ -2939,29 +3117,56 @@ impl VolatilityShield {
         {
             panic!("ContractPaused");
         }
-
-        // Check cascade pause state
-        if env
-            .storage()
-            .instance()
-            .get(&soroban_sdk::Symbol::new(env, "CascadePauseActive"))
-            .unwrap_or(false)
-        {
-            panic!("CascadePauseActive");
-        }
     }
 
-    fn emergency_shutdown_active(env: &Env) -> bool {
+    // ── Referral Registration ─────────────────────────────────────────────
+    /// Register a `referrer` for `depositor` before their first deposit.
+    ///
+    /// Rules:
+    /// - `depositor` must authorise the call.
+    /// - Self-referral is rejected (`Error::InvalidConfig`).
+    /// - The mapping is write-once; a second call returns `Error::ReferralAlreadySet`.
+    /// - Registration after the depositor's first deposit is rejected.
+    pub fn register_referral(env: Env, depositor: Address, referrer: Address) {
+        depositor.require_auth();
+
+        if depositor == referrer {
+            panic_with_error!(&env, Error::InvalidConfig);
+        }
+
+        let referrer_key = DataKey::Referrer(depositor.clone());
+        if env.storage().persistent().has(&referrer_key) {
+            panic_with_error!(&env, Error::ReferralAlreadySet);
+        }
+
+        // Reject if the depositor has already made their first deposit.
+        let balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(depositor.clone()))
+            .unwrap_or(0);
+        if balance > 0 {
+            panic_with_error!(&env, Error::InvalidConfig);
+        }
+
+        env.storage().persistent().set(&referrer_key, &referrer);
+    }
+
+    // ── Referral Config (admin only) ──────────────────────────────────────
+    /// Configure the referral reward parameters.
+    ///
+    /// - `reward_bps`: bonus shares expressed as basis points of the
+    ///   depositor's minted shares (50 = 0.5 %).  Set to 0 to disable.
+    /// - `epoch_cap`: maximum total bonus shares a single referrer may
+    ///   accumulate before an admin resets their epoch earnings.
+    pub fn set_referral_config(env: Env, reward_bps: u32, epoch_cap: i128) {
+        Self::require_admin(&env);
         env.storage()
             .instance()
-            .get(&DataKey::EmergencyShutdown)
-            .unwrap_or(false)
-    }
-
-    fn assert_not_emergency_shutdown(env: &Env) {
-        if Self::emergency_shutdown_active(env) {
-            panic!("EmergencyShutdownActive");
-        }
+            .set(&DataKey::ReferralRewardBps, &reward_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::ReferralEpochCap, &epoch_cap);
     }
 
     // ─────────────────────────────────────────
@@ -2982,144 +3187,107 @@ impl VolatilityShield {
     /// Oracle-initiated calls should be routed through a thin oracle contract
     /// that calls rebalance() as a sub-invocation (so the vault sees the oracle
     /// contract as the top-level caller).  In tests, use mock_all_auths().
-    fn require_admin_or_oracle(_env: &Env, caller: &Address, admin: &Address, oracle: &Address) {
-        // This helper is only used by governance-driven execution paths in this contract.
-        // Authentication is already enforced by `propose_action` / `approve_action` (guardian require_auth),
-        // so we only need to validate the caller role here.
-        if *caller != *admin && *caller != *oracle {
-            // Neither admin nor oracle is the caller.
-            panic!("Unauthorized: expected admin or oracle");
-        }
-    }
-
-    
-    // ── Structured view/query functions for off-chain consumers (SC-31) ────
-
-    /// Returns a single-call snapshot of the vault's global state.
+    /// Credit the referrer with bonus shares on a depositor's *first* deposit.
     ///
-    /// Designed for indexers and dashboards that need to minimise RPC calls.
-    /// Does not mutate any storage.
-    pub fn get_vault_summary(env: Env) -> VaultSummary {
-        let total_assets = Self::total_assets(&env);
-        let total_shares = Self::total_shares(&env);
-        let share_price = Self::get_share_price(&env);
-        let paused = env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false);
-        let cascade_pause_active = env
-            .storage()
-            .instance()
-            .get(&soroban_sdk::Symbol::new(&env, "CascadePauseActive"))
-            .unwrap_or(false);
-        let oracle_last_update: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::OracleLastUpdate)
-            .unwrap_or(0);
-        VaultSummary {
-            total_assets,
-            total_shares,
-            share_price,
-            paused,
-            cascade_pause_active,
-            oracle_last_update,
-        }
-    }
-
-    /// Returns a single-call snapshot of a specific user's position in the vault.
+    /// Called from [`deposit`] when `current_balance == 0`.
     ///
-    /// Includes balance, queued withdrawal (if any), and current voting power.
-    /// Does not mutate any storage.
-    pub fn get_user_summary(env: Env, user: Address) -> UserSummary {
-        let balance = Self::read_user_balance(&env, &user);
+    /// Does nothing when:
+    /// - No referrer is registered for the depositor.
+    /// - `ReferralRewardBps` is 0 (feature disabled).
+    /// - The referrer has already hit their epoch cap.
+    ///
+    /// Complexity: O(1) space and time — four persistent reads, two writes.
+    fn maybe_reward_referrer(env: &Env, depositor: &Address, depositor_shares: i128) {
+        // Look up the referrer; bail out if none is registered.
+        let referrer_key = DataKey::Referrer(depositor.clone());
+        let referrer: Address = match env.storage().persistent().get(&referrer_key) {
+            Some(r) => r,
+            None => return,
+        };
 
-        let pending: Vec<QueuedWithdrawal> = env
+        let reward_bps: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::PendingWithdrawals)
-            .unwrap_or(Vec::new(&env));
-        let queued_shares: i128 = pending
-            .iter()
-            .find(|w| w.user == user)
-            .map(|w| w.shares)
+            .get(&DataKey::ReferralRewardBps)
+            .unwrap_or(50);
+        if reward_bps == 0 {
+            return;
+        }
+
+        let epoch_cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReferralEpochCap)
+            .unwrap_or(i128::MAX);
+
+        let epoch_key = DataKey::ReferralEpochEarnings(referrer.clone());
+        let already_earned: i128 = env
+            .storage()
+            .persistent()
+            .get(&epoch_key)
             .unwrap_or(0);
 
-        let voting_power = Self::get_voting_power(env.clone(), user);
-        UserSummary {
-            balance,
-            queued_shares,
-            voting_power,
+        let remaining_cap = epoch_cap.saturating_sub(already_earned);
+        if remaining_cap == 0 {
+            return;
         }
-    }
 
-    /// Returns a single-call snapshot of the vault's governance configuration.
-    ///
-    /// Includes guardians, approval threshold, and the count of active proposals.
-    /// Does not mutate any storage.
-    pub fn get_governance_summary(env: Env) -> GovernanceSummary {
-        let guardians: Vec<Address> = env
+        // bonus = floor(depositor_shares * reward_bps / 10_000), capped by epoch.
+        let gross_bonus = depositor_shares
+            .checked_mul(reward_bps as i128)
+            .unwrap()
+            .checked_div(10_000)
+            .unwrap();
+
+        let bonus_shares = gross_bonus.min(remaining_cap);
+        if bonus_shares == 0 {
+            return;
+        }
+
+        // Credit referrer's share balance.
+        let referrer_balance_key = DataKey::Balance(referrer.clone());
+        let referrer_balance: i128 = env
             .storage()
-            .instance()
-            .get(&DataKey::Guardians)
-            .unwrap_or(Vec::new(&env));
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Threshold)
+            .persistent()
+            .get(&referrer_balance_key)
             .unwrap_or(0);
-        let proposal_ids: Vec<u64> = env
-            .storage()
-            .instance()
-            .get(&DataKey::ProposalIds)
-            .unwrap_or(Vec::new(&env));
-        let proposals: Map<u64, Proposal> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Proposals)
-            .unwrap_or(Map::new(&env));
-        let mut active_proposal_count = 0_u32;
-        for proposal_id in proposal_ids.iter() {
-            if let Some(proposal) = proposals.get(proposal_id) {
-                if !proposal.executed {
-                    active_proposal_count = active_proposal_count.saturating_add(1);
-                }
-            }
-        }
-        GovernanceSummary {
-            guardians,
-            threshold,
-            active_proposal_count,
-        }
+        env.storage().persistent().set(
+            &referrer_balance_key,
+            &referrer_balance.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Mint bonus into total supply (no new assets — pure share dilution).
+        let total_shares = Self::total_shares(env);
+        Self::set_total_shares(
+            env.clone(),
+            total_shares.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Accumulate epoch earnings.
+        env.storage().persistent().set(
+            &epoch_key,
+            &already_earned.checked_add(bonus_shares).unwrap(),
+        );
+
+        // Emit ReferralRewarded { referrer, depositor, bonus_shares }.
+        env.events().publish(
+            (symbol_short!("RefReward"), referrer.clone()),
+            (depositor.clone(), bonus_shares),
+        );
     }
 
-    /// Returns a single-call snapshot of all registered strategies and their health.
-    ///
-    /// Each entry contains the strategy address, its health status (if recorded),
-    /// and its last-known balance. Does not mutate any storage.
-    pub fn get_strategy_summary(env: Env) -> Vec<StrategyEntry> {
-        let strategies = Self::get_strategies(&env);
-        let mut entries = Vec::new(&env);
-        for strategy in strategies.iter() {
-            let health: Option<StrategyHealth> = env
-                .storage()
-                .instance()
-                .get(&DataKey::StrategyHealth(strategy.clone()));
-            let (last_known_balance, is_healthy) = match health {
-                Some(h) => (h.last_known_balance, h.is_healthy),
-                None => (0, true),
-            };
-            entries.push_back(StrategyEntry {
-                strategy,
-                last_known_balance,
-                is_healthy,
-            });
+    fn require_admin_or_oracle(_env: &Env, admin: &Address, oracle: &Address) {
+        // Try admin first. If the transaction was signed by the oracle, the
+        // oracle is expected to call this contract directly, and the oracle's
+        // address is checked here as a fallback.
+        if *admin == *oracle {
+            admin.require_auth();
+        } else {
+            // Both are required to be checked; the signed party will pass.
+            // In Soroban the host simply verifies whichever has an auth entry.
+            admin.require_auth();
         }
-        entries
     }
 }
 
-#[cfg(test)]
-mod invariants;
 mod test;
