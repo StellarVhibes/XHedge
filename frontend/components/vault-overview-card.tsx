@@ -11,12 +11,7 @@ import { useVault } from "@/app/context/VaultContext";
 import { useStaleData } from "@/hooks/use-stale-data";
 import { StaleBadge } from "@/components/StaleBadge";
 import { VaultOverviewSkeleton } from "@/components/ui/skeleton";
-import { useRealtimeVault } from "@/hooks/use-realtime-vault";
-import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
-import { VaultHealthBanner } from "@/components/VaultHealthBanner";
-import type { VaultMetrics } from "@/lib/stellar";
-import SharePriceSparkline from "@/components/SharePriceSparkline";
-
+import { AnimatedNumber } from "@/components/ui/animated-number";
 
 export function VaultOverviewCard() {
   const { connected, address } = useWallet();
@@ -92,8 +87,7 @@ export function VaultOverviewCard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total Assets"
-
-          value={format(totalAssets)}
+          value={<AnimatedNumber value={totalAssets} format={format} />}
           subtitle={metrics?.assetSymbol || "USDC"}
           icon={<TrendingUp className="w-4 h-4 text-green-500" />}
         />
@@ -101,8 +95,7 @@ export function VaultOverviewCard() {
 
         <MetricCard
           title="Total Shares"
-          tooltip="The total number of vault shares (XHS) issued to all depositors. Each share represents a proportional claim on vault assets."
-          value={formatNumber(totalShares)}
+          value={<AnimatedNumber value={totalShares} format={formatNumber} />}
           subtitle="XHS"
           icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
 
@@ -110,9 +103,7 @@ export function VaultOverviewCard() {
         />
         <MetricCard
           title="Share Price"
-          tooltip="The current value of one vault share in the deposit asset. Share price rises as the vault earns yield."
-          value={format(sharePrice)}
-
+          value={<AnimatedNumber value={sharePrice} format={format} />}
           subtitle={`${metrics?.assetSymbol || "USDC"} per share`}
           icon={<TrendingUp className="w-4 h-4 text-primary" />}
           highlight
@@ -121,8 +112,11 @@ export function VaultOverviewCard() {
 
         <MetricCard
           title="Your Balance"
-          tooltip="Your current estimated asset value in the vault, based on your shares multiplied by the current share price."
-          value={connected ? format(userBalance) : "—"}
+          value={
+            connected
+              ? <AnimatedNumber value={userBalance} format={format} />
+              : "—"
+          }
           subtitle={connected ? `${metrics?.assetSymbol || "USDC"}` : "Connect wallet"}
           icon={<Wallet className="w-4 h-4 text-muted-foreground" />}
           pending={hasPending}
@@ -156,8 +150,7 @@ export function VaultOverviewCard() {
 
 interface MetricCardProps {
   title: string;
-  tooltip?: string;
-  value: string;
+  value: React.ReactNode;
   subtitle: string;
   icon: React.ReactNode;
   highlight?: boolean;
