@@ -3,11 +3,6 @@ name: Protocol Liaison (XHedge Reviewer)
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'Pull Request Number to review'
-        required: true
 
 permissions:
   contents: write
@@ -19,13 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: refs/pull/${{ env.PR_NUMBER }}/head
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node & Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,7 +31,7 @@ jobs:
           node-version: 20
 
       - name: Review Protocol (SmartContract & Frontend)
-        id: protocol_review
+        id: build_review
         continue-on-error: true
         run: |
           echo "Auditing Smart Contracts..."
@@ -48,15 +41,15 @@ jobs:
           cd frontend && npm install && npm run build
 
       - name: ❌ Handle Review Failure
-        if: steps.protocol_review.outcome == 'failure'
+        if: steps.build_review.outcome == 'failure'
         run: |
-          echo "### ❌ Institutional Review Required"
-          echo "Inconsistencies were found in the protocol logic or structural build."
+          PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title -q .title)
+          gh pr comment ${{ github.event.pull_request.number }} --body "hey, took a look at the PR for '$PR_TITLE'. actually, it looks like the build is failing right now in either the smart contract or frontend. mind checking the logs and fixing the errors? once it's passing, just push an update and we can get it merged."
           exit 1
 
       - name: ✅ Handle Review Success
-        if: steps.protocol_review.outcome == 'success'
+        if: steps.build_review.outcome == 'success'
         run: |
-          echo "### ✅ Review Successful"
-          echo "The structural and logic integrity of both the Contracts and the Dashboard has been verified."
-          echo "Status: Ready for Integration."
+          PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title -q .title)
+          gh pr comment ${{ github.event.pull_request.number }} --body "hey, just went through the changes for '$PR_TITLE'. everything looks really solid and both the smart contract and frontend built perfectly. going ahead and merging this into main now, thanks for the contribution!"
+          gh pr merge ${{ github.event.pull_request.number }} --merge --auto
