@@ -10,6 +10,8 @@ const BALANCE_TTL_THRESHOLD: u32 = DEFAULT_PROPOSAL_TTL_LEDGERS;
 const BALANCE_TTL_BUMP: u32 = BALANCE_TTL_THRESHOLD + DAY_IN_LEDGERS;
 const DEFAULT_PROPOSAL_TTL_SECONDS: u64 = 2_592_000; // 30 days = 518,400 * 5s
 const SHARE_PRICE_HISTORY_CAP: u32 = 365;
+const TVL_HISTORY_CAP: u32 = 500;
+const TVL_HISTORY_KEY: Symbol = symbol_short!("TvlHist");
 
 // ─────────────────────────────────────────────
 // Error types
@@ -960,6 +962,34 @@ impl VolatilityShield {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Returns the TVL history snapshots filtered by ledger range.
+    ///
+    /// Entries are returned in ascending ledger order. Only entries with
+    /// `ledger >= from_ledger` are included, capped to at most `limit` entries.
+    pub fn get_tvl_history(env: Env, from_ledger: u64, limit: u32) -> Vec<(u64, i128)> {
+        let history: Vec<(u64, i128)> = env
+            .storage()
+            .instance()
+            .get(&TVL_HISTORY_KEY)
+            .unwrap_or(Vec::new(&env));
+        let mut result = Vec::new(&env);
+        if limit == 0 {
+            return result;
+        }
+        let mut count: u32 = 0;
+        for entry in history.iter() {
+            let (ledger, _) = entry;
+            if ledger >= from_ledger {
+                result.push_back(entry.clone());
+                count += 1;
+                if count >= limit {
+                    break;
+                }
+            }
+        }
+        result
+    }
+
     /// Returns the pause/unpause history for the vault.
     pub fn get_pause_history(env: Env) -> Vec<(u64, Address, bool)> {
         env.storage()
@@ -1111,6 +1141,8 @@ impl VolatilityShield {
                 new_total_shares,
             ),
         );
+
+        Self::record_tvl_snapshot(&env);
 
         Ok(())
     }
@@ -1372,6 +1404,8 @@ impl VolatilityShield {
                 amount_out: assets_to_withdraw_value,
             },
         );
+
+        Self::record_tvl_snapshot(&env);
 
         Ok(())
     }
@@ -2354,6 +2388,7 @@ impl VolatilityShield {
         let total_assets_after = Self::total_assets(&env);
         let total_shares_after = Self::total_shares(&env);
         Self::record_share_price_snapshot(&env);
+        Self::record_tvl_snapshot(&env);
         env.events().publish(
             (soroban_sdk::Symbol::new(&env, "Harvest"),),
             (total_yield, total_assets_after, total_shares_after),
@@ -3330,6 +3365,21 @@ impl VolatilityShield {
         env.storage()
             .instance()
             .set(&DataKey::SharePriceHistory, &history);
+    }
+
+    fn record_tvl_snapshot(env: &Env) {
+        let mut history: Vec<(u64, i128)> = env
+            .storage()
+            .instance()
+            .get(&TVL_HISTORY_KEY)
+            .unwrap_or(Vec::new(env));
+        if history.len() >= TVL_HISTORY_CAP {
+            history.remove(0);
+        }
+        history.push_back((env.ledger().sequence() as u64, Self::total_assets(env)));
+        env.storage()
+            .instance()
+            .set(&TVL_HISTORY_KEY, &history);
     }
 
     // ── Emergency Pause ──────────────────────────

@@ -3607,3 +3607,155 @@ fn test_proposal_auto_pruning_and_filtering() {
     assert_eq!(proposals.len(), 1);
     assert_eq!(proposals.get(0).unwrap().id, id_4);
 }
+// ── TVL History Tests ─────────────────────────
+
+#[test]
+fn test_tvl_history_appends_in_ascending_ledger_order() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let strategy = env.register_contract(None, mock_strategy::MockStrategy);
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy));
+
+    assert_eq!(client.get_tvl_history(&0u64, &10u32).len(), 0);
+
+    client.set_total_assets(&100);
+    client.set_total_shares(&100);
+
+    env.ledger().set_sequence_number(10);
+    client.harvest();
+
+    env.ledger().set_sequence_number(20);
+    client.harvest();
+
+    env.ledger().set_sequence_number(30);
+    client.harvest();
+
+    let history = client.get_tvl_history(&0u64, &100u32);
+    assert_eq!(history.len(), 3);
+    assert_eq!(history.get(0).unwrap().0, 10);
+    assert_eq!(history.get(1).unwrap().0, 20);
+    assert_eq!(history.get(2).unwrap().0, 30);
+    assert_eq!(history.get(0).unwrap().1, 100);
+    assert_eq!(history.get(1).unwrap().1, 100);
+    assert_eq!(history.get(2).unwrap().1, 100);
+}
+
+#[test]
+fn test_tvl_history_appends_on_deposit_and_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let token_admin = Address::generate(&env);
+    let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
+    );
+
+
+    let user = Address::generate(&env);
+    stellar_asset_client.mint(&user, &1_000);
+
+    env.ledger().set_sequence_number(50);
+    client.deposit(&user, &token_id, &500, &None::<i128>);
+
+    env.ledger().set_sequence_number(60);
+    client.withdraw(&user, &user, &token_id, &200);
+
+    let history = client.get_tvl_history(&0u64, &100u32);
+    assert_eq!(history.len(), 2);
+    assert_eq!(history.get(0).unwrap().0, 50);
+    assert_eq!(history.get(0).unwrap().1, 500);
+    assert_eq!(history.get(1).unwrap().0, 60);
+    assert_eq!(history.get(1).unwrap().1, 300);
+}
+
+#[test]
+fn test_tvl_history_cap_evicts_oldest() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let strategy = env.register_contract(None, mock_strategy::MockStrategy);
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy));
+
+    for offset in 0..501u32 {
+        env.ledger().set_sequence_number(1_000 + offset);
+        client.harvest();
+    }
+
+    let history = client.get_tvl_history(&0u64, &1_000u32);
+    assert_eq!(history.len(), 500);
+    assert_eq!(history.get(0).unwrap().0, 1_001);
+    assert_eq!(history.get(499).unwrap().0, 1_500);
+}
+
+#[test]
+fn test_tvl_history_range_query_filters_and_limits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+    let strategy = env.register_contract(None, mock_strategy::MockStrategy);
+    client.propose_action(&admin, &ActionType::AddStrategy(strategy));
+
+    for ledger in [100u32, 200u32, 300u32, 400u32, 500u32] {
+        env.ledger().set_sequence_number(ledger);
+        client.harvest();
+    }
+
+    let all = client.get_tvl_history(&0u64, &10u32);
+    assert_eq!(all.len(), 5);
+
+    let from_mid = client.get_tvl_history(&250u64, &10u32);
+    assert_eq!(from_mid.len(), 3);
+    assert_eq!(from_mid.get(0).unwrap().0, 300);
+    assert_eq!(from_mid.get(2).unwrap().0, 500);
+
+    let limited = client.get_tvl_history(&0u64, &2u32);
+    assert_eq!(limited.len(), 2);
+    assert_eq!(limited.get(0).unwrap().0, 100);
+    assert_eq!(limited.get(1).unwrap().0, 200);
+
+    let limit_zero = client.get_tvl_history(&0u64, &0u32);
+    assert_eq!(limit_zero.len(), 0);
+
+    let beyond = client.get_tvl_history(&1_000u64, &10u32);
+    assert_eq!(beyond.len(), 0);
+}
