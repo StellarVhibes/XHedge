@@ -1356,7 +1356,7 @@ impl VolatilityShield {
             current_asset_balance.saturating_sub(shares),
         );
 
-        let share_price = Self::get_share_price(&env);
+        let _share_price = Self::get_share_price(&env);
 
         token::Client::new(&env, &asset).transfer(
             &env.current_contract_address(),
@@ -1548,7 +1548,7 @@ impl VolatilityShield {
                 current_asset_balance.saturating_sub(shares),
             );
 
-            let share_price = Self::get_share_price(&env);
+            let _share_price = Self::get_share_price(&env);
 
             token::Client::new(&env, &asset).transfer(
                 &env.current_contract_address(),

@@ -8,23 +8,34 @@ smartcontract/target/
 node_modules/
 **/node_modules/
 .next/
+<<<<<<< HEAD
+**/ .next/
+out/
+=======
 **/.next/
 out/
 dist/
+>>>>>>> upstream/main
 build/
 .env*
 .DS_Store
 *.log
+<<<<<<< HEAD
+=======
 coverage/
+>>>>>>> upstream/main
 
 # XHedge Artifacts
 .agent/
 .gemini/
 .system_generated/
 app_data/
+<<<<<<< HEAD
+=======
 artifacts/
 test_snapshots/
 snapshots/
 __snapshots__/
 fuzz_tests/
 integration/
+>>>>>>> upstream/main

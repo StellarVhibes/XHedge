@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+
 import { Home, Shield, LineChart, Settings, Wallet, Menu, X, Users, Globe, Vote, ArrowLeftRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,12 +10,14 @@ import { useNetwork, NetworkType } from "@/app/context/NetworkContext";
 import { useCurrency, Currency } from "@/app/context/CurrencyContext";
 import { usePrices } from "@/app/context/PriceContext";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "./ThemeToggle";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/vault", label: "Vault", icon: Shield },
   { href: "/strategies", label: "Strategies", icon: LineChart },
   { href: "/portfolio", label: "Portfolio", icon: Wallet },
+
   { href: "/referrals", label: "Referrals", icon: Users },
   { href: "/bridge", label: "Bridge", icon: ArrowLeftRight },
   { href: "/governance", label: "Governance", icon: Vote },
@@ -37,10 +40,12 @@ export function Sidebar() {
     label: navT(item.label.toLowerCase())
   }));
 
+
   return (
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
+
         aria-expanded={isOpen}
         aria-controls="sidebar-nav"
         aria-label={isOpen ? "Close navigation menu" : "Open navigation menu"}
@@ -49,40 +54,51 @@ export function Sidebar() {
         {isOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
       </button>
 
-      <div className="fixed top-4 right-4 z-50 lg:hidden">
+      <div className="fixed top-4 right-4 z-50 lg:hidden flex items-center gap-2">
+        <ThemeToggle className="bg-sidebar border border-sidebar-border shadow-sm" />
         <NotificationBell className="bg-sidebar border border-sidebar-border shadow-sm" />
       </div>
+
 
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
           onClick={() => setIsOpen(false)}
+
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setIsOpen(false)}
           role="button"
           tabIndex={-1}
           aria-label="Close navigation menu"
+
         />
       )}
 
       <aside
+
         id="sidebar-nav"
         aria-label="Main navigation"
+
         className={cn(
           "fixed left-0 top-0 z-40 h-full w-64 bg-sidebar border-r border-sidebar-border transition-transform duration-300 lg:translate-x-0",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="flex flex-col h-full">
+
           <div className="flex items-center justify-between px-6 py-5 border-b border-sidebar-border">
             <div className="flex items-center gap-2">
               <Shield className="w-8 h-8 text-primary" />
               <span className="text-xl font-bold text-foreground">XHedge</span>
             </div>
-            <NotificationBell className="hidden lg:flex" />
+            <div className="hidden lg:flex items-center gap-1">
+              <ThemeToggle />
+              <NotificationBell />
+            </div>
           </div>
 
           <nav aria-label="Primary" className="flex-1 px-3 py-4 space-y-1">
             {translatedNavItems.map((item) => {
+
               const Icon = item.icon;
               const isActive = pathname === item.href;
               return (
@@ -90,8 +106,10 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsOpen(false)}
+
                   id={`tour-sidebar-${item.label?.toLocaleLowerCase()}`}
                   aria-current={isActive ? "page" : undefined}
+
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                     isActive
@@ -99,12 +117,15 @@ export function Sidebar() {
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
                 >
+
                   <Icon className="w-5 h-5" aria-hidden="true" />
+
                   {item.label}
                 </Link>
               );
             })}
           </nav>
+
 
           <div className="px-4 py-4 border-t border-sidebar-border">
             {/* Language Switcher */}
@@ -229,6 +250,7 @@ export function Sidebar() {
           </div>
 
           <div className="px-6 py-4 border-t border-sidebar-border bg-muted/30">
+
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
                 <span className="text-sm font-medium text-primary-foreground">XH</span>

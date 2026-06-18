@@ -101,7 +101,11 @@ npm install
 
 ---
 
+<<<<<<< HEAD
+## 📚 Documentation & Trackers
+=======
 ## 📚 Documentations & Trackers
+>>>>>>> upstream/main
 
 *   🧠 **[Smart Contract Issues](./docs/ISSUES-SMARTCONTRACT.md)**
 *   🎨 **[Frontend Issues](./docs/ISSUES-FRONTEND.md)**
@@ -115,7 +119,11 @@ Guides:
 
 ## 🤝 Contributing
 
+<<<<<<< HEAD
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+=======
 See [CONTRIBUTING.md](CONTRIBUTING.md)
+>>>>>>> upstream/main
 
 ---
 

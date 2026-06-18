@@ -60,6 +60,7 @@ export function useRealtimeVault(userAddress: string | null): RealtimeVaultState
   // Stable refs so interval callbacks don't stale-close over state
   const lastLedgerRef = useRef<number | null>(null);
   const isPollingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -162,8 +163,10 @@ export function useRealtimeVault(userAddress: string | null): RealtimeVaultState
           const backoff = Math.min(BASE_BACKOFF_MS * 2 ** (attempts - 1), MAX_BACKOFF_MS);
           clearTimers();
           reconnectTimerRef.current = setTimeout(() => {
-            lastLedgerRef.current = null; // reset ledger cursor on reconnect
-            startPolling();
+            if (isMountedRef.current) {
+              lastLedgerRef.current = null; // reset ledger cursor on reconnect
+              startPolling();
+            }
           }, backoff);
         }
       } finally {

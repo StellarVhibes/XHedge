@@ -4,6 +4,7 @@ use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{Address, Env};
+use mock_oracle;
 
 extern crate std;
 
@@ -20,7 +21,7 @@ fn setup_test_env() -> (Env, VolatilityShieldClient<'static>, Address, Address) 
     let treasury = Address::generate(&env);
     let guardians = soroban_sdk::vec![&env, admin.clone()];
 
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32, &9u32);
 
     (env, client, admin, asset)
 }
@@ -38,7 +39,7 @@ proptest! {
 
         for amount in amounts {
             let user = Address::generate(&env);
-            users.push_back(user.clone());
+            users.push(user.clone());
             client.set_total_assets(&(client.total_assets() + amount));
             let shares = client.convert_to_shares(&amount);
             client.set_balance(&user, &shares);
@@ -85,18 +86,20 @@ proptest! {
         let contract_id = env.register_contract(None, VolatilityShield);
         let client = VolatilityShieldClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        let oracle = Address::generate(&env);
+        let oracle_id = env.register_contract(None, mock_oracle::MockOracle);
+        let oracle_client = mock_oracle::MockOracleClient::new(&env, &oracle_id);
+        oracle_client.init(&admin);
         let treasury = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
         let (token_id, stellar_asset_client, _token_client) = create_token_contract(&env, &token_admin);
 
         let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.init(&admin, &token_id, &oracle_id, &treasury, &0u32, &guardians, &1u32);
+        oracle_client.set_price(&admin, &token_id, &1_000_000_000);
 
         let user = Address::generate(&env);
         stellar_asset_client.mint(&user, &amount);
-
         client.deposit(&user, &token_id, &amount, &None::<i128>);
         let shares = client.balance(&user);
 

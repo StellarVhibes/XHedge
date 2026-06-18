@@ -154,7 +154,10 @@ Run it with `cargo test`.
 - **Stellar Laboratory:** Explore the network state.
 - **Soroban Docs:** [developers.stellar.org/docs](https://developers.stellar.org/docs)
 - **Rust Book:** Essential for mastering the language quirks.
+<<<<<<< HEAD
+=======
 - Contract Event Schema: Comprehensive reference for indexers.
+>>>>>>> upstream/main
 
 ---
 *Happy Building! 🚀*

@@ -1,3 +1,4 @@
+
 import {
   Horizon,
   Networks,
@@ -28,6 +29,7 @@ const SOROBAN_RPC_URLS: Record<NetworkType, string> = {
   [NetworkType.MAINNET]: "https://rpc.mainnet.stellar.org",
   [NetworkType.TESTNET]: "https://rpc.testnet.stellar.org",
   [NetworkType.FUTURENET]: "https://rpc-futurenet.stellar.org",
+
 };
 
 export interface VaultMetrics {
@@ -44,6 +46,7 @@ export interface VaultData {
   totalShares: string;
 }
 
+
 const NETWORK_PASSPHRASE: Record<NetworkType, string> = {
   [NetworkType.MAINNET]: Networks.PUBLIC,
   [NetworkType.TESTNET]: Networks.TESTNET,
@@ -54,9 +57,11 @@ export function getNetworkPassphrase(network: NetworkType): string {
   return NETWORK_PASSPHRASE[network];
 }
 
+
 export async function fetchVaultData(
   contractId: string,
   userAddress: string | null,
+
   network: NetworkType
 ): Promise<VaultMetrics> {
   try {
@@ -130,6 +135,7 @@ export async function fetchVaultData(
     console.error("Error fetching vault data from contract:", error);
     // Fallback to mock data for development if contract call fails
     const mockData: VaultMetrics = {
+
       totalAssets: "10000000000",
       totalShares: "10000000000",
       sharePrice: "1.0000000",
@@ -137,6 +143,7 @@ export async function fetchVaultData(
       userShares: userAddress ? "1000000000" : "0",
       assetSymbol: "USDC",
     };
+
     return mockData;
   }
 }
@@ -192,6 +199,7 @@ export function calculateSharePrice(totalAssets: string, totalShares: string): s
   const price = Number(pricePerShare) / 1e9;
 
   return price.toFixed(9);
+
 }
 
 export function convertStroopsToDisplay(stroops: string): string {
@@ -199,6 +207,7 @@ export function convertStroopsToDisplay(stroops: string): string {
   const display = Number(value / BigInt(1e7));
   return display.toFixed(7);
 }
+
 
 export interface Transaction {
   id: string;
@@ -283,10 +292,13 @@ export async function fetchTransactionHistory(
   }
 }
 
+
 export async function buildDepositXdr(
   contractId: string,
   userAddress: string,
+  assetContractId: string,
   amount: string,
+
   network: NetworkType = NetworkType.TESTNET
 ): Promise<string> {
   const horizonUrl = RPC_URLS[network];
@@ -299,8 +311,10 @@ export async function buildDepositXdr(
 
   const amountBigInt = BigInt(Math.floor(parseFloat(amount) * 1e7)).toString();
 
+
   const depositParams = [
     new Address(userAddress).toScVal(),
+    new Address(assetContractId).toScVal(),
     nativeToScVal(amountBigInt, { type: "i128" })
   ];
 
@@ -318,7 +332,9 @@ export async function buildDepositXdr(
 export async function buildWithdrawXdr(
   contractId: string,
   userAddress: string,
+  assetContractId: string,
   shares: string,
+
   network: NetworkType = NetworkType.TESTNET
 ): Promise<string> {
   const horizonUrl = RPC_URLS[network];
@@ -331,8 +347,10 @@ export async function buildWithdrawXdr(
 
   const sharesBigInt = BigInt(Math.floor(parseFloat(shares) * 1e7)).toString();
 
+
   const withdrawParams = [
     new Address(userAddress).toScVal(),
+    new Address(assetContractId).toScVal(),
     nativeToScVal(sharesBigInt, { type: "i128" })
   ];
 
@@ -349,6 +367,7 @@ export async function buildWithdrawXdr(
 
 export async function simulateAndAssembleTransaction(
   xdrString: string,
+
   network: NetworkType = NetworkType.TESTNET
 ): Promise<{ result: string | null; error: string | null }> {
   try {
@@ -409,12 +428,14 @@ export async function estimateTransactionFee(
     return {
       fee: null,
       error: error instanceof Error ? error.message : "Failed to estimate fee"
+
     };
   }
 }
 
 export async function submitTransaction(
   signedXdr: string,
+
   network: NetworkType = NetworkType.TESTNET
 ): Promise<{ hash: string | null; error: string | null }> {
   try {
@@ -1051,3 +1072,4 @@ export async function fetchHistoricalSharePriceWithFallback(
     return [];
   }
 }
+

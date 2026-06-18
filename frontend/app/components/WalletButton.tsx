@@ -1,7 +1,9 @@
 "use client";
 
+
 import { useEffect } from "react";
 import { toast } from "sonner";
+
 import { useFreighter } from "../context/FreighterContext";
 
 /**
@@ -17,11 +19,13 @@ export function WalletButton() {
   const { isConnected, isLoading, publicKey, error, connect, disconnect } =
     useFreighter();
 
+
   useEffect(() => {
     if (error) {
       toast.error(error);
     }
   }, [error]);
+
 
   if (isLoading) {
     return (
@@ -58,6 +62,7 @@ export function WalletButton() {
   }
 
   return (
+
     <button
       onClick={connect}
       className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white
@@ -65,5 +70,6 @@ export function WalletButton() {
     >
       Connect Wallet
     </button>
+
   );
 }

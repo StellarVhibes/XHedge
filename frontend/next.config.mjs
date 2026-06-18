@@ -1,3 +1,4 @@
+
 import withPWAInit from "next-pwa";
 
 const withPWA = withPWAInit({
@@ -92,3 +93,4 @@ const nextConfig = {
 };
 
 export default withPWA(nextConfig);
+

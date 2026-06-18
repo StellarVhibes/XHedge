@@ -42,6 +42,8 @@ We follow a strict **Modular Commit** philosophy to ensure history is readable a
 4.  **Test**: Run `cargo test` (contracts) or `npm run test` (frontend).
 5.  **Commit**: Follow the commit guidelines above.
 
+<<<<<<< HEAD
+=======
 ## 🔗 Pull Request Checklist
 
 When opening a PR, follow these steps:
@@ -68,6 +70,7 @@ When opening a PR, follow these steps:
 
 3.  **Keep PRs Small**: Only fix what's needed. Don't rewrite entire files or change hundreds of lines when the issue only needs a few lines fixed. Real devs fix the specific problem, not everything.
 
+>>>>>>> upstream/main
 ## Getting Help
 
 Read the **Integration Guides** located in the `docs/` directory for detailed setup instructions.

@@ -84,16 +84,26 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Transfer underlying token to user.
   - [x] Emit `Withdraw` event.
 
+<<<<<<< HEAD
+### Issue #SC-8: Emergency Pause Mechanism
+=======
 ### Issue #SC-8: Emergency Pause Mechanism [COMPLETED]
+>>>>>>> upstream/main
 
 **Priority:** Medium
 **Labels:** `smart-contract`, `security`
 **Description:** A circuit breaker for the admin to stop deposits/withdrawals.
 
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Add `Paused` state to `DataKey`.
+  - [ ] Implement `set_paused(env, state: bool)`.
+  - [ ] Add `assert_not_paused` check to deposit/withdraw.
+=======
   - [x] Add `Paused` state to `DataKey`.
   - [x] Implement `set_paused(env, state: bool)`.
   - [x] Add `assert_not_paused` check to deposit/withdraw.
+>>>>>>> upstream/main
 
 ---
 
@@ -118,14 +128,22 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Define `Strategies` storage key (Vec<Address>).
   - [x] Implement `add_strategy` function (Admin only).
 
+<<<<<<< HEAD
+### Issue #SC-11: Rebalance Logic (Calculation)
+=======
 ### Issue #SC-11: Rebalance Logic (Calculation) [COMPLETED]
+>>>>>>> upstream/main
 
 **Priority:** High
 **Labels:** `smart-contract`, `logic`
 **Description:** Logic to determine how much to move.
 
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Implement `calc_rebalance_delta(current, target)`.
+=======
   - [x] Implement `calc_rebalance_delta(current, target)`.
+>>>>>>> upstream/main
 
 ### Issue #SC-12: Rebalance Execution [COMPLETED]
 
@@ -147,15 +165,24 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [x] Implement `harvest(env)`.
   - [x] Distribute yield to vault (increasing share price).
 
+<<<<<<< HEAD
+### Issue #SC-14: Access Control Modifiers
+=======
 ### Issue #SC-14: Access Control Modifiers [COMPLETED]
+>>>>>>> upstream/main
 
 **Priority:** High
 **Labels:** `smart-contract`, `security`
 **Description:** Ensure only admin can call sensitive functions.
 
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Implement `require_admin` check.
+  - [ ] Apply to all config functions.
+=======
   - [x] Implement `require_admin` check.
   - [x] Apply to all config functions.
+>>>>>>> upstream/main
 
 ### Issue #SC-15: Fee Management [COMPLETED]
 
@@ -170,27 +197,48 @@ This document tracks the detailed development tasks for the Soroban smart contra
 
 # 🧪 Module 3: Testing & Verification (Issues SC-16 to SC-18)
 
+<<<<<<< HEAD
+### Issue #SC-16: Core Unit Tests
+=======
 ### Issue #SC-16: Core Unit Tests [COMPLETED]
+>>>>>>> upstream/main
 **Priority:** High
 **Labels:** `testing`, `rust`
 **Description:** Verify basic vault mechanics.
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Test initialization.
+  - [ ] Test simple deposit/withdraw flow.
+
+### Issue #SC-17: Integration Tests (Mock Strategy)
+=======
   - [x] Test initialization.
   - [x] Test simple deposit/withdraw flow.
 
 ### Issue #SC-17: Integration Tests (Mock Strategy) [COMPLETED]
+>>>>>>> upstream/main
 **Priority:** Medium
 **Labels:** `testing`, `integration`
 **Description:** Test interaction with external contracts.
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Create `MockStrategy` contract.
+  - [ ] Test rebalancing into mock strategy.
+
+### Issue #SC-18: Fuzz Testing
+=======
   - [x] Create `MockStrategy` contract.
   - [x] Test rebalancing into mock strategy.
 
 ### Issue #SC-18: Fuzz Testing [COMPLETED]
+>>>>>>> upstream/main
 **Priority:** Low
 **Labels:** `testing`, `security`
 **Description:** Property-based testing for math safety.
 - **Tasks:**
+<<<<<<< HEAD
+  - [ ] Fuzz test share conversion for overflows.
+=======
   - [x] Fuzz test share conversion for overflows.
 
 
@@ -321,3 +369,4 @@ This document tracks the detailed development tasks for the Soroban smart contra
   - [ ] Implement `remove_strategy(env, strategy)` that withdraws all funds first.
   - [ ] Emit `StrategyFlagged` and `StrategyRemoved` events.
   - [ ] Write tests for strategy failure scenarios.
+>>>>>>> upstream/main

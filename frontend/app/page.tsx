@@ -1,11 +1,16 @@
 "use client";
+
 import { useState, useEffect } from 'react';
+
 import { VaultOverviewCard } from "@/components/vault-overview-card";
 import { Shield, ArrowUpFromLine, ArrowDownToLine } from "lucide-react";
 import Link from "next/link";
 import { WalletButton } from "./components/WalletButton";
+
 import { AiInsightStream } from "./components/AiInsightStream";
 import { TransactionList } from "@/components/transaction-list";
+import VaultActivityFeed from "@/components/VaultActivityFeed";
+
 import { RewardSummary } from "@/components/reward-summary";
 import { PerformanceAttribution } from "@/components/PerformanceAttribution";
 import { PortfolioBreakdownCard } from "@/components/PortfolioBreakdownCard";
@@ -13,6 +18,7 @@ import AllocationChart, { Slice } from "@/components/AllocationChart";
 import StrategyDetailModal, { StrategyDetail } from "@/components/StrategyDetailModal";
 import { RiskChart } from "@/components/RiskChart";
 import { useWallet } from "@/hooks/use-wallet";
+import { useRiskScore } from "@/hooks/use-risk-score";
 
 import { useTranslations } from "@/lib/i18n-context";
 
@@ -25,6 +31,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyDetail | null>(null);
   const { address } = useWallet();
+  const { score: riskScore, loading: riskLoading } = useRiskScore();
 
   const canFlagStrategy = (() => {
     if (!address) return false;
@@ -91,7 +98,13 @@ export default function Home() {
           </div>
           <div className="lg:col-span-1 flex">
             <div className="w-full h-full">
-              <RiskChart score={45} />
+              {riskLoading ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="animate-pulse text-muted-foreground">Loading risk score...</div>
+                </div>
+              ) : (
+                <RiskChart score={riskScore ?? 45} />
+              )}
             </div>
           </div>
         </div>
@@ -121,9 +134,11 @@ export default function Home() {
           )}
         </div>
 
+
         <div className="grid gap-4 md:grid-cols-2">
           <Link
             href="/vault"
+
             className="flex items-center gap-4 rounded-lg border bg-card p-6 transition-colors hover:bg-accent"
           >
             <ArrowUpFromLine className="h-8 w-8 text-primary" />
@@ -142,12 +157,16 @@ export default function Home() {
               <h2 className="font-semibold text-foreground">{t('withdrawFunds.title')}</h2>
               <p className="text-sm text-muted-foreground">
                 {t('withdrawFunds.description')}
+
               </p>
             </div>
           </Link>
         </div>
 
+
+        <VaultActivityFeed />
         <TransactionList />
+
 
         <AiInsightStream />
       </div >
@@ -163,5 +182,6 @@ export default function Home() {
         }}
       />
     </div >
+
   );
 }

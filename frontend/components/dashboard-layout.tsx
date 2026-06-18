@@ -1,16 +1,19 @@
 "use client";
 
 import { Sidebar } from "@/components/sidebar";
+
 import { ReactNode, useEffect } from "react";
 import { TourGuide } from "./TourGuide";
 import { useTour } from "./TourContext";
 import { OfflineBanner } from "./OfflineBanner";
+
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+
   const { tourActive, tourStep, setTourStep, handleTourClose, tourSteps, checkCompletedFlows } = useTour();
 
   useEffect(() => {
@@ -37,6 +40,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       )}
       <OfflineBanner />
+
     </div>
   );
 }

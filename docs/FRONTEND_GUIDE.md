@@ -199,6 +199,9 @@ const result = await client.hello({ to: "World" });
 
 ---
 
+<<<<<<< HEAD
+## 7. Checklist for Integration ✅
+=======
 ## 7. Analytics & Privacy 📊
 
 XHedge implements privacy-first analytics to track key user actions without collecting personal data. The system respects the browser's "Do Not Track" setting and provides an opt-out toggle in settings.
@@ -271,12 +274,17 @@ Currently supported providers:
 ---
 
 ## 8. Checklist for Integration ✅
+>>>>>>> upstream/main
 
 - [ ] **Network Config:** Ensure your app points to the right RPC (Testnet vs Mainnet).
 - [ ] **Passphrase:** Use the correct Network Passphrase.
 - [ ] **Simulation:** ALWAYS simulate before asking the user to sign. It catches errors early and calculates gas.
+<<<<<<< HEAD
+- **XDR:** Familiarize yourself with Stellar's data format (XDR) if you aren't using generated bindings.
+=======
 - [ ] **XDR:** Familiarize yourself with Stellar's data format (XDR) if you aren't using generated bindings.
 - [ ] **Analytics:** Track key user actions using privacy-first event tracking. Always respect doNotTrack and user preferences.
+>>>>>>> upstream/main
 
 ---
 *Ready to build the future of finance? 🚀*
