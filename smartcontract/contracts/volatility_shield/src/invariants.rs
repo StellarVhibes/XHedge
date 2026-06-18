@@ -96,7 +96,7 @@ proptest! {
 
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &token_id, &oracle_id, &treasury, &0u32, &guardians, &1u32);
-        client.set_min_deposit(&0);
+
         oracle_client.set_price(&admin, &token_id, &1_000_000_000);
 
         let user = Address::generate(&env);
@@ -251,7 +251,7 @@ proptest! {
         let admin = Address::generate(&env);
         let guardians = soroban_sdk::vec![&env, admin.clone()];
         client.init(&admin, &token_id, &Address::generate(&env), &Address::generate(&env), &0, &guardians, &1);
-        client.set_min_deposit(&0);
+
 
         client.set_deposit_cap(&cap, &100_000_000_000i128);
 

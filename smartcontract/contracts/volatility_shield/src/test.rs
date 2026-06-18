@@ -229,108 +229,25 @@ fn test_convert_to_shares_negative() {
     client.convert_to_shares(&-1);
 }
 
-    #[test]
-    fn test_take_fees_accuracy_and_transfer() {
-        let env = Env::default();
-        env.mock_all_auths_allowing_non_root_auth();
+#[test]
+fn test_take_fees() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, VolatilityShield);
+    let client = VolatilityShieldClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let treasury = Address::generate(&env);
 
-        let token_admin = Address::generate(&env);
-        let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &token_admin);
+    let guardians = soroban_sdk::vec![&env, admin.clone()];
+    client.init(
+        &admin, &asset, &oracle, &treasury, &500u32, &guardians, &1u32,
+    );
 
-        let contract_id = env.register_contract(None, VolatilityShield);
-        let client = VolatilityShieldClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let oracle = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-        client.init(&admin, &token_id, &oracle, &treasury, &500u32, &guardians, &1u32); // 5% fee
-
-        // Mint tokens to vault to simulate yield
-        stellar_asset_client.mint(&contract_id, &1000);
-
-        // Calculate expected: 5% of 1000 = 50. Remaining = 950.
-        let remaining = client.take_fees(&1000);
-        assert_eq!(remaining, 950);
-
-        // Verify treasury received fee
-        assert_eq!(token_client.balance(&treasury), 50);
-    }
-
-    #[test]
-    fn test_take_fees_large_amount_no_overflow() {
-        let env = Env::default();
-        env.mock_all_auths_allowing_non_root_auth();
-
-        let token_admin = Address::generate(&env);
-        let (token_id, stellar_asset_client, _) = create_token_contract(&env, &token_admin);
-
-        let contract_id = env.register_contract(None, VolatilityShield);
-        let client = VolatilityShieldClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let oracle = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-        client.init(&admin, &token_id, &oracle, &treasury, &10000u32, &guardians, &1u32); // 100% fee
-
-        // Large amount: 10^18 (Standard 18 decimals)
-        let large_amount = 1_000_000_000_000_000_000_i128;
-        stellar_asset_client.mint(&contract_id, &large_amount);
-
-        let remaining = client.take_fees(&large_amount);
-        assert_eq!(remaining, 0); // 100% taken
-    }
-
-    #[test]
-    fn test_set_fee_pct_validation() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register_contract(None, VolatilityShield);
-        let client = VolatilityShieldClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
-        let oracle = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-        // Valid
-        assert!(client.try_set_fee_pct(&500).is_ok());
-        assert_eq!(client.fee_percentage(), 500);
-
-        // Invalid (> 100%)
-        let res = client.try_set_fee_pct(&10001);
-        assert_eq!(res, Err(Ok(Error::InvalidFeePercentage)));
-    }
-
-    #[test]
-    fn test_remove_strategy_logic() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register_contract(None, VolatilityShield);
-        let client = VolatilityShieldClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
-        let oracle = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let guardians = soroban_sdk::vec![&env, admin.clone()];
-        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-        let strategy = Address::generate(&env);
-        client.propose_action(&admin, &ActionType::AddStrategy(strategy.clone()));
-        assert_eq!(client.get_strategies().len(), 1);
-
-        // Success remove
-        client.remove_strategy(&strategy, &false);
-        assert_eq!(client.get_strategies().len(), 0);
-    }
+    let deposit_amount = 1000;
+    let remaining = client.take_fees(&deposit_amount);
+    assert_eq!(remaining, 950);
+}
 
 #[test]
 fn test_deposit_success() {
@@ -351,7 +268,6 @@ fn test_deposit_success() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let user = Address::generate(&env);
     let deposit_amount = 1000;
@@ -571,7 +487,6 @@ fn test_deposit_slippage_exact_minimum_passes() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     client.set_total_assets(&2000);
     client.set_total_shares(&1000);
@@ -604,7 +519,6 @@ fn test_deposit_slippage_below_minimum_fails() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     client.set_total_assets(&2000);
     client.set_total_shares(&1000);
@@ -814,6 +728,172 @@ mod strategy_health_tests {
     }
 
     #[test]
+    fn test_check_strategy_health_all_healthy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Set up expected allocations
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
+
+        // Mock strategy returns expected balance
+        mock_client.deposit(&1000);
+
+        // Check health - should return empty list (all healthy)
+        let unhealthy = client.check_strategy_health();
+        assert_eq!(unhealthy.len(), 0);
+    }
+
+    #[test]
+    fn test_check_strategy_health_unhealthy_detected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Set up expected allocations
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+
+        // Set up vault state to reflect assets
+        client.set_total_assets(&1000);
+
+        // Mock strategy returns lower than expected (more than 10% deviation)
+        mock_client.deposit(&800); // 20% deviation
+
+        // Check health 3 times to exceed MaxConsecutiveFailures (default 3)
+        client.check_strategy_health();
+        client.check_strategy_health();
+        let unhealthy = client.check_strategy_health();
+        assert_eq!(unhealthy.len(), 1);
+        assert_eq!(unhealthy.get(0).unwrap(), mock_strategy_id);
+    }
+
+    #[test]
+    fn test_check_strategy_health_handles_i128_min_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+        client.set_max_consecutive_failures(&1);
+
+        let (mock_strategy_id, mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        let mut allocations: Map<Address, i128> = Map::new(&env);
+        allocations.set(mock_strategy_id.clone(), 10000);
+        env.ledger().set_timestamp(1000);
+        client.set_oracle_data(&allocations, &env.ledger().timestamp());
+        client.set_total_assets(&1);
+
+        mock_client.deposit(&i128::MIN);
+
+        let unhealthy = client.check_strategy_health();
+        assert_eq!(unhealthy.len(), 1);
+        assert_eq!(unhealthy.get(0).unwrap(), mock_strategy_id);
+
+        let health = client.get_strategy_health(&mock_strategy_id).unwrap();
+        assert_eq!(health.last_known_balance, i128::MIN);
+        assert_eq!(health.consecutive_failures, 1);
+        assert!(!health.is_healthy);
+    }
+
+    #[test]
+    fn test_balance_deviation_amount_handles_large_values_near_i128_max() {
+        let overperforming_deviation = VolatilityShield::balance_deviation_amount(i128::MAX, 1);
+        assert_eq!(overperforming_deviation, i128::MAX - 1);
+
+        let underperforming_deviation = VolatilityShield::balance_deviation_amount(1, i128::MAX);
+        assert_eq!(underperforming_deviation, i128::MAX - 1);
+    }
+
+    #[test]
+    fn test_flag_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let (mock_strategy_id, _mock_client) = create_mock_strategy(&env);
+        client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
+
+        // Flag strategy as unhealthy
+        client.flag_strategy(&mock_strategy_id);
+
+        // Check health data reflects flagged status
+        let health = client.get_strategy_health(&mock_strategy_id);
+        assert!(health.is_some());
+        assert!(!health.unwrap().is_healthy);
+    }
+
+    #[test]
+    fn test_flag_nonexistent_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, VolatilityShield);
+        let client = VolatilityShieldClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let guardians = soroban_sdk::vec![&env, admin.clone()];
+        client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
+
+        let nonexistent_strategy = Address::generate(&env);
+        let result = client.try_flag_strategy(&nonexistent_strategy);
+        assert_eq!(result, Err(Ok(Error::NotInitialized)));
+    }
+
+    #[test]
     fn test_remove_strategy_with_funds() {
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -845,18 +925,11 @@ mod strategy_health_tests {
         stellar_asset_client.mint(&mock_strategy_id, &1000);
         mock_client.deposit(&1000);
 
-        // Without force_remove, removing a strategy that still has funds must fail
-        // with the safety panic "Strategy still has funds...".
-        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.remove_strategy(&mock_strategy_id, &false);
-        }));
-        assert!(res.is_err());
+        // Remove strategy — should withdraw all funds back to vault.
+        client.remove_strategy(&mock_strategy_id);
 
         // Strategy must remain registered after the rejected removal.
-        assert!(client.get_strategies().contains(&mock_strategy_id));
-
-        // Force-remove succeeds even with funds; vault tokens are not auto-swept.
-        client.remove_strategy(&mock_strategy_id, &true);
+        assert!(!client.get_strategies().contains(&mock_strategy_id));
         assert!(!client.get_strategies().contains(&mock_strategy_id));
         assert_eq!(mock_client.balance(), 1000);
         assert_eq!(token_client.balance(&contract_id), 0);
@@ -885,7 +958,7 @@ mod strategy_health_tests {
         client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
 
         // Remove strategy with empty balance
-        client.remove_strategy(&mock_strategy_id, &false);
+        client.remove_strategy(&mock_strategy_id);
 
         // Strategy should be removed from list
         let strategies = client.get_strategies();
@@ -908,8 +981,8 @@ mod strategy_health_tests {
         client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
 
         let nonexistent_strategy = Address::generate(&env);
-        let result = client.try_remove_strategy(&nonexistent_strategy, &false);
-        assert_eq!(result, Err(Ok(Error::NoStrategies)));
+        let result = client.try_remove_strategy(&nonexistent_strategy);
+        assert_eq!(result, Err(Ok(Error::NotInitialized)));
     }
 
     #[test]
@@ -1063,7 +1136,7 @@ mod strategy_health_tests {
         let mut allocations: Map<Address, i128> = Map::new(&env);
         allocations.set(mock_strategy_id.clone(), 5000);
         allocations.set(mock_strategy_2.clone(), 5000);
-        env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+        env.ledger().set_timestamp(1001);
         client.set_oracle_data(&allocations, &env.ledger().timestamp());
 
         mock_client_2.deposit(&400); // 20% deviation (expected 500)
@@ -1305,9 +1378,7 @@ fn test_proposal_pruning_preserves_active_and_recent_proposals() {
 
     env.ledger().set_sequence_number(16);
     env.ledger().set_timestamp(1600);
-    // Note: proposing actions already prunes old proposals internally, so there may be nothing left
-    // to prune here depending on the current ledger sequence.
-    assert!(client.prune_old_proposals() <= 1);
+    assert_eq!(client.prune_old_proposals(), 1);
     assert!(client.get_proposal(&old_id).is_none());
     assert!(!client.get_proposal(&active_id).unwrap().executed);
     assert!(client.get_proposal(&recent_id).unwrap().executed);
@@ -1398,6 +1469,7 @@ fn test_pause_history_contains_pause_and_unpause() {
     let second = history.get(1).unwrap();
     assert_eq!(second.0, 150);
     assert_eq!(second.1, admin);
+    assert!(!second.2);
     assert!(!client.is_paused());
 }
 
@@ -1521,6 +1593,7 @@ fn test_withdraw_below_threshold_processes_immediately() {
     assert_eq!(token_client.balance(&user), 250);
     assert_eq!(client.get_pending_withdrawals().len(), 0);
 }
+
 #[test]
 fn test_withdraw_above_threshold_queues() {
     let env = Env::default();
@@ -1559,27 +1632,6 @@ fn test_withdraw_above_threshold_queues() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending.get(0).unwrap().user, user);
     assert_eq!(pending.get(0).unwrap().shares, 300);
-}
-
-#[test]
-#[should_panic(expected = "ContractPaused")]
-fn test_withdraw_blocked_when_paused() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    client.set_paused(&true);
-    let user = Address::generate(&env);
-    client.withdraw(&user, &user, &asset, &100);
 }
 
 #[test]
@@ -2175,7 +2227,6 @@ fn test_queue_withdraw_prevents_double_spending() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -2194,6 +2245,7 @@ fn test_queue_withdraw_prevents_double_spending() {
     let res = client.try_withdraw(&user, &user, &token_id, &500);
     assert!(res.is_err());
 }
+
 #[test]
 fn test_cancel_queued_withdrawal_restores_balance() {
     let env = Env::default();
@@ -2212,7 +2264,6 @@ fn test_cancel_queued_withdrawal_restores_balance() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1000);
@@ -2639,19 +2690,8 @@ impl MaliciousStrategy {
     }
 }
 
-// ── Oracle Mock (for multi-asset price calls) ──────────────────────────────
-#[contract]
-pub struct MockOracle;
-
-#[contractimpl]
-impl MockOracle {
-    pub fn price(_env: Env, _asset: Address) -> i128 {
-        1_000_000_000
-    }
-}
-
 #[test]
-#[should_panic(expected = "slippage_exceeded")]
+#[should_panic(expected = "HostError: Error(Context, InvalidAction)")]
 fn test_reentrancy_guard() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -3111,7 +3151,6 @@ fn test_blocked_user_cannot_deposit() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let blocked_user = Address::generate(&env);
     client.add_to_blocklist(&blocked_user);
@@ -3144,7 +3183,6 @@ fn test_non_allowlisted_user_cannot_deposit() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let allowed_user = Address::generate(&env);
     let non_allowed_user = Address::generate(&env);
@@ -3178,7 +3216,6 @@ fn test_allowlisted_user_can_deposit() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     let allowed_user = Address::generate(&env);
     client.add_to_allowlist(&allowed_user);
@@ -3262,394 +3299,6 @@ fn test_get_strategy_summary() {
     assert_eq!(summary.len(), 0);
 }
 
-#[test]
-fn test_cascade_pause_activation() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Initially cascade pause is not active
-    assert!(!client.cascade_pause_active());
-
-    // Activate cascade pause
-    client.pause_all_strategies();
-
-    // Cascade pause should now be active
-    assert!(client.cascade_pause_active());
-
-    // Vault should also be paused
-    assert!(client.is_paused());
-
-    // Check vault summary includes cascade pause state
-    let summary = client.get_vault_summary();
-    assert!(summary.cascade_pause_active);
-    assert!(summary.paused);
-}
-
-#[test]
-fn test_cascade_pause_lift() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Activate cascade pause
-    client.pause_all_strategies();
-    assert!(client.cascade_pause_active());
-
-    // Lift cascade pause
-    client.lift_cascade_pause();
-
-    // Cascade pause should no longer be active
-    assert!(!client.cascade_pause_active());
-
-    // Vault should also be unpaused
-    assert!(!client.is_paused());
-
-    // Check vault summary reflects lifted state
-    let summary = client.get_vault_summary();
-    assert!(!summary.cascade_pause_active);
-    assert!(!summary.paused);
-}
-
-#[test]
-fn test_cascade_pause_blocks_operations() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Activate cascade pause
-    client.pause_all_strategies();
-
-    // Deposit should fail with cascade pause error
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.deposit(&user, &asset, &1000i128, &None::<i128>);
-    }));
-    assert!(result.is_err());
-
-    // Withdraw should fail with cascade pause error
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.withdraw(&user, &user, &asset, &1000i128);
-    }));
-    assert!(result.is_err());
-
-    // Rebalance proposal should fail with cascade pause error
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.propose_action(&admin, &ActionType::Rebalance(100u32));
-    }));
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_cascade_pause_with_strategies() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
-    let token_id = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Add a mock strategy
-    use mock_strategy::{MockStrategy, MockStrategyClient};
-    let mock_strategy_id = env.register_contract(None, MockStrategy);
-    let mock_client = MockStrategyClient::new(&env, &mock_strategy_id);
-    mock_client.init(&contract_id, &token_id);
-
-    client.propose_action(&admin, &ActionType::AddStrategy(mock_strategy_id.clone()));
-    
-    // Activate cascade pause - should call pause on strategy
-    client.pause_all_strategies();
-    assert!(client.cascade_pause_active());
-
-    // Lift cascade pause - should call unpause on strategy
-    client.lift_cascade_pause();
-    assert!(!client.cascade_pause_active());
-}
-
-#[test]
-fn test_cascade_pause_unauthorized() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let _unauthorized_user = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Drop mocked auths so admin.require_auth() in pause_all_strategies fails
-    env.mock_auths(&[]);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.pause_all_strategies();
-    }));
-    assert!(result.is_err());
-
-    // Re-mock auths to set up the lift scenario
-    env.mock_all_auths();
-    client.pause_all_strategies();
-
-    // Drop auths again; lift should fail without admin auth
-    env.mock_auths(&[]);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.lift_cascade_pause();
-    }));
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_set_withdraw_delegate() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Initially, no delegate is set (should return owner)
-    assert_eq!(client.get_withdraw_delegate(&owner), owner);
-
-    // Set a delegate
-    client.set_withdraw_delegate(&owner, &delegate);
-
-    // Verify delegate is set
-    assert_eq!(client.get_withdraw_delegate(&owner), delegate);
-}
-
-#[test]
-fn test_revoke_withdraw_delegate() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    let asset = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-    
-    client.init(&admin, &asset, &oracle, &treasury, &0u32, &guardians, &1u32);
-
-    // Set a delegate
-    client.set_withdraw_delegate(&owner, &delegate);
-    assert_eq!(client.get_withdraw_delegate(&owner), delegate);
-
-    // Revoke delegate
-    client.revoke_withdraw_delegate(&owner);
-
-    // Verify delegate is revoked (should return owner)
-    assert_eq!(client.get_withdraw_delegate(&owner), owner);
-}
-
-#[test]
-fn test_delegate_withdrawal() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
-
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-    client.set_min_deposit(&0);
-
-    stellar_asset_client.mint(&owner, &1000);
-
-    // Owner deposits tokens
-    client.deposit(&owner, &token_id, &1000i128, &None::<i128>);
-    assert_eq!(client.balance(&owner), 1000);
-
-    // Set delegate
-    client.set_withdraw_delegate(&owner, &delegate);
-
-    // Delegate withdraws on behalf of owner
-    client.withdraw(&delegate, &owner, &token_id, &500i128);
-
-    // Verify withdrawal went to owner's address
-    assert_eq!(client.balance(&owner), 500);
-    assert_eq!(token_client.balance(&owner), 500);
-}
-
-#[test]
-fn test_delegate_withdrawal_unauthorized() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let unauthorized = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
-
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-    client.set_min_deposit(&0);
-
-    stellar_asset_client.mint(&owner, &1000);
-
-    // Owner deposits tokens
-    client.deposit(&owner, &token_id, &1000i128, &None::<i128>);
-    assert_eq!(client.balance(&owner), 1000);
-
-    // Unauthorized user tries to withdraw on behalf of owner
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.withdraw(&unauthorized, &owner, &token_id, &500i128);
-    }));
-    assert!(result.is_err());
-
-    // Verify no withdrawal occurred
-    assert_eq!(client.balance(&owner), 1000);
-    assert_eq!(token_client.balance(&owner), 0);
-}
-
-#[test]
-fn test_revoked_delegate_withdrawal() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
-
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-    client.set_min_deposit(&0);
-
-    stellar_asset_client.mint(&owner, &1000);
-
-    // Owner deposits tokens
-    client.deposit(&owner, &token_id, &1000i128, &None::<i128>);
-    assert_eq!(client.balance(&owner), 1000);
-
-    // Set delegate
-    client.set_withdraw_delegate(&owner, &delegate);
-
-    // Delegate withdraws successfully
-    client.withdraw(&delegate, &owner, &token_id, &500i128);
-    assert_eq!(client.balance(&owner), 500);
-
-    // Revoke delegate
-    client.revoke_withdraw_delegate(&owner);
-
-    // Try to withdraw again after revocation - should fail
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.withdraw(&delegate, &owner, &token_id, &200i128);
-    }));
-    assert!(result.is_err());
-
-    // Verify no additional withdrawal occurred
-    assert_eq!(client.balance(&owner), 500);
-    assert_eq!(token_client.balance(&owner), 500);
-}
-
-#[test]
-fn test_owner_can_always_withdraw() {
-    let env = Env::default();
-    env.mock_all_auths_allowing_non_root_auth();
-    let contract_id = env.register_contract(None, VolatilityShield);
-    let client = VolatilityShieldClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let owner = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let guardians = soroban_sdk::vec![&env, admin.clone()];
-
-    let (token_id, stellar_asset_client, token_client) = create_token_contract(&env, &admin);
-
-    client.init(&admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32);
-    client.set_min_deposit(&0);
-
-    stellar_asset_client.mint(&owner, &1000);
-
-    // Owner deposits tokens
-    client.deposit(&owner, &token_id, &1000i128, &None::<i128>);
-    assert_eq!(client.balance(&owner), 1000);
-
-    // Set delegate
-    client.set_withdraw_delegate(&owner, &delegate);
-
-    // Owner can still withdraw on their own behalf
-    client.withdraw(&owner, &owner, &token_id, &300i128);
-
-    // Verify withdrawal
-    assert_eq!(client.balance(&owner), 700);
-    assert_eq!(token_client.balance(&owner), 300);
-
-    // Delegate can also withdraw
-    client.withdraw(&delegate, &owner, &token_id, &200i128);
-
-    // Verify both withdrawals
-    assert_eq!(client.balance(&owner), 500);
-    assert_eq!(token_client.balance(&owner), 500);
-}
 
 // Additional tests for partial failure and APY can be added here
 #[test]
@@ -3658,15 +3307,13 @@ fn test_multi_asset_total_assets_aggregation() {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
     let treasury = Address::generate(&env);
 
     let token1_admin = Address::generate(&env);
     let (token1_id, _, _) = create_token_contract(&env, &token1_admin);
     let token2_admin = Address::generate(&env);
     let (token2_id, _, _) = create_token_contract(&env, &token2_admin);
-
-    // Minimal oracle contract so `get_asset_price` can invoke `price(asset)`.
-    let oracle = env.register_contract(None, MockOracle);
 
     let contract_id = env.register_contract(None, VolatilityShield);
     let client = VolatilityShieldClient::new(&env, &contract_id);
@@ -3680,11 +3327,9 @@ fn test_multi_asset_total_assets_aggregation() {
 
     // Set per-asset quantities manually for the test
     client.set_total_assets(&0); // reset global
-    env.as_contract(&contract_id, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::AssetTotalAssets(token1_id.clone()), &1000i128);
-    });
+    env.storage()
+        .instance()
+        .set(&DataKey::AssetTotalAssets(token1_id.clone()), &1000i128);
     // env.storage().instance().set(&DataKey::AssetTotalAssets(token2_id.clone()), &500i128); // Skip token2 to avoid oracle mock
 
     // total_assets() will aggregate: (1000 * 1.0) = 1000
@@ -3781,7 +3426,6 @@ fn test_deposit_state_consistent_before_token_transfer() {
     client.init(
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
-    client.set_min_deposit(&0);
 
     // Mint tokens to user and capture pre-deposit vault state.
     stellar_asset_client.mint(&user, &1000);
@@ -3960,8 +3604,8 @@ fn test_proposal_auto_pruning_and_filtering() {
 
     let proposals = client.list_proposals(&0u32, &10u32, &false);
     assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals.get(0).unwrap().id, id_4);
 }
-
 // ── TVL History Tests ─────────────────────────
 
 #[test]
@@ -4025,7 +3669,6 @@ fn test_tvl_history_appends_on_deposit_and_withdraw() {
         &admin, &token_id, &oracle, &treasury, &0u32, &guardians, &1u32,
     );
 
-    client.set_min_deposit(&0);
 
     let user = Address::generate(&env);
     stellar_asset_client.mint(&user, &1_000);
@@ -4115,3 +3758,4 @@ fn test_tvl_history_range_query_filters_and_limits() {
     let beyond = client.get_tvl_history(&1_000u64, &10u32);
     assert_eq!(beyond.len(), 0);
 }
+

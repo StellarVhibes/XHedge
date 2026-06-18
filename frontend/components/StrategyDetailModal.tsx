@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
+import { MetricTooltip } from "@/components/MetricTooltip";
 
 export interface StrategyDetail {
   address: string;
@@ -70,7 +71,12 @@ export default function StrategyDetailModal({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground" id="strategy-health-label">Health</span>
+          <span className="text-xs text-muted-foreground" id="strategy-health-label">
+            <MetricTooltip
+              label="Health"
+              tip="Strategy health reflects on-chain risk signals. Flagged strategies may be paused or rebalanced by the vault manager."
+            />
+          </span>
           <span
             className={`rounded px-2 py-1 text-xs font-semibold ${
               detail.health === "Healthy"
@@ -91,24 +97,42 @@ export default function StrategyDetailModal({
             <p className="font-semibold">{detail.currentBalance.toLocaleString()}</p>
           </div>
           <div className="rounded border p-3">
-            <p className="text-xs text-muted-foreground">Recent APY</p>
+            <p className="text-xs text-muted-foreground">
+              <MetricTooltip
+                label="Recent APY"
+                tip="Annualised percentage yield earned by this strategy over the most recent harvest period."
+              />
+            </p>
             <p className="font-semibold">
               {detail.apy === null ? "N/A" : `${detail.apy.toFixed(2)}%`}
             </p>
           </div>
           <div className="rounded border p-3">
-            <p className="text-xs text-muted-foreground">Last Harvest Ledger</p>
+            <p className="text-xs text-muted-foreground">
+              <MetricTooltip
+                label="Harvest Yield"
+                tip="Assets collected during the last harvest event and redistributed to vault depositors as yield."
+              />
+            </p>
             <p className="font-semibold">{detail.lastHarvestLedger}</p>
           </div>
           <div className="rounded border p-3">
-            <p className="text-xs text-muted-foreground">Allocation Drift</p>
+            <p className="text-xs text-muted-foreground">
+              <MetricTooltip
+                label="Allocation %"
+                tip="The percentage of vault assets assigned to this strategy. Drift from target may trigger a rebalance."
+              />
+            </p>
             <p className="font-semibold">{allocationDelta.toFixed(2)}%</p>
           </div>
         </div>
 
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Target vs Actual Allocation</span>
+            <MetricTooltip
+              label="Target vs Actual Allocation"
+              tip="Compares the intended allocation percentage against the current on-chain allocation for this strategy."
+            />
             <span>
               {detail.targetAllocationPct.toFixed(2)}% / {detail.actualAllocationPct.toFixed(2)}%
             </span>
