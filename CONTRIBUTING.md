@@ -74,3 +74,6 @@ When opening a PR, follow these steps:
 ## Getting Help
 
 Read the **Integration Guides** located in the `docs/` directory for detailed setup instructions.
+
+### Testing
+When running smart contract tests, snapshot files may be generated in the `test_snapshots/` directory. Please ensure this directory is not committed to version control. It has been added to `.gitignore`.
