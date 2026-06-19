@@ -13,12 +13,28 @@ jobs:
     name: XHedge Protocol Review
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.MAINTAINER_TOKEN != '' && secrets.MAINTAINER_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}
+
+      - name: 🔍 Check for Issue Link
+        run: |
+          PR_BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body)
+          if ! echo "$PR_BODY" | grep -Eiq "(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved) #[0-9]+"; then
+            gh pr comment ${{ github.event.pull_request.number }} --body "hey! i noticed you didn't link an issue in your PR description. please add \`Closes #ISSUE_NUMBER\` so we can automatically close it when merged!"
+            exit 1
+          fi
+
+      - name: 🚨 Check for Merge Conflicts
+        run: |
+          MERGEABLE=$(gh pr view ${{ github.event.pull_request.number }} --json mergeable -q .mergeable)
+          if [ "$MERGEABLE" == "CONFLICTING" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body "hey, it looks like there are merge conflicts with the \`main\` branch. could you pull the latest changes and resolve them so i can run my tests?"
+            exit 1
+          fi
 
       - name: Setup Node & Rust
         uses: dtolnay/rust-toolchain@stable
@@ -51,5 +67,19 @@ jobs:
         if: steps.build_review.outcome == 'success'
         run: |
           PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title -q .title)
-          gh pr comment ${{ github.event.pull_request.number }} --body "hey, just went through the changes for '$PR_TITLE'. everything looks really solid and both the smart contract and frontend built perfectly. going ahead and merging this into main now, thanks for the contribution!"
+          
+          RESPONSES=(
+            "hey, just went through the changes for '$PR_TITLE'. logic looks really solid and the tests passed perfectly. going ahead and approving + merging this into main now, thanks for the contribution!"
+            "Awesome work on '$PR_TITLE'. Tests are completely green, so I'm approving this!"
+            "Everything looks perfect for '$PR_TITLE'. Thanks for the contribution, approved and merging!"
+            "Solid implementation on '$PR_TITLE'. Tests passed, approving and merging now."
+            "Great job here on '$PR_TITLE'. Logic is sound and tests are passing. Approved!"
+            "Looks good to me! '$PR_TITLE' passed all checks. Merging this in, thanks!"
+            "Love the changes in '$PR_TITLE'. Spot on! Approved and merging."
+          )
+          
+          RANDOM_INDEX=$((RANDOM % ${#RESPONSES[@]}))
+          SELECTED_RESPONSE="${RESPONSES[$RANDOM_INDEX]}"
+          
+          gh pr review ${{ github.event.pull_request.number }} --approve -b "$SELECTED_RESPONSE"
           gh pr merge ${{ github.event.pull_request.number }} --merge --auto
